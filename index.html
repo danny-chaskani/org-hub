@@ -3,7 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="theme-color" content="#EDF1F2">
+<meta name="theme-color" content="#EAF0ED">
+<script>(function(){var d=document.documentElement,t=null,n=null;try{t=localStorage.getItem("hubui.theme");n=localStorage.getItem("hubui.nav");}catch(e){}if(t!=="dark"&&t!=="light"){t=(window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches)?"dark":"light";}d.setAttribute("data-theme",t);if(n==="rail")d.setAttribute("data-nav","rail");})();</script>
 <title>מרכז ניהול ארגוני</title>
 <script>
 window.addEventListener('error', function(e){
@@ -26,41 +27,55 @@ window.addEventListener('error', function(e){
      See DESIGN.md for the decisions behind these tokens.
      ========================================================== */
   :root{
-    /* Frame & sheet */
-    --frame: #EDF1F2;
-    --frame-hover: #E2E8EA;
-    --frame-active: #D8E0E3;
+    color-scheme: light;
+    /* Surfaces: frame (shell), page (working area), sheet (cards, inputs, modals) */
+    --frame: #EAF0ED;
+    --frame-hover: #DFE8E3;
+    --frame-active: #D3E1D9;
+    --page: #FFFFFF;
     --sheet: #FFFFFF;
-    --raised: #F5F7F8;
-    --active: #EBEEF0;
-    --border: #E2E7E9;
-    --rule: #EDF0F1;
-    --control: #C5CED2;
+    --field: #FFFFFF;
+    --raised: #F4F8F6;
+    --active: #E8EFEB;
+    --border: #DCE5E0;
+    --rule: #E9EFEB;
+    --control: #BCC9C2;
 
-    /* Text */
-    --ink: #14181A;
-    --ink-2: #2B3539;
-    --muted: #56626A;
-    --faint: #69757C;
+    /* Text (AA on white and on the frame) */
+    --ink: #0D1712;
+    --ink-2: #26352C;
+    --muted: #475A50;
+    --faint: #5A6D62;
 
-    /* Accent (teal) */
-    --accent: #1B6C80;
-    --accent-hover: #155769;
-    --accent-soft: #E4F0F3;
-    --accent-soft-strong: #CBE2E8;
+    /* Accent: deep emerald in light, live emerald in dark */
+    --accent: #0B7A4B;
+    --accent-hover: #085D38;
+    --accent-grad: linear-gradient(180deg, #0D8452, #0A6F44);
+    --accent-soft: #E1F3EA;
+    --accent-soft-strong: #BFE5D2;
+    --on-accent: #FFFFFF;
+    --glow: rgba(11, 122, 75, 0.30);
+    --glow-soft: rgba(16, 185, 129, 0.10);
+    --kpi-from: #0D1712;
 
-    /* Status: text / tint pairs */
-    --positive: #1E7B4F;
-    --positive-tint: #DCFAE5;
-    --positive-ink: #04250E;
-    --negative: #C4242A;
-    --negative-tint: #FFEDEA;
-    --negative-ink: #831C1E;
-    --warning: #92400E;
-    --warning-tint: #FFF4D6;
-    --warning-ink: #7A3409;
-    --neutral-tint: #EBEEF0;
-    --neutral-ink: #353736;
+    /* Status: text / tint / ink */
+    --positive: #12703F;
+    --positive-tint: #DDF6E8;
+    --positive-ink: #06301B;
+    --negative: #B42318;
+    --negative-tint: #FDEAE8;
+    --negative-ink: #7A1710;
+    --warning: #8A4B08;
+    --warning-tint: #FFF1D0;
+    --warning-ink: #6E3A05;
+    --neutral-tint: #E8EFEB;
+    --neutral-ink: #2E3C34;
+    --amber: #B7791F;
+
+    --glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='9' y='3.5' width='6' height='5' rx='1'/%3E%3Crect x='3' y='15.5' width='6' height='5' rx='1'/%3E%3Crect x='15' y='15.5' width='6' height='5' rx='1'/%3E%3Cpath d='M12 8.5v3.5M6 15.5V12h12v3.5'/%3E%3C/svg%3E");
+    --scrim: rgba(13, 23, 18, 0.45);
+    --shadow-float: 0 16px 40px rgba(13, 23, 18, 0.18), 0 2px 6px rgba(13, 23, 18, 0.08);
+    --chev: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%23475A50' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 4.5l3 3 3-3'/%3E%3C/svg%3E");
 
     /* Radii: tight pair + sheet */
     --r-control: 6px;
@@ -74,6 +89,7 @@ window.addEventListener('error', function(e){
 
     /* Motion */
     --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+    --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
     --t-fast: 120ms;
     --t-base: 160ms;
 
@@ -105,7 +121,6 @@ window.addEventListener('error', function(e){
     --danger: var(--negative);
     --danger-soft: var(--negative-tint);
     --danger-text: var(--negative);
-    --amber: #B7791F;
     --amber-soft: var(--warning-tint);
     --amber-text: var(--warning);
     --radius-sm: var(--r-control);
@@ -113,6 +128,53 @@ window.addEventListener('error', function(e){
     --radius-lg: var(--r-card);
     --shadow-xs: none;
     --shadow-sm: none;
+  }
+  :root[data-theme="dark"]{
+    color-scheme: dark;
+    --frame: #09100D;
+    --frame-hover: #131E18;
+    --frame-active: #1B2C23;
+    --page: #0E1712;
+    --sheet: #15211B;
+    --field: #0C1511;
+    --raised: #1A2A22;
+    --active: #1F3128;
+    --border: #243629;
+    --rule: #1D2D24;
+    --control: #3A5144;
+
+    --ink: #E6F2EB;
+    --ink-2: #C5D6CB;
+    --muted: #9BB0A4;
+    --faint: #7E948A;
+
+    --accent: #34D399;
+    --accent-hover: #6EE7B7;
+    --accent-grad: linear-gradient(180deg, #3DDBA2, #25C48A);
+    --accent-soft: rgba(52, 211, 153, 0.12);
+    --accent-soft-strong: rgba(52, 211, 153, 0.26);
+    --on-accent: #04140C;
+    --glow: rgba(52, 211, 153, 0.38);
+    --glow-soft: rgba(16, 185, 129, 0.14);
+    --kpi-from: #E6F2EB;
+
+    --positive: #6EE7B7;
+    --positive-tint: rgba(52, 211, 153, 0.14);
+    --positive-ink: #A7F3D0;
+    --negative: #F87171;
+    --negative-tint: rgba(248, 113, 113, 0.15);
+    --negative-ink: #FCA5A5;
+    --warning: #FBBF24;
+    --warning-tint: rgba(251, 191, 36, 0.14);
+    --warning-ink: #FCD34D;
+    --neutral-tint: #22352B;
+    --neutral-ink: #C5D6CB;
+    --amber: #FBBF24;
+
+    --glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2304140C' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='9' y='3.5' width='6' height='5' rx='1'/%3E%3Crect x='3' y='15.5' width='6' height='5' rx='1'/%3E%3Crect x='15' y='15.5' width='6' height='5' rx='1'/%3E%3Cpath d='M12 8.5v3.5M6 15.5V12h12v3.5'/%3E%3C/svg%3E");
+    --scrim: rgba(0, 0, 0, 0.62);
+    --shadow-float: 0 20px 48px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(52, 211, 153, 0.08);
+    --chev: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%239BB0A4' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 4.5l3 3 3-3'/%3E%3C/svg%3E");
   }
 
   *{ box-sizing: border-box; scrollbar-width: thin; scrollbar-color: var(--control) transparent; }
@@ -132,6 +194,13 @@ window.addEventListener('error', function(e){
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     min-height: 100vh;
+  }
+  body{ background: transparent; }
+  body::before{
+    content: ''; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+    background:
+      radial-gradient(900px 420px at 88% -8%, var(--glow-soft), transparent 70%),
+      radial-gradient(700px 360px at 4% 105%, var(--glow-soft), transparent 70%);
   }
   h1, h2, h3, h4{ font-family: var(--font-display); color: var(--ink); font-weight: 600; }
   button, input, select, textarea{ font-family: inherit; }
@@ -154,9 +223,9 @@ window.addEventListener('error', function(e){
   .brand{ display: flex; align-items: center; gap: 12px; }
   .brand .dot{
     width: 28px; height: 28px; border-radius: var(--r-control);
-    background-color: var(--accent);
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='9' y='3.5' width='6' height='5' rx='1'/%3E%3Crect x='3' y='15.5' width='6' height='5' rx='1'/%3E%3Crect x='15' y='15.5' width='6' height='5' rx='1'/%3E%3Cpath d='M12 8.5v3.5M6 15.5V12h12v3.5'/%3E%3C/svg%3E");
+    background-color: var(--accent); background-image: var(--glyph);
     background-size: 18px; background-position: center; background-repeat: no-repeat;
+    box-shadow: 0 0 0 1px var(--accent-soft-strong), 0 4px 14px -4px var(--glow);
     flex: none;
   }
   .brand h1{ font-size: 16px; margin: 0; font-weight: 600; letter-spacing: -0.005em; }
@@ -192,7 +261,7 @@ window.addEventListener('error', function(e){
     -webkit-mask: var(--ico, none) center / contain no-repeat;
             mask: var(--ico, none) center / contain no-repeat;
   }
-  .tab-btn.active{ background: var(--frame-active); color: var(--ink); font-weight: 600; }
+  .tab-btn.active{ background: var(--accent-soft); color: var(--ink); font-weight: 600; box-shadow: inset 0 0 0 1px var(--accent-soft-strong), 0 0 22px -8px var(--glow); }
   .tab-btn.active::before{ background: var(--accent); }
   .tab-btn:active{ transform: scale(0.98); }
   .tab-btn:focus-visible{ outline-offset: -2px; }
@@ -212,7 +281,7 @@ window.addEventListener('error', function(e){
   .tab-btn[data-tab="users"]{ --ico: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3.5l7.5 3v5.5c0 4.3-3.1 7.6-7.5 9-4.4-1.4-7.5-4.7-7.5-9V6.5z'/%3E%3Ccircle cx='12' cy='10.5' r='2.2'/%3E%3Cpath d='M8.5 16c.7-1.8 2-2.7 3.5-2.7s2.8.9 3.5 2.7'/%3E%3C/svg%3E"); }
 
   main{
-    background: var(--sheet);
+    background: var(--page);
     border: 1px solid var(--border);
     border-radius: var(--r-sheet);
     padding: 28px 32px 48px;
@@ -234,7 +303,6 @@ window.addEventListener('error', function(e){
     }
     nav.tabs{ scrollbar-width: thin; }
     .tab-btn{ width: 100%; }
-    .tab-btn[data-tab="postings"], .tab-btn[data-tab="contacts"], .tab-btn[data-tab="permissions"]{ margin-top: 14px; }
     main{ grid-area: main; margin: 0 0 8px 8px; min-height: calc(100vh - var(--top-h) - 8px); }
   }
 
@@ -274,7 +342,7 @@ window.addEventListener('error', function(e){
     cursor: pointer; white-space: nowrap;
     transition: background-color var(--t-fast) ease, border-color var(--t-fast) ease, color var(--t-fast) ease, transform var(--t-fast) var(--ease-out);
   }
-  button.primary{ background: var(--accent); color: #FFFFFF; border: 1px solid var(--accent); }
+  button.primary{ background: var(--accent-grad); color: var(--on-accent); border: 1px solid var(--accent); box-shadow: 0 6px 16px -8px var(--glow); font-weight: 600; }
   button.ghost{ background: var(--sheet); color: var(--ink); border: 1px solid var(--control); }
   button.ghost.active{ background: var(--accent-soft); border-color: var(--accent-soft-strong); color: var(--accent-hover); font-weight: 600; }
   button.primary:active, button.ghost:active, button.icon-btn:active{ transform: scale(0.97); }
@@ -289,13 +357,13 @@ window.addEventListener('error', function(e){
     transition: background-color var(--t-fast) ease, color var(--t-fast) ease, transform var(--t-fast) var(--ease-out);
   }
   .danger-txt{ color: var(--negative); }
-  button.ghost.danger-txt{ border-color: #E6C3C4; }
+  button.ghost.danger-txt{ border-color: color-mix(in srgb, var(--negative) 35%, transparent); }
 
   /* ==========================================================
      FORMS
      ========================================================== */
   input[type=text], input[type=password], input[type=number], input[type=email], input[type=tel], input[type=date], textarea, select{
-    background: var(--sheet);
+    background: var(--field);
     border: 1px solid var(--control);
     color: var(--ink);
     border-radius: var(--r-control);
@@ -310,7 +378,7 @@ window.addEventListener('error', function(e){
   select{
     appearance: none; -webkit-appearance: none;
     padding-inline-end: 30px; cursor: pointer;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%2356626A' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 4.5l3 3 3-3'/%3E%3C/svg%3E");
+    background-image: var(--chev);
     background-repeat: no-repeat; background-position: left 10px center; background-size: 12px;
   }
   select[multiple]{ background-image: none; padding: 6px; height: auto; }
@@ -393,7 +461,7 @@ window.addEventListener('error', function(e){
   .ratio-val{ font-weight: 600; font-size: 14px; }
   .star-toggle{
     background: none; border: 0; cursor: pointer;
-    font-size: 20px; color: var(--control); line-height: 1; padding: 2px;
+    font-size: 20px; color: var(--muted); line-height: 1; padding: 2px;
     transition: color var(--t-fast) ease, transform var(--t-fast) var(--ease-out);
   }
   .star-toggle.on{ color: var(--amber); }
@@ -413,7 +481,7 @@ window.addEventListener('error', function(e){
      ========================================================== */
   .modal-backdrop{
     position: fixed; inset: 0;
-    background: rgba(20, 24, 26, 0.42);
+    background: var(--scrim);
     display: none; align-items: center; justify-content: center;
     z-index: 100; padding: 20px;
     animation: panelIn var(--t-fast) ease-out;
@@ -426,7 +494,7 @@ window.addEventListener('error', function(e){
     padding: 24px;
     width: 100%; max-width: 520px;
     max-height: 88vh; overflow: auto;
-    box-shadow: 0 16px 40px rgba(20, 24, 26, 0.18), 0 2px 6px rgba(20, 24, 26, 0.08);
+    box-shadow: var(--shadow-float);
     animation: modalIn 200ms var(--ease-out);
   }
   @keyframes modalIn{
@@ -514,7 +582,7 @@ window.addEventListener('error', function(e){
   .task-check{
     width: 20px; height: 20px; border-radius: 5px;
     border: 1px solid var(--control); background: none; cursor: pointer; flex: none;
-    display: flex; align-items: center; justify-content: center; color: #FFFFFF;
+    display: flex; align-items: center; justify-content: center; color: var(--on-accent);
   }
   .task-row.done .task-check{ background: var(--accent); border-color: var(--accent); }
   select.status-select, select.att-select{
@@ -552,7 +620,7 @@ window.addEventListener('error', function(e){
   .widget-grid > .card{ margin-bottom: 0; }
   .widget-card{ display: flex; flex-direction: column; gap: 10px; }
   .widget-card .widget-title{ font-weight: 600; font-size: 14px; color: var(--ink); }
-  .widget-card .widget-big{ font-size: 28px; font-weight: 400; line-height: 1.1; color: var(--ink); }
+  .widget-card .widget-big, .stat-card .val{ font-size: 38px; font-weight: 600; line-height: 1.05; letter-spacing: -0.02em; color: var(--ink); background: linear-gradient(135deg, var(--kpi-from) 25%, var(--accent)); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
   .widget-card .widget-row{ display: flex; justify-content: space-between; gap: 12px; font-size: 14px; padding: 6px 0; border-bottom: 1px solid var(--rule); }
   .widget-card .widget-row:last-child{ border-bottom: none; }
   .widget-empty{ font-size: 13px; color: var(--muted); padding: 4px 0; }
@@ -565,13 +633,12 @@ window.addEventListener('error', function(e){
   .stat-cards{ display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 16px; margin-bottom: 20px; }
   .stat-card{ background: var(--sheet); border: 1px solid var(--border); border-radius: var(--r-card); padding: 16px 18px; }
   .card .stat-card{ border: 0; background: var(--raised); }
-  .stat-card .val{ font-size: 28px; font-weight: 400; color: var(--ink); line-height: 1.1; }
   .stat-card .lbl{ font-size: 13px; color: var(--muted); margin-top: 6px; font-weight: 500; }
-  .stat-card.st-unit .val{ color: var(--positive); }
-  .stat-card.st-annual_leave .val{ color: var(--accent); }
-  .stat-card.st-sick .val{ color: var(--negative); }
-  .stat-card.st-abroad .val{ color: var(--warning); }
-  .stat-card.st-outside_unit .val{ color: var(--muted); }
+  .stat-card.st-unit .val{ background: none; -webkit-text-fill-color: currentColor; color: var(--positive); }
+  .stat-card.st-annual_leave .val{ background: none; -webkit-text-fill-color: currentColor; color: var(--accent); }
+  .stat-card.st-sick .val{ background: none; -webkit-text-fill-color: currentColor; color: var(--negative); }
+  .stat-card.st-abroad .val{ background: none; -webkit-text-fill-color: currentColor; color: var(--warning); }
+  .stat-card.st-outside_unit .val{ background: none; -webkit-text-fill-color: currentColor; color: var(--muted); }
   .chart-grid{ display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; margin-top: 20px; }
   .chart-box{ background: var(--sheet); border: 1px solid var(--border); border-radius: var(--r-card); padding: 18px; }
   .chart-box h4{ margin: 0 0 14px; font-size: 14px; color: var(--ink); font-weight: 600; }
@@ -651,9 +718,9 @@ window.addEventListener('error', function(e){
   }
   .auth-card::before{
     content: ''; display: block; width: 32px; height: 32px; margin-bottom: 18px;
-    border-radius: var(--r-control); background-color: var(--accent);
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='9' y='3.5' width='6' height='5' rx='1'/%3E%3Crect x='3' y='15.5' width='6' height='5' rx='1'/%3E%3Crect x='15' y='15.5' width='6' height='5' rx='1'/%3E%3Cpath d='M12 8.5v3.5M6 15.5V12h12v3.5'/%3E%3C/svg%3E");
+    border-radius: var(--r-control); background-color: var(--accent); background-image: var(--glyph);
     background-size: 20px; background-position: center; background-repeat: no-repeat;
+    box-shadow: 0 4px 14px -4px var(--glow);
   }
   .auth-card h2{ margin: 0 0 4px; font-size: 20px; }
   .auth-card .sub{ color: var(--muted); font-size: 14px; margin-bottom: 18px; line-height: 1.55; }
@@ -778,20 +845,30 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
      ========================================================== */
   @media (max-width: 800px){
     body{ overflow-x: hidden; }
-    header{ position: static; padding: calc(8px + env(safe-area-inset-top)) 14px 6px; gap: 8px; }
-    .brand{ gap: 10px; }
-    .brand h1{ font-size: 15px; }
-    .whoami{ width: 100%; justify-content: space-between; gap: 6px; font-size: 12px; }
-    .whoami button.ghost{ padding: 0 10px; font-size: 12px; }
-    nav.tabs{ top: 0; padding: 0 6px; gap: 0; -webkit-overflow-scrolling: touch; }
-    .tab-btn{ min-height: 44px; padding: 0 12px; border-radius: 0; font-size: 14px; border-bottom: 2px solid transparent; }
-    .tab-btn::before{ display: none; }
-    .tab-btn.active{ background: none; border-bottom-color: var(--accent); }
+    header{ padding: calc(8px + env(safe-area-inset-top)) 12px 8px; gap: 8px; flex-wrap: wrap; }
+    .brand{ gap: 8px; }
+    .brand h1{ font-size: 14px; }
+    .whoami{ gap: 6px; font-size: 12px; flex-wrap: nowrap; }
+    #whoamiLabel{ display: none; }
+    .whoami button.ghost{ padding: 0 9px; font-size: 12px; min-height: 34px; }
     main{
       border-radius: var(--r-sheet) var(--r-sheet) 0 0; border-inline: 0; border-bottom: 0;
       padding: 18px 14px calc(32px + env(safe-area-inset-bottom));
-      min-height: calc(100vh - 110px);
+      min-height: calc(100vh - 60px);
     }
+    /* navigation becomes an overlay drawer from the right edge */
+    nav.tabs{
+      position: fixed; top: 0; bottom: 0; right: 0; left: auto;
+      width: min(84vw, 300px); height: 100vh; height: 100dvh;
+      z-index: 90; flex-direction: column; overflow-y: auto; overflow-x: hidden;
+      padding: calc(16px + env(safe-area-inset-top)) 12px calc(16px + env(safe-area-inset-bottom));
+      background: var(--frame); border-inline-start: 1px solid var(--border); box-shadow: var(--shadow-float);
+      transform: translateX(100%); visibility: hidden;
+      transition: transform 240ms var(--ease-drawer), visibility 0s linear 240ms;
+    }
+    body.nav-open nav.tabs{ transform: none; visibility: visible; transition: transform 240ms var(--ease-drawer), visibility 0s; }
+    body.nav-open{ overflow: hidden; }
+    .tab-btn{ width: 100%; min-height: 44px; }
 
     .panel-head{ margin-bottom: 14px; gap: 8px; }
     .panel-head h2{ font-size: 20px; }
@@ -939,6 +1016,75 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     .brand h1{ font-size: 14px; }
   }
 
+
+  /* ==========================================================
+     HEADER CONTROLS, DRAWER, DASHBOARD LAYOUT
+     ========================================================== */
+  button.icon-btn.nav-toggle, button.icon-btn.theme-toggle{
+    width: 36px; height: 36px; padding: 0; flex: none;
+    display: inline-flex; align-items: center; justify-content: center;
+    color: var(--ink-2); filter: none; border: 1px solid transparent;
+  }
+  .nav-toggle::before, .theme-toggle::before{
+    content: ''; width: 20px; height: 20px; background: currentColor;
+    -webkit-mask: var(--ico-ctl) center / contain no-repeat; mask: var(--ico-ctl) center / contain no-repeat;
+  }
+  .nav-toggle{ --ico-ctl: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round'%3E%3Cpath d='M4 7h16M4 12h16M4 17h16'/%3E%3C/svg%3E"); }
+  .theme-toggle{ --ico-ctl: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z'/%3E%3C/svg%3E"); }
+  :root[data-theme="dark"] .theme-toggle{ --ico-ctl: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='4'/%3E%3Cpath d='M12 2.5v2.5M12 19v2.5M2.5 12H5M19 12h2.5M5.3 5.3l1.8 1.8M16.9 16.9l1.8 1.8M5.3 18.7l1.8-1.8M16.9 7.1l1.8-1.8'/%3E%3C/svg%3E"); }
+
+  .nav-group-title{ font-size: 12px; font-weight: 600; color: var(--faint); padding: 16px 10px 6px; white-space: nowrap; }
+  .nav-group-title:first-child{ padding-top: 4px; }
+  .nav-scrim{
+    position: fixed; inset: 0; z-index: 80; background: var(--scrim);
+    opacity: 0; pointer-events: none; transition: opacity 200ms ease-out;
+  }
+  body.nav-open .nav-scrim{ opacity: 1; pointer-events: auto; }
+  @media (min-width: 801px){ .nav-scrim{ display: none; } }
+
+  @media (min-width: 801px){
+    body{ transition: grid-template-columns 220ms var(--ease-drawer); }
+    :root[data-nav="rail"]{ --nav-w: 68px; }
+    :root[data-nav="rail"] .tab-btn{ font-size: 0; gap: 0; justify-content: center; padding: 0; min-height: 40px; }
+    :root[data-nav="rail"] .tab-btn::before{ width: 20px; height: 20px; }
+    :root[data-nav="rail"] .nav-group-title{ font-size: 0; height: 12px; padding: 0; }
+  }
+
+  /* dashboard arrange mode */
+  .widget-card.wide{ grid-column: 1 / -1; }
+  .widget-card{ position: relative; }
+  .widget-grid.editing .widget-card{ outline: 1px dashed var(--control); outline-offset: 3px; }
+  .widget-grid.editing .widget-card.drop-before{ box-shadow: 8px 0 0 -4px var(--accent); }
+  .widget-grid.editing .widget-card.drop-after{ box-shadow: -8px 0 0 -4px var(--accent); }
+  .widget-card.dragging{ opacity: 0.45; }
+  .widget-tools{
+    display: flex; gap: 2px; align-items: center; justify-content: flex-end;
+    margin: -6px -8px 2px; padding-bottom: 6px; border-bottom: 1px solid var(--rule); flex-wrap: wrap;
+  }
+  .widget-tools .wt-label{ margin-inline-end: auto; font-size: 12px; color: var(--muted); padding-inline-start: 6px; }
+  button.icon-btn.wt{
+    width: 34px; height: 34px; padding: 0; color: var(--ink-2); filter: none;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  button.icon-btn.wt::before{
+    content: ''; width: 18px; height: 18px; background: currentColor;
+    -webkit-mask: var(--ico-wt) center / contain no-repeat; mask: var(--ico-wt) center / contain no-repeat;
+  }
+  .wt[data-wact="up"]{ --ico-wt: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 19V5M6 11l6-6 6 6'/%3E%3C/svg%3E"); }
+  .wt[data-wact="down"]{ --ico-wt: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 5v14M6 13l6 6 6-6'/%3E%3C/svg%3E"); }
+  .wt[data-wact="size"]{ --ico-wt: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 12h16M7 8l-4 4 4 4M17 8l4 4-4 4'/%3E%3C/svg%3E"); }
+  .wt[data-wact="remove"]{ --ico-wt: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M6 6l12 12M18 6L6 18'/%3E%3C/svg%3E"); }
+  .wt[data-wact="drag"]{ --ico-wt: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='black'%3E%3Ccircle cx='9' cy='6' r='1.6'/%3E%3Ccircle cx='15' cy='6' r='1.6'/%3E%3Ccircle cx='9' cy='12' r='1.6'/%3E%3Ccircle cx='15' cy='12' r='1.6'/%3E%3Ccircle cx='9' cy='18' r='1.6'/%3E%3Ccircle cx='15' cy='18' r='1.6'/%3E%3C/svg%3E"); cursor: grab; }
+  .wt[data-wact="remove"]:hover{ color: var(--negative); }
+  .wt[aria-pressed="true"]{ background: var(--accent-soft); color: var(--accent); }
+  @media (hover: none), (pointer: coarse){ .wt[data-wact="drag"]{ display: none; } }
+  @media (max-width: 800px){ .widget-card.wide{ grid-column: auto; } }
+  .dash-bar{ display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: -8px 0 16px; }
+  .dash-bar .hint{ font-size: 13px; color: var(--muted); }
+  @media (prefers-reduced-motion: reduce){
+    nav.tabs{ transition: none !important; }
+    body{ transition: none; }
+  }
   /* Reduced motion: keep fades, drop travel */
   @media (prefers-reduced-motion: reduce){
     .modal, .modal-backdrop, .panel.active{ animation-name: panelIn; }
@@ -964,30 +1110,37 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
 
 
 <header>
-  <div class="brand"><span class="dot"></span><h1>מרכז ניהול ארגוני</h1></div>
+  <div class="brand"><button type="button" class="icon-btn nav-toggle" id="navToggle" aria-label="פתיחה וסגירה של תפריט הניווט" aria-controls="mainNav" aria-expanded="true"></button><span class="dot"></span><h1>מרכז ניהול ארגוני</h1></div>
   <div class="whoami">
+    <button type="button" class="icon-btn theme-toggle" id="themeToggle" aria-label="החלפה בין מצב בהיר למצב כהה"></button>
     <span id="whoamiLabel"></span>
     <button class="ghost" onclick="openChangePasswordModal()">החלפת סיסמה</button>
     <button class="ghost" onclick="logout()">יציאה</button>
   </div>
 </header>
 
-<nav class="tabs">
+<nav class="tabs" id="mainNav" aria-label="ניווט ראשי">
+  <div class="nav-group-title">סקירה</div>
   <button class="tab-btn active" data-tab="dashboard">לוח בקרה</button>
+  <div class="nav-group-title">עבודה שוטפת</div>
   <button class="tab-btn" data-tab="orgchart">מבנה ארגוני</button>
   <button class="tab-btn" data-tab="meetings">סיכומי פגישות</button>
   <button class="tab-btn" data-tab="tasks">משימות</button>
   <button class="tab-btn" data-tab="mgrinfo">מידע למנהלים</button>
+  <div class="nav-group-title">תהליכי כוח אדם</div>
   <button class="tab-btn" data-tab="postings">שיבוצים</button>
   <button class="tab-btn" data-tab="positions">ניהול תקנים</button>
   <button class="tab-btn" data-tab="convergence">התכנסות</button>
   <button class="tab-btn" data-tab="attendance">נוכחות</button>
   <button class="tab-btn" data-tab="incentives">תמריצים</button>
+  <div class="nav-group-title">אנשים</div>
   <button class="tab-btn" data-tab="contacts">דף קשר</button>
   <button class="tab-btn" data-tab="employees">עובדים</button>
+  <div class="nav-group-title">ניהול המערכת</div>
   <button class="tab-btn" data-tab="permissions">הרשאות</button>
   <button class="tab-btn" data-tab="users">משתמשים</button>
 </nav>
+<div class="nav-scrim" id="navScrim"></div>
 
 <main>
 
@@ -995,7 +1148,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
   <section class="panel active" id="panel-dashboard">
     <div class="panel-head">
       <div><h2>לוח בקרה</h2><p>מותאם אישית לפי מה שרלוונטי אליך ולעובדים שלך</p></div>
-      <button class="ghost" onclick="openDashboardWidgetPicker()">התאם אישית</button>
+      <div style="display:flex; gap:8px;"><button class="ghost" onclick="openDashboardWidgetPicker()">התאם אישית</button><button class="ghost" id="dashArrangeBtn" aria-pressed="false">סידור וגודל</button><button class="ghost" id="dashResetBtn">איפוס לברירת מחדל</button></div>
     </div>
     <div class="widget-grid" id="dashWidgetGrid"></div>
 
@@ -1366,6 +1519,300 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
 </div>
 
 <script>
+/* ================================================================
+   UI shell additions (theme, navigation drawer, dashboard layout).
+   Additive: relies on the existing app functions, never replaces them.
+   New storage: localStorage "hubui.theme", "hubui.nav" and the app
+   storage key "dashboardLayout" (per user).
+   ================================================================ */
+(function(){
+  'use strict';
+  var root = document.documentElement, body = document.body;
+  var mqMobile = window.matchMedia('(max-width: 800px)');
+  var mqDark = window.matchMedia('(prefers-color-scheme: dark)');
+  function lsGet(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
+  function lsSet(k, v){ try{ localStorage.setItem(k, v); }catch(e){} }
+  function cssVar(n){ return getComputedStyle(root).getPropertyValue(n).trim(); }
+  function isMobile(){ return mqMobile.matches; }
+
+  /* ---------- chart colours follow the active theme ---------- */
+  var PALETTE = {
+    light: ['#0B7A4B','#2F6FB5','#A86F0C','#0E8F9B','#5A6B7B','#B0507A','#6E8B2F','#8C5A3C'],
+    dark:  ['#34D399','#60A5FA','#FBBF24','#22D3EE','#94A3B8','#F472B6','#A3E635','#FB923C']
+  };
+  var GRAY = { light: '#C5CED2', dark: '#4B5F54' };
+  /* literal colours used by the existing chart code -> palette slot or theme variable */
+  var SERIES = { '#1b6c80':0, '#2f70bb':1, '#a86f0c':2, '#4f8f5b':3, '#5a6b7b':4, '#b0507a':5, '#4c8f8b':6, '#8a7b3f':7 };
+  function themeName(){ return root.getAttribute('data-theme') === 'dark' ? 'dark' : 'light'; }
+  function mapColor(s){
+    var k = s.toLowerCase(), th = themeName();
+    if (SERIES.hasOwnProperty(k)) return PALETTE[th][SERIES[k]];
+    if (k === '#c5ced2') return GRAY[th];
+    if (k === '#c4242a') return cssVar('--negative');
+    if (k === '#fff' || k === '#ffffff') return cssVar('--sheet');
+    if (k === '#56626a') return cssVar('--muted');
+    if (k === '#e2e7e9') return cssVar('--border');
+    return s;
+  }
+  function walk(o){
+    if (Array.isArray(o)){ for (var i = 0; i < o.length; i++){ if (typeof o[i] === 'string' && /^#[0-9a-f]{3,6}$/i.test(o[i])) o[i] = mapColor(o[i]); else walk(o[i]); } }
+    else if (o && typeof o === 'object'){ for (var k in o){ if (!Object.prototype.hasOwnProperty.call(o, k)) continue; var v = o[k]; if (typeof v === 'string' && /^#[0-9a-f]{3,6}$/i.test(v)) o[k] = mapColor(v); else if (v && typeof v === 'object') walk(v); } }
+    return o;
+  }
+  window.hubRemapChart = function(cfg){ try{ return walk(cfg); }catch(e){ return cfg; } };
+  window.hubApplyChartDefaults = function(){
+    if (typeof Chart === 'undefined' || !Chart.defaults) return;
+    try{
+      Chart.defaults.font.family = "'IBM Plex Sans Hebrew', sans-serif";
+      Chart.defaults.color = cssVar('--muted');
+      Chart.defaults.borderColor = cssVar('--border');
+      Chart.__hubDefaults = true;
+    }catch(e){}
+  };
+
+  /* ---------- theme ---------- */
+  var themeBtn = document.getElementById('themeToggle');
+  function syncThemeBtn(){
+    if (!themeBtn) return;
+    var dark = themeName() === 'dark';
+    themeBtn.setAttribute('aria-pressed', dark ? 'true' : 'false');
+    themeBtn.title = dark ? 'מעבר למצב בהיר' : 'מעבר למצב כהה';
+  }
+  function setTheme(t, persist){
+    root.setAttribute('data-theme', t);
+    if (persist) lsSet('hubui.theme', t);
+    var m = document.querySelector('meta[name="theme-color"]');
+    if (m) m.setAttribute('content', cssVar('--frame'));
+    syncThemeBtn();
+    window.hubApplyChartDefaults();
+    if (!body.classList.contains('auth-locked') && typeof state !== 'undefined' && state.currentUserId){
+      try{ renderDashboardWidgets(); }catch(e){}
+      try{ renderDashboard(); }catch(e){}
+    }
+  }
+  if (themeBtn) themeBtn.addEventListener('click', function(){ setTheme(themeName() === 'dark' ? 'light' : 'dark', true); });
+  var onSystemTheme = function(e){ if (!lsGet('hubui.theme')) setTheme(e.matches ? 'dark' : 'light', false); };
+  if (mqDark.addEventListener) mqDark.addEventListener('change', onSystemTheme); else if (mqDark.addListener) mqDark.addListener(onSystemTheme);
+  syncThemeBtn();
+  window.hubApplyChartDefaults();
+
+  /* ---------- navigation drawer ---------- */
+  var nav = document.getElementById('mainNav');
+  var navBtn = document.getElementById('navToggle');
+  var scrim = document.getElementById('navScrim');
+  function isRail(){ return root.getAttribute('data-nav') === 'rail'; }
+  function syncNav(){
+    if (!nav || !navBtn) return;
+    var mobile = isMobile();
+    var open = mobile ? body.classList.contains('nav-open') : !isRail();
+    navBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    if (mobile){ nav.inert = !open; nav.setAttribute('aria-hidden', open ? 'false' : 'true'); }
+    else { nav.inert = false; nav.removeAttribute('aria-hidden'); }
+    var tabs = nav.querySelectorAll('.tab-btn');
+    for (var i = 0; i < tabs.length; i++){
+      if (!mobile && isRail()) tabs[i].title = tabs[i].textContent.trim(); else tabs[i].removeAttribute('title');
+    }
+  }
+  function setMobileOpen(open, restoreFocus){
+    body.classList.toggle('nav-open', open);
+    syncNav();
+    if (open){
+      var target = nav.querySelector('.tab-btn.active') || nav.querySelector('.tab-btn');
+      if (target) setTimeout(function(){ target.focus(); }, 40);
+    } else if (restoreFocus && navBtn){ navBtn.focus(); }
+  }
+  if (nav && navBtn){
+    navBtn.addEventListener('click', function(){
+      if (isMobile()){ setMobileOpen(!body.classList.contains('nav-open'), true); return; }
+      if (isRail()){ root.removeAttribute('data-nav'); lsSet('hubui.nav', 'open'); }
+      else { root.setAttribute('data-nav', 'rail'); lsSet('hubui.nav', 'rail'); }
+      syncNav();
+    });
+    if (scrim) scrim.addEventListener('click', function(){ setMobileOpen(false, true); });
+    nav.addEventListener('click', function(e){
+      var b = e.target.closest ? e.target.closest('.tab-btn') : null;
+      if (!b) return;
+      var all = nav.querySelectorAll('.tab-btn');
+      for (var i = 0; i < all.length; i++){ if (all[i].classList.contains('active')) all[i].setAttribute('aria-current', 'page'); else all[i].removeAttribute('aria-current'); }
+      if (isMobile()) setMobileOpen(false, false);
+    });
+    document.addEventListener('keydown', function(e){
+      if (e.key === 'Escape' && body.classList.contains('nav-open')){ e.preventDefault(); setMobileOpen(false, true); }
+    });
+    var onBreakpoint = function(){ body.classList.remove('nav-open'); syncNav(); };
+    if (mqMobile.addEventListener) mqMobile.addEventListener('change', onBreakpoint); else if (mqMobile.addListener) mqMobile.addListener(onBreakpoint);
+    syncNav();
+
+    /* hide a group heading when access control hides every tab under it */
+    var syncGroups = function(){
+      var kids = nav.children, title = null, any = false;
+      var flush = function(){ if (title) title.hidden = !any; };
+      for (var i = 0; i < kids.length; i++){
+        var el = kids[i];
+        if (el.classList.contains('nav-group-title')){ flush(); title = el; any = false; }
+        else if (el.classList.contains('tab-btn') && el.style.display !== 'none'){ any = true; }
+      }
+      flush();
+    };
+    new MutationObserver(syncGroups).observe(nav, { subtree: true, attributes: true, attributeFilter: ['style'] });
+    syncGroups();
+  }
+
+  /* ---------- the dashboard is the screen after sign-in ---------- */
+  var wasLocked = body.classList.contains('auth-locked');
+  new MutationObserver(function(){
+    var locked = body.classList.contains('auth-locked');
+    if (wasLocked && !locked){
+      var d = document.querySelector('.tab-btn[data-tab="dashboard"]');
+      if (d) d.click();
+    }
+    if (locked){ window.hubDashEdit = false; setArrangeUi(); }
+    wasLocked = locked;
+  }).observe(body, { attributes: true, attributeFilter: ['class'] });
+
+  /* ---------- dashboard: arrange, resize, remove, reset (per user) ---------- */
+  window.hubDashEdit = false;
+  var grid = document.getElementById('dashWidgetGrid');
+  var arrangeBtn = document.getElementById('dashArrangeBtn');
+  var resetBtn = document.getElementById('dashResetBtn');
+  var dragKey = null;
+
+  function validKeys(){ return getMyDashboardWidgetKeys().filter(function(k){ return WIDGET_DEFS[k]; }); }
+  function ensureLayout(){
+    var id = state.currentUserId;
+    var lay = state.dashboardLayout[id];
+    if (!lay || !Array.isArray(lay.order)){ lay = { order: validKeys().slice(), sizes: {} }; state.dashboardLayout[id] = lay; }
+    if (!lay.sizes) lay.sizes = {};
+    return lay;
+  }
+  function saveLayout(){ return storeSet('dashboardLayout', state.dashboardLayout); }
+  function setArrangeUi(){
+    if (!arrangeBtn) return;
+    arrangeBtn.setAttribute('aria-pressed', window.hubDashEdit ? 'true' : 'false');
+    arrangeBtn.textContent = window.hubDashEdit ? 'סיום סידור' : 'סידור וגודל';
+    arrangeBtn.classList.toggle('active', !!window.hubDashEdit);
+  }
+
+  window.hubWidgetCardHtml = function(k, w, i, n){
+    var lay = state.dashboardLayout && state.dashboardLayout[state.currentUserId];
+    var wide = !!(lay && lay.sizes && lay.sizes[k] === 'wide');
+    var tools = '';
+    if (window.hubDashEdit){
+      var label = escapeHtml(w.label);
+      tools = '<div class="widget-tools" role="group" aria-label="עריכת הרכיב: ' + label + '">'
+        + '<span class="wt-label">' + (wide ? 'רוחב מלא' : 'רגיל') + '</span>'
+        + '<button type="button" class="icon-btn wt" data-wact="drag" draggable="true" aria-label="גרירה: ' + label + '" title="גרור כדי לסדר מחדש"></button>'
+        + '<button type="button" class="icon-btn wt" data-wact="up"' + (i === 0 ? ' disabled' : '') + ' aria-label="הזז למעלה: ' + label + '" title="הזז למעלה"></button>'
+        + '<button type="button" class="icon-btn wt" data-wact="down"' + (i === n - 1 ? ' disabled' : '') + ' aria-label="הזז למטה: ' + label + '" title="הזז למטה"></button>'
+        + '<button type="button" class="icon-btn wt" data-wact="size" aria-pressed="' + (wide ? 'true' : 'false') + '" aria-label="רוחב מלא: ' + label + '" title="רגיל / רוחב מלא"></button>'
+        + '<button type="button" class="icon-btn wt" data-wact="remove" aria-label="הסרה: ' + label + '" title="הסר מלוח הבקרה"></button>'
+        + '</div>';
+    }
+    return '<div class="card widget-card' + (wide ? ' wide' : '') + '" data-widget="' + k + '">' + tools
+      + '<div class="widget-title">' + escapeHtml(w.label) + '</div>' + w.render() + '</div>';
+  };
+
+  function clearDropMarks(){
+    var m = grid.querySelectorAll('.drop-before, .drop-after');
+    for (var i = 0; i < m.length; i++) m[i].classList.remove('drop-before', 'drop-after');
+  }
+  window.hubAfterWidgetsRender = function(g){
+    g.classList.toggle('editing', !!window.hubDashEdit);
+    if (!window.hubDashEdit) return;
+    var cards = g.querySelectorAll('.widget-card');
+    Array.prototype.forEach.call(cards, function(card){
+      var key = card.getAttribute('data-widget');
+      var handle = card.querySelector('[data-wact="drag"]');
+      if (handle){
+        handle.addEventListener('dragstart', function(e){
+          dragKey = key;
+          card.classList.add('dragging');
+          try{ e.dataTransfer.setData('text/plain', key); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setDragImage(card, 24, 24); }catch(err){}
+        });
+        handle.addEventListener('dragend', function(){ dragKey = null; card.classList.remove('dragging'); clearDropMarks(); });
+      }
+      card.addEventListener('dragover', function(e){
+        if (!dragKey || dragKey === key) return;
+        e.preventDefault();
+        var r = card.getBoundingClientRect();
+        var before = card.classList.contains('wide') ? (e.clientY < r.top + r.height / 2) : (e.clientX > r.left + r.width / 2);
+        clearDropMarks();
+        card.classList.add(before ? 'drop-before' : 'drop-after');
+      });
+      card.addEventListener('dragleave', function(e){ if (!card.contains(e.relatedTarget)) card.classList.remove('drop-before', 'drop-after'); });
+      card.addEventListener('drop', function(e){
+        if (!dragKey || dragKey === key) return;
+        e.preventDefault();
+        var before = card.classList.contains('drop-before');
+        var moving = dragKey; dragKey = null; clearDropMarks();
+        var lay = ensureLayout();
+        lay.order = lay.order.filter(function(x){ return x !== moving; });
+        var idx = lay.order.indexOf(key);
+        lay.order.splice(before ? idx : idx + 1, 0, moving);
+        saveLayout().then(function(){ renderDashboardWidgets(); });
+      });
+    });
+  };
+
+  if (grid){
+    grid.addEventListener('click', function(e){
+      var b = e.target.closest ? e.target.closest('[data-wact]') : null;
+      if (!b || b.disabled) return;
+      var act = b.getAttribute('data-wact');
+      if (act === 'drag') return;
+      var card = b.closest('.widget-card');
+      if (!card) return;
+      var key = card.getAttribute('data-widget');
+      var lay = ensureLayout();
+      var i = lay.order.indexOf(key);
+      if (i < 0) return;
+      if (act === 'up' && i > 0){ var t1 = lay.order[i - 1]; lay.order[i - 1] = key; lay.order[i] = t1; }
+      else if (act === 'down' && i < lay.order.length - 1){ var t2 = lay.order[i + 1]; lay.order[i + 1] = key; lay.order[i] = t2; }
+      else if (act === 'size'){ if (lay.sizes[key] === 'wide') delete lay.sizes[key]; else lay.sizes[key] = 'wide'; }
+      else if (act === 'remove'){ lay.order.splice(i, 1); delete lay.sizes[key]; }
+      else return;
+      saveLayout().then(function(){
+        renderDashboardWidgets();
+        var again = grid.querySelector('[data-widget="' + key + '"] [data-wact="' + act + '"]');
+        if (again && !again.disabled) again.focus();
+        else if (act !== 'remove'){ var alt = grid.querySelector('[data-widget="' + key + '"] [data-wact="' + (act === 'up' ? 'down' : 'up') + '"]'); if (alt && !alt.disabled) alt.focus(); }
+        else if (arrangeBtn) arrangeBtn.focus();
+      });
+    });
+  }
+  if (arrangeBtn) arrangeBtn.addEventListener('click', function(){
+    window.hubDashEdit = !window.hubDashEdit;
+    setArrangeUi();
+    renderDashboardWidgets();
+  });
+  if (resetBtn) resetBtn.addEventListener('click', async function(){
+    if (!confirm('לאפס את לוח הבקרה לברירת המחדל? ההתאמות האישיות שלך (רכיבים, סדר וגודל) יימחקו.')) return;
+    var id = state.currentUserId;
+    delete state.dashboardLayout[id];
+    delete state.dashboardPrefs[id];
+    await storeSet('dashboardLayout', state.dashboardLayout);
+    await storeSet('dashboardPrefs', state.dashboardPrefs);
+    window.hubDashEdit = false; setArrangeUi();
+    renderDashboardWidgets();
+  });
+
+  /* the existing "customise" picker keeps working; its result also seeds the saved order */
+  window.hubOnPickerSave = async function(checked){
+    var id = state.currentUserId;
+    var old = validKeys();
+    var lay = state.dashboardLayout[id] || { order: old, sizes: {} };
+    var sizes = lay.sizes || {};
+    var kept = old.filter(function(k){ return checked.indexOf(k) > -1; });
+    var added = checked.filter(function(k){ return old.indexOf(k) < 0; });
+    var order = kept.concat(added), ns = {};
+    order.forEach(function(k){ if (sizes[k]) ns[k] = sizes[k]; });
+    state.dashboardLayout[id] = { order: order, sizes: ns };
+    await storeSet('dashboardLayout', state.dashboardLayout);
+  };
+  setArrangeUi();
+})();
+</script>
+<script>
 /* ---------------- storage helpers ---------------- */
 function hasArtifactStorage(){ return typeof window !== 'undefined' && window.storage && typeof window.storage.get === 'function'; }
 async function storeSet(key, value){
@@ -1402,6 +1849,7 @@ let state = {
   infoItems: [],
   dashboard: null,
   dashboardPrefs: {},
+  dashboardLayout: {},
   convergencePermissions: {},
   positionsPermissions: {},
   contactRoles: [],
@@ -2279,6 +2727,7 @@ async function init(){
   state.infoItems = await storeGet('infoItems', []);
   state.dashboard = await storeGet('dashboard', null);
   state.dashboardPrefs = await storeGet('dashboardPrefs', {});
+  state.dashboardLayout = await storeGet('dashboardLayout', {});
   state.convergencePermissions = await storeGet('convergencePermissions', {});
   state.positionsPermissions = await storeGet('positionsPermissions', {});
   state.contactRoles = await storeGet('contactRoles', []);
@@ -5938,6 +6387,8 @@ Object.assign(WIDGET_DEFS, {
 });
 
 function getMyDashboardWidgetKeys(){
+  const lay = state.dashboardLayout && state.dashboardLayout[state.currentUserId];
+  if (lay && Array.isArray(lay.order)) return lay.order;
   const saved = state.dashboardPrefs[state.currentUserId];
   if (saved && saved.length) return saved;
   const hasSubs = viewerSubordinateIds().length > 0;
@@ -5953,17 +6404,19 @@ function renderDashboardWidgets(){
     grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;">לא נבחרו רכיבים ללוח הבקרה. לחץ על "התאם אישית" כדי לבחור.</div>`;
     return;
   }
-  grid.innerHTML = keys.map(k=>{
+  grid.innerHTML = keys.map((k, i)=>{
     const w = WIDGET_DEFS[k];
-    return `<div class="card widget-card"><div class="widget-title">${escapeHtml(w.label)}</div>${w.render()}</div>`;
+    return hubWidgetCardHtml(k, w, i, keys.length);
   }).join('');
+  hubAfterWidgetsRender(grid);
+  hubApplyChartDefaults();
   if (typeof Chart !== 'undefined' && Chart.defaults && Chart.defaults.font && !Chart.__hubDefaults){
     Chart.defaults.font.family = "'IBM Plex Sans Hebrew', sans-serif"; Chart.defaults.color = '#56626A'; Chart.__hubDefaults = true;
   }
   pendingWidgetCharts.forEach(p=>{
     const el = document.getElementById(p.id);
     if (!el || typeof Chart === 'undefined') return;
-    try{ widgetChartInstances.push(new Chart(el, p.config)); }catch(err){ console.error('chart failed', err); }
+    try{ widgetChartInstances.push(new Chart(el, hubRemapChart(p.config))); }catch(err){ console.error('chart failed', err); }
   });
   pendingWidgetCharts = [];
 }
@@ -5987,6 +6440,7 @@ function openDashboardWidgetPicker(){
 }
 async function saveDashboardWidgetPrefs(){
   const checked = Array.from(document.querySelectorAll('#widget-picker-list input[type=checkbox]:checked')).map(i=>i.value);
+  await hubOnPickerSave(checked);
   state.dashboardPrefs[state.currentUserId] = checked;
   await storeSet('dashboardPrefs', state.dashboardPrefs);
   closeModal();
@@ -6130,7 +6584,7 @@ function renderDashboard(){
     numericCols.slice(0,4).forEach((c,i)=>{
       const ctx = document.getElementById(`chart-${i}`);
       const limited = rows.slice(0,25);
-      const chart = new Chart(ctx, {
+      const chart = new Chart(ctx, hubRemapChart({
         type:'bar',
         data:{
           labels: limited.map(r=>String(r[labelCol]).slice(0,14)),
@@ -6144,7 +6598,7 @@ function renderDashboard(){
             y:{ ticks:{ color:'#56626A' }, grid:{ color:'#E2E7E9' } }
           }
         }
-      });
+      }));
       dashCharts.push(chart);
     });
   }
