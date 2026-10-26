@@ -1570,6 +1570,24 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
         <div id="migration-log"></div>
       </div>
     </div>
+    <div class="panel-head" style="margin-top:28px;">
+      <div><h2 style="font-size:18px;">יומן פעולות</h2><p>כל יצירה, עדכון ומחיקה נרשמים אוטומטית: מי, מתי ומה השתנה. היומן נשמר בדפדפן ונכלל בגיבוי.</p></div>
+      <button class="ghost" id="aud-export" type="button">ייצוא לאקסל</button>
+    </div>
+    <div class="card" id="auditCard">
+      <div class="post-filters">
+        <select id="aud-type" aria-label="סוג"></select>
+        <select id="aud-action" aria-label="פעולה"></select>
+        <select id="aud-source" aria-label="מקור"></select>
+        <div class="field" style="margin:0; width:auto;"><label>מתאריך</label><input type="date" id="aud-from" style="width:auto;"></div>
+        <div class="field" style="margin:0; width:auto;"><label>עד תאריך</label><input type="date" id="aud-to" style="width:auto;"></div>
+        <input type="text" id="aud-text" placeholder="חיפוש בשם, ברשומה או בתוכן השינוי" style="max-width:320px;">
+        <button class="ghost" id="aud-refresh" type="button">רענן</button>
+      </div>
+      <div id="aud-summary" class="locked-note" style="margin-top:10px;"></div>
+      <div class="table-scroll" style="max-height:520px;"><table><thead><tr><th>זמן</th><th>משתמש</th><th>פעולה</th><th>סוג</th><th>רשומה</th><th>מה השתנה</th><th>מקור</th></tr></thead><tbody id="aud-body"></tbody></table></div>
+      <div class="backup-actions"><button class="ghost" id="aud-more" type="button" style="display:none;">הצג עוד</button></div>
+    </div>
   </section>
 
 </main>
@@ -1878,6 +1896,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
    Stage 1: a facade over the existing storage (same keys, same format).
    Stage 2: record metadata (rev, updatedAt, updatedBy), a schema version and a
    migration framework that takes a safety backup before it changes anything.
+   Stage 3: an append-only audit log (IndexedDB) written automatically on every save.
    Everything is asynchronous so that swapping the local adapter for a server
    adapter later does not change any caller.
    ================================================================ */
@@ -1957,6 +1976,145 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     return changes;
   }
 
+  /* ---- shared IndexedDB: backups, audit log, files ---- */
+  var DB_NAME = 'hub-db', DB_VERSION = 3, dbPromise = null;
+  function openDb(){
+    if (dbPromise) return dbPromise;
+    dbPromise = new Promise(function(resolve, reject){
+      if (!window.indexedDB){ dbPromise = null; reject(new Error('no-indexeddb')); return; }
+      var req = indexedDB.open(DB_NAME, DB_VERSION);
+      req.onupgradeneeded = function(){
+        var db = req.result;
+        if (!db.objectStoreNames.contains('backups')) db.createObjectStore('backups', { keyPath: 'id', autoIncrement: true });
+        if (!db.objectStoreNames.contains('audit')){
+          var a = db.createObjectStore('audit', { keyPath: 'id', autoIncrement: true });
+          a.createIndex('at', 'at'); a.createIndex('entityType', 'entityType'); a.createIndex('entityId', 'entityId');
+        }
+        if (!db.objectStoreNames.contains('blobs')) db.createObjectStore('blobs', { keyPath: 'id' });
+      };
+      req.onsuccess = function(){ var db = req.result; db.onversionchange = function(){ db.close(); dbPromise = null; }; resolve(db); };
+      req.onerror = function(){ dbPromise = null; reject(req.error); };
+    });
+    return dbPromise;
+  }
+  /* runs fn(store) inside one transaction; resolves with fn's request result */
+  function idbTx(store, mode, fn){
+    return openDb().then(function(db){
+      return new Promise(function(resolve, reject){
+        var t = db.transaction(store, mode), out = fn(t.objectStore(store));
+        t.oncomplete = function(){ resolve(out && out.result !== undefined ? out.result : undefined); };
+        t.onerror = function(){ reject(t.error); };
+        t.onabort = function(){ reject(t.error); };
+      });
+    });
+  }
+
+  /* ---- audit log (stage 3): append-only, written automatically from set() ---- */
+  var AUDIT_SKIP = ['notifications'];                  /* collections that are themselves noise */
+  var REDACT = ['passwordHash', 'salt', 'iterations'];
+  var auditState = { source: 'ui', failures: 0, pending: Promise.resolve() };
+  function sanitize(v){
+    if (Array.isArray(v)) return v.map(sanitize);
+    if (v && typeof v === 'object'){
+      var o = {};
+      Object.keys(v).forEach(function(k){
+        if (k === 'dataUrl') o[k] = '[תוכן הקובץ לא נשמר ביומן]';
+        else if (REDACT.indexOf(k) > -1) o[k] = '[מוסתר]';
+        else o[k] = sanitize(v[k]);
+      });
+      return o;
+    }
+    return v;
+  }
+  function actorName(){
+    try{ var u = (typeof state !== 'undefined' && state && state.users || []).find(function(x){ return x.id === state.authUserId; }); return u ? u.username : null; }catch(e){ return null; }
+  }
+  function labelOf(rec){
+    if (!rec) return '';
+    return rec.name || rec.title || rec.roleTitle || [rec.firstName, rec.lastName].filter(Boolean).join(' ') || rec.serialNumber || rec.username || rec.note || String(rec.id || '');
+  }
+  function diffFields(name, a, b){
+    var before = {}, after = {}, noise = NOISE_FIELDS[name] || [], seen = {}, n = 0;
+    Object.keys(a).concat(Object.keys(b)).forEach(function(k){
+      if (seen[k] || META_FIELDS.indexOf(k) > -1 || noise.indexOf(k) > -1) return;
+      seen[k] = true;
+      if (canon(a[k]) !== canon(b[k])){ before[k] = a[k]; after[k] = b[k]; n++; }
+    });
+    return { before: sanitize(before), after: sanitize(after), n: n };
+  }
+  function enqueueAudit(entries){
+    if (!entries.length) return Promise.resolve();
+    auditState.pending = auditState.pending.then(function(){
+      return idbTx('audit', 'readwrite', function(s){ entries.forEach(function(e){ s.add(e); }); });
+    }).catch(function(e){ auditState.failures++; console.error('audit write failed', e); });
+    return auditState.pending;
+  }
+  function baseEntry(action, entityType, entityId, label){
+    return { at: new Date().toISOString(), actorId: actorId(), actorName: actorName(), action: action, entityType: entityType, entityId: entityId, label: label || '', source: auditState.source };
+  }
+  function recordAudit(name, changes){
+    if (!changes || AUDIT_SKIP.indexOf(name) > -1) return;
+    var entries = [];
+    changes.created.forEach(function(rec){ var e = baseEntry('create', name, rec.id, labelOf(rec)); e.after = sanitize(rec); e.rev = rec.rev; entries.push(e); });
+    changes.updated.forEach(function(u){
+      var d = diffFields(name, u.before, u.after); if (!d.n) return;
+      var e = baseEntry('update', name, u.after.id, labelOf(u.after)); e.before = d.before; e.after = d.after; e.rev = u.after.rev; entries.push(e);
+    });
+    changes.removed.forEach(function(rec){ var e = baseEntry('delete', name, rec.id, labelOf(rec)); e.before = sanitize(rec); e.rev = rec.rev; entries.push(e); });
+    enqueueAudit(entries);
+  }
+  function matchEntry(e, o){
+    if (o.entityType && e.entityType !== o.entityType) return false;
+    if (o.actorId && e.actorId !== o.actorId) return false;
+    if (o.action && e.action !== o.action) return false;
+    if (o.source && e.source !== o.source) return false;
+    if (o.from && e.at < o.from) return false;
+    if (o.to && e.at > o.to + 'T23:59:59.999Z') return false;
+    if (o.text){
+      var hay = (e.label + ' ' + e.entityId + ' ' + (e.actorName || '') + ' ' + JSON.stringify(e.before || '') + ' ' + JSON.stringify(e.after || '')).toLowerCase();
+      if (hay.indexOf(String(o.text).toLowerCase()) < 0) return false;
+    }
+    return true;
+  }
+  var audit = {
+    setSource: function(s){ auditState.source = s || 'ui'; },
+    getSource: function(){ return auditState.source; },
+    flush: function(){ return auditState.pending; },
+    status: function(){ return { failures: auditState.failures }; },
+    /* a system event that is not a data change (backup, restore, ...) */
+    logEvent: function(action, details){
+      var e = baseEntry(action, 'system', '', details && details.label || ''); e.after = details ? sanitize(details) : undefined;
+      return enqueueAudit([e]);
+    },
+    count: function(){ return idbTx('audit', 'readonly', function(s){ return s.count(); }).catch(function(){ return 0; }); },
+    all: function(){ return idbTx('audit', 'readonly', function(s){ return s.getAll(); }).catch(function(){ return []; }); },
+    clear: function(){ return idbTx('audit', 'readwrite', function(s){ return s.clear(); }); },
+    /* atomic: either the whole log is replaced or nothing changes */
+    replaceAll: function(entries){
+      return auditState.pending.then(function(){
+        return idbTx('audit', 'readwrite', function(s){ s.clear(); (entries || []).forEach(function(e){ var c = Object.assign({}, e); delete c.id; s.add(c); }); });
+      });
+    },
+    query: function(o){
+      o = o || {};
+      return openDb().then(function(db){
+        return new Promise(function(resolve, reject){
+          var out = [], skipped = 0, t = db.transaction('audit', 'readonly'), req = t.objectStore('audit').index('at').openCursor(null, 'prev');
+          req.onsuccess = function(){
+            var c = req.result;
+            if (!c){ resolve(out); return; }
+            if (matchEntry(c.value, o)){
+              if (skipped < (o.offset || 0)) skipped++;
+              else { out.push(c.value); if (out.length >= (o.limit || 100)){ resolve(out); return; } }
+            }
+            c.continue();
+          };
+          req.onerror = function(){ reject(req.error); };
+        });
+      });
+    }
+  };
+
   /* ---- reads and writes of a named key ---- */
   function get(name, fallback){
     return adapter().getRaw(name).then(function(raw){
@@ -1976,6 +2134,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     catch(e){ return Promise.resolve(fail(name, e, value)); }
     return Promise.resolve(pending).then(function(){
       emit('change', { name: name, value: value, changes: changes });
+      try{ recordAudit(name, changes); }catch(e){ console.error('audit failed', e); }
       return true;
     }, function(e){ return fail(name, e, value); });
   }
@@ -2049,9 +2208,11 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     var hasData = existing.filter(function(k){ return k !== 'schemaVersion' && k !== 'migrationLog'; }).length > 0;
     if (!hasData){                                   /* fresh install: nothing to migrate or protect */
       await set('schemaVersion', latestSchema());
-      return migrationState;
+      audit.setSource('ui');
+    return migrationState;
     }
     var safety = null;
+    audit.setSource('migration');
     if (window.hubBackup && hubBackup.saveSafety) safety = await hubBackup.saveSafety('before-migration v' + cur + ' to v' + latestSchema());
     if (!safety){
       migrationState.blocked = true;
@@ -2074,6 +2235,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
         break;
       }
     }
+    audit.setSource('ui');
     return migrationState;
   }
 
@@ -2105,6 +2267,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     on: on, off: off, emit: emit,
     adapterName: function(){ return adapter().name; },
     META_COLLECTIONS: META_COLLECTIONS,
+    openDb: openDb, idbTx: idbTx, audit: audit,
     schemaVersion: schemaVersion, latestSchema: latestSchema,
     registerMigration: registerMigration, migrate: migrate,
     migrationState: function(){ return migrationState; },
@@ -2238,6 +2401,8 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     }catch(e){ return -1; }
   }
   function canonical(keys){ return JSON.stringify(Object.keys(keys).sort().map(function(n){ return [n, keys[n]]; })); }
+  /* what the checksum covers: the data keys, plus the audit log when the file has one */
+  function checksumInput(data){ return canonical(data.keys) + (Array.isArray(data.audit) ? '|audit:' + JSON.stringify(data.audit) : ''); }
   async function sha256(str){
     if (!(window.crypto && crypto.subtle)) return 'none';
     var buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
@@ -2255,25 +2420,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
   }
 
   /* ---------- IndexedDB (safety copies) ---------- */
-  function openDb(){
-    return new Promise(function(resolve, reject){
-      if (!window.indexedDB){ reject(new Error('no-indexeddb')); return; }
-      var req = indexedDB.open('hub-db', 1);
-      req.onupgradeneeded = function(){ var db = req.result; if (!db.objectStoreNames.contains('backups')) db.createObjectStore('backups', { keyPath: 'id', autoIncrement: true }); };
-      req.onsuccess = function(){ resolve(req.result); };
-      req.onerror = function(){ reject(req.error); };
-    });
-  }
-  function tx(mode, fn){
-    return openDb().then(function(db){
-      return new Promise(function(resolve, reject){
-        var t = db.transaction('backups', mode), store = t.objectStore('backups'), out = fn(store);
-        t.oncomplete = function(){ db.close(); resolve(out && out.result !== undefined ? out.result : undefined); };
-        t.onerror = function(){ db.close(); reject(t.error); };
-        t.onabort = function(){ db.close(); reject(t.error); };
-      });
-    });
-  }
+  function tx(mode, fn){ return DataStore.idbTx('backups', mode, fn); }
   function autoList(){ return tx('readonly', function(s){ return s.getAll(); }).then(function(r){ return (r || []).sort(function(a, b){ return b.id - a.id; }); }); }
   function autoPut(rec){ return tx('readwrite', function(s){ return s.add(rec); }); }
   function autoDelete(id){ return tx('readwrite', function(s){ return s.delete(id); }); }
@@ -2288,12 +2435,15 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     var keys = readAll(includeUsers);
     var counts = {}; Object.keys(keys).forEach(function(n){ counts[n] = itemCount(keys[n]); });
     var user = (typeof currentUser === 'function' && currentUser()) || null;
-    return {
+    var auditLog = (window.DataStore && DataStore.audit) ? await DataStore.audit.all() : [];
+    var out = {
       format: FORMAT, version: VERSION, schemaVersion: currentSchema(),
       createdAt: new Date().toISOString(), createdBy: user ? user.username : '', reason: reason || 'manual',
       origin: location.origin, includesUsers: !!includeUsers,
-      keys: keys, counts: counts, checksum: 'sha256:' + await sha256(canonical(keys))
+      keys: keys, counts: counts, audit: auditLog
     };
+    out.checksum = 'sha256:' + await sha256(checksumInput(out));
+    return out;
   }
   async function parseBackup(text){
     var data;
@@ -2307,7 +2457,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
       if (typeof data.keys[names[i]] !== 'string') throw new Error('מבנה הגיבוי פגום (ערך לא תקין במפתח ' + names[i] + ')');
     }
     if (data.checksum && data.checksum.indexOf('sha256:') === 0 && data.checksum !== 'sha256:none'){
-      var actual = 'sha256:' + await sha256(canonical(data.keys));
+      var actual = 'sha256:' + await sha256(checksumInput(data));
       if (actual !== data.checksum) throw new Error('סכום הביקורת אינו תואם: הקובץ שונה או נפגם אחרי היצירה');
     }
     var bad = names.filter(function(n){ return itemCount(data.keys[n]) === -1; });
@@ -2327,6 +2477,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(function(){ URL.revokeObjectURL(a.href); }, 2000);
     var total = Object.keys(data.counts).reduce(function(s, k){ return s + Math.max(0, data.counts[k]); }, 0);
+    if (window.DataStore) DataStore.audit.logEvent('backup-export', { includesUsers: includeUsers, keys: Object.keys(data.keys).length });
     say('הגיבוי הורד: ' + Object.keys(data.keys).length + ' מפתחות, ' + total + ' פריטים, ' + fmtKb(JSON.stringify(data).length) + ' ק"ב. שמור את הקובץ מחוץ לדפדפן.', 'ok');
     return data;
   }
@@ -2370,6 +2521,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
         if (keepUsers && n === 'users') return;
         localStorage.setItem(PREFIX + n, data.keys[n]);
       });
+      if (Array.isArray(data.audit) && window.DataStore && DataStore.audit) await DataStore.audit.replaceAll(data.audit);
     }catch(e){
       hubKeys().forEach(function(k){ localStorage.removeItem(k); });
       Object.keys(before).forEach(function(n){ try{ localStorage.setItem(PREFIX + n, before[n]); }catch(err){} });
@@ -2387,6 +2539,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
       try{ await autoPut({ createdAt: safety.createdAt, reason: safety.reason, size: JSON.stringify(safety).length, payload: safety }); await trimAuto(); }
       catch(e){ if (!confirm('לא ניתן לשמור גיבוי בטיחות אוטומטי בדפדפן הזה. להמשיך בלי גיבוי בטיחות? מומלץ קודם להוריד גיבוי ידני.')) return; }
       await applyBackup(data);
+      if (window.DataStore){ DataStore.audit.logEvent('restore', { from: 'file', createdAt: data.createdAt }); await DataStore.audit.flush(); }
       say('השחזור הושלם. טוען מחדש…', 'ok');
       setTimeout(function(){ location.reload(); }, 400);
     }catch(e){ say(e.message, 'err'); }
@@ -2408,6 +2561,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
       var safety = await buildBackup(true, 'before-restore');
       await autoPut({ createdAt: safety.createdAt, reason: safety.reason, size: JSON.stringify(safety).length, payload: safety }); await trimAuto();
       await applyBackup(data);
+      if (window.DataStore){ DataStore.audit.logEvent('restore', { from: 'safety-copy', createdAt: data.createdAt }); await DataStore.audit.flush(); }
       say('השחזור הושלם. טוען מחדש…', 'ok');
       setTimeout(function(){ location.reload(); }, 400);
     }catch(e){ say(e.message, 'err'); }
@@ -2508,6 +2662,78 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
   }
   /* exposed for the next stages and for tests */
   window.hubBackup = { saveSafety: saveSafety, applySafety: function(p){ return applyBackup(p); }, build: buildBackup, parse: parseBackup, apply: applyBackup, health: healthReport, inspectFile: onFileChosen, restoreChosen: restore, exportNow: exportBackup, autoList: autoList };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
+})();
+</script>
+<script>
+/* ================================================================
+   Audit log viewer (stage 3). Reads DataStore.audit; super users only (the users tab).
+   ================================================================ */
+(function(){
+  'use strict';
+  var el = function(id){ return document.getElementById(id); };
+  var esc = function(s){ return typeof escapeHtml === 'function' ? escapeHtml(s) : String(s); };
+  var TYPE = { employees:'עובדים', meetings:'סיכומי פגישות', tasks:'משימות', postings:'שיבוצים', positions:'תקנים', convergence:'התכנסות', attendance:'נוכחות', attendanceRequests:'בקשות נוכחות', infoItems:'מידע למנהלים', contactRoles:'דף קשר', incentives:'תמריצים', users:'משתמשים', grants:'הרשאות', system:'מערכת' };
+  var ACTION = { create:'נוצר', update:'עודכן', delete:'נמחק', 'backup-export':'ייצוא גיבוי', restore:'שחזור' };
+  var SOURCE = { ui:'ממשק', 'import':'ייבוא', migration:'שדרוג נתונים' };
+  var FIELD = { name:'שם', role:'תפקיד', department:'מרכז', industry:'ענף', mador:'מדור', team:'צוות', ramad:'רמ"ד', rank:'רמת הרשאה', level:'זוטר/מובהק', serviceType:'סוג שירות', managerId:'מנהל ישיר', email:'אימייל', phone:'טלפון', active:'פעיל', title:'כותרת', status:'סטטוס', priority:'עדיפות', dueDate:'תאריך יעד', description:'תיאור', assignedTo:'מוקצה ל', jobText:'מלל משרה', serialNumber:'מס\' תקן', counterStatus:'מונה', freezeStatus:'הקפאה', currentAppointment:'מינוי נוכחי', futureAppointment:'מינוי עתידי', firstName:'שם פרטי', lastName:'שם משפחה', releaseDate:'תאריך שחרור', entryDate:'כניסה', exitDate:'יציאה', starred:'רידוד', gross:'שווי ברוטו', code:'קוד', entered:'הוזן', notes:'הערות', content:'תוכן', topic:'נושא', file:'קובץ', comments:'תגובות', summary:'סיכום', date:'תאריך', requestedStatus:'סטטוס מבוקש', note:'הערה', roleTitle:'תפקיד', holderName:'שם התפקידן', responsibilities:'תחומי אחריות' };
+  var PAGE = 100, offset = 0, loaded = [];
+
+  function short(v){
+    var s = v === undefined ? '—' : typeof v === 'string' ? v : JSON.stringify(v);
+    if (s === '' ) s = '—';
+    return s.length > 50 ? s.slice(0, 47) + '…' : s;
+  }
+  function summary(e){
+    if (e.action === 'update' && e.before && e.after){
+      var ks = Object.keys(e.after);
+      return ks.slice(0, 4).map(function(k){ return '<div><b>' + esc(FIELD[k] || k) + '</b>: ' + esc(short(e.before[k])) + ' ← ' + esc(short(e.after[k])) + '</div>'; }).join('') + (ks.length > 4 ? '<div class="locked-note">ועוד ' + (ks.length - 4) + ' שדות</div>' : '');
+    }
+    if (e.action === 'create') return '<span class="locked-note">רשומה חדשה</span>';
+    if (e.action === 'delete') return '<span class="locked-note">הרשומה נמחקה</span>';
+    return e.after ? '<span class="locked-note">' + esc(short(e.after)) + '</span>' : '';
+  }
+  function filters(){
+    return { entityType: el('aud-type').value, action: el('aud-action').value, source: el('aud-source').value, from: el('aud-from').value, to: el('aud-to').value, text: el('aud-text').value.trim() };
+  }
+  function rowHtml(e){
+    var cls = e.action === 'delete' ? 'rejected' : e.action === 'create' ? 'approved' : 'pending';
+    return '<tr><td>' + esc(new Date(e.at).toLocaleString('he-IL')) + '</td><td>' + esc(e.actorName || '—') + '</td><td><span class="req-status ' + cls + '">' + esc(ACTION[e.action] || e.action) + '</span></td><td>' + esc(TYPE[e.entityType] || e.entityType) + '</td><td>' + esc(e.label || e.entityId || '—') + '</td><td style="white-space:normal;min-width:240px;">' + summary(e) + '</td><td>' + esc(SOURCE[e.source] || e.source || '') + '</td></tr>';
+  }
+  async function load(reset){
+    if (!el('aud-body') || !window.DataStore) return;
+    if (reset){ offset = 0; loaded = []; }
+    var f = filters(); f.limit = PAGE; f.offset = offset;
+    var rows = [];
+    try{ rows = await DataStore.audit.query(f); }catch(e){ el('aud-summary').textContent = 'היומן אינו זמין בדפדפן הזה.'; return; }
+    loaded = loaded.concat(rows); offset += rows.length;
+    el('aud-body').innerHTML = loaded.map(rowHtml).join('') || '<tr><td colspan="7">אין רשומות ביומן שמתאימות לסינון</td></tr>';
+    el('aud-more').style.display = rows.length === PAGE ? '' : 'none';
+    var total = await DataStore.audit.count(), st = DataStore.audit.status();
+    el('aud-summary').textContent = 'סה"כ ' + total + ' רשומות ביומן' + (st.failures ? '. אזהרה: ' + st.failures + ' כתיבות ליומן נכשלו.' : '.');
+  }
+  async function exportAll(){
+    var f = filters(); f.limit = 5000; f.offset = 0;
+    var rows = (await DataStore.audit.query(f)).map(function(e){
+      return { 'זמן': new Date(e.at).toLocaleString('he-IL'), 'משתמש': e.actorName || '', 'פעולה': ACTION[e.action] || e.action, 'סוג': TYPE[e.entityType] || e.entityType, 'רשומה': e.label || e.entityId || '', 'לפני': e.before ? JSON.stringify(e.before) : '', 'אחרי': e.after ? JSON.stringify(e.after) : '', 'מקור': SOURCE[e.source] || e.source || '' };
+    });
+    if (!rows.length){ alert('אין רשומות לייצוא לפי הסינון הנוכחי'); return; }
+    exportToExcel('יומן_פעולות', rows);
+  }
+  function init(){
+    if (!el('auditCard')) return;
+    el('aud-type').innerHTML = '<option value="">כל הסוגים</option>' + Object.keys(TYPE).map(function(k){ return '<option value="' + k + '">' + TYPE[k] + '</option>'; }).join('');
+    el('aud-action').innerHTML = '<option value="">כל הפעולות</option>' + Object.keys(ACTION).map(function(k){ return '<option value="' + k + '">' + ACTION[k] + '</option>'; }).join('');
+    el('aud-source').innerHTML = '<option value="">כל המקורות</option>' + Object.keys(SOURCE).map(function(k){ return '<option value="' + k + '">' + SOURCE[k] + '</option>'; }).join('');
+    ['aud-type', 'aud-action', 'aud-source', 'aud-from', 'aud-to'].forEach(function(id){ el(id).addEventListener('change', function(){ load(true); }); });
+    var timer = null; el('aud-text').addEventListener('input', function(){ clearTimeout(timer); timer = setTimeout(function(){ load(true); }, 300); });
+    el('aud-more').addEventListener('click', function(){ load(false); });
+    el('aud-refresh').addEventListener('click', function(){ load(true); });
+    el('aud-export').addEventListener('click', function(){ exportAll(); });
+    var tabBtn = document.querySelector('.tab-btn[data-tab="users"]');
+    if (tabBtn) tabBtn.addEventListener('click', function(){ if (window.DataStore) DataStore.audit.flush().then(function(){ load(true); }); });
+  }
+  window.hubAuditView = { reload: function(){ return load(true); } };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 })();
 </script>
@@ -7311,6 +7537,18 @@ async function setActiveSheet(name){
 
 /* ---------------- boot ---------------- */
 init();
+</script>
+<script>
+/* Audit source: everything written while an Excel import is applied is tagged "import". */
+(function(){
+  var orig = window.applyImportBatch;
+  if (typeof orig !== 'function') return;
+  window.applyImportBatch = async function(){
+    DataStore.audit.setSource('import');
+    try{ return await orig.apply(this, arguments); }
+    finally{ DataStore.audit.setSource('ui'); }
+  };
+})();
 </script>
 <script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/v4513226cdae34746b4dedf0b4dfa099e1781791509496" integrity="sha512-ZE9pZaUXND66v380QUtch/5sE9tPFh2zg45pR2PB0CVkCtOREv2AJKkSidISWkysEuQ0EH8faUU5du78bx87UQ==" data-cf-beacon='{"version":"2024.11.0","token":"4edd5f8ec12a48cfa682ab8261b80a79"}' crossorigin="anonymous"></script>
 </body>
