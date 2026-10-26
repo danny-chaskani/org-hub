@@ -1562,10 +1562,11 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
         <div id="health-total" class="locked-note"></div>
         <div class="usage-bar" id="usage-bar"><div></div></div>
         <div id="health-attach" class="locked-note"></div>
+        <div id="health-files" class="locked-note"></div>
         <div id="health-schema" class="locked-note"></div>
-        <div class="locked-note">קובץ מצורף נשמר כטקסט (base64) וגדל בכ-33%. קובץ של 4MB תופס כ-5.3 מיליון תווים, יותר ממגבלה של כ-5 מיליון בדפדפנים רגילים, ועלול לא להישמר.</div>
+        <div class="locked-note">קבצים מצורפים נשמרים בנפרד מהנתונים (ב-IndexedDB, עד 10MB לקובץ) ולכן לא תופסים מהמכסה של כ-5 מיליון התווים. הם כלולים בגיבוי המלא.</div>
         <div class="table-scroll" style="max-height:280px;"><table><thead><tr><th>מפתח</th><th>פריטים</th><th>גודל (ק"ב)</th><th></th></tr></thead><tbody id="health-body"></tbody></table></div>
-        <div class="backup-actions" style="margin-top:12px;"><button class="ghost" id="health-refresh" type="button">רענן</button> <button class="ghost" id="bk-quota-btn" type="button">בדוק את המכסה בדפדפן הזה</button> <span id="bk-quota-result" class="locked-note"></span></div>
+        <div class="backup-actions" style="margin-top:12px;"><button class="ghost" id="health-refresh" type="button">רענן</button> <button class="ghost" id="bk-gc-btn" type="button">נקה קבצים יתומים</button> <button class="ghost" id="bk-quota-btn" type="button">בדוק את המכסה בדפדפן הזה</button> <span id="bk-quota-result" class="locked-note"></span></div>
         <h3 style="margin-top:18px;">שדרוגי נתונים</h3>
         <div id="migration-log"></div>
       </div>
@@ -1897,6 +1898,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
    Stage 2: record metadata (rev, updatedAt, updatedBy), a schema version and a
    migration framework that takes a safety backup before it changes anything.
    Stage 3: an append-only audit log (IndexedDB) written automatically on every save.
+   Stage 4: attached files live in IndexedDB as blobs; records keep only a fileId.
    Everything is asynchronous so that swapping the local adapter for a server
    adapter later does not change any caller.
    ================================================================ */
@@ -2115,6 +2117,56 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     }
   };
 
+  /* ---- files (stage 4): blobs in IndexedDB, referenced from records by fileId ---- */
+  function sha256Hex(buf){
+    if (!(window.crypto && crypto.subtle)) return Promise.resolve(null);
+    return crypto.subtle.digest('SHA-256', buf).then(function(h){ return Array.prototype.map.call(new Uint8Array(h), function(b){ return ('0' + b.toString(16)).slice(-2); }).join(''); });
+  }
+  function newFileId(){ return 'f' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
+  function stripBlob(rec){ var o = Object.assign({}, rec); delete o.blob; return o; }
+  function readAsDataUrl(blob){
+    return new Promise(function(resolve, reject){ var r = new FileReader(); r.onload = function(){ resolve(r.result); }; r.onerror = function(){ reject(r.error); }; r.readAsDataURL(blob); });
+  }
+  var blobs = {
+    /* stores a File/Blob, resolves its metadata (without the bytes) */
+    put: function(file, meta){
+      meta = meta || {};
+      return file.arrayBuffer().then(function(buf){
+        return sha256Hex(buf).then(function(sha){
+          var type = meta.type || file.type || 'application/octet-stream';
+          var rec = { id: meta.id || newFileId(), name: meta.name || file.name || 'file', type: type, size: buf.byteLength, sha256: sha,
+            ownerType: meta.ownerType || null, ownerId: meta.ownerId || null, createdAt: new Date().toISOString(), blob: new Blob([buf], { type: type }) };
+          return idbTx('blobs', 'readwrite', function(s){ return s.add(rec); }).then(function(){ return stripBlob(rec); });
+        });
+      });
+    },
+    get: function(id){ return idbTx('blobs', 'readonly', function(s){ return s.get(id); }).then(function(r){ return r || null; }); },
+    remove: function(id){ return idbTx('blobs', 'readwrite', function(s){ return s.delete(id); }); },
+    list: function(){ return idbTx('blobs', 'readonly', function(s){ return s.getAll(); }).then(function(a){ return (a || []).map(stripBlob); }).catch(function(){ return []; }); },
+    /* ids that no record references and that are older than minAgeMs (so a file being attached right now is never swept) */
+    orphans: function(referenced, minAgeMs){
+      return blobs.list().then(function(all){
+        var cutoff = Date.now() - (minAgeMs === undefined ? 600000 : minAgeMs);
+        return all.filter(function(b){ return !referenced[b.id] && new Date(b.createdAt).getTime() < cutoff; });
+      });
+    },
+    /* backup format: every blob as metadata plus a data URL */
+    exportAll: function(){
+      return idbTx('blobs', 'readonly', function(s){ return s.getAll(); }).catch(function(){ return []; }).then(function(all){
+        return Promise.all((all || []).map(function(r){ return readAsDataUrl(r.blob).then(function(d){ var o = stripBlob(r); o.dataUrl = d; return o; }); }));
+      });
+    },
+    /* atomic replace of the whole store from backup items */
+    replaceAll: function(items){
+      return Promise.all((items || []).map(function(it){
+        return fetch(it.dataUrl).then(function(r){ return r.blob(); }).then(function(b){ var o = Object.assign({}, it); delete o.dataUrl; o.blob = new Blob([b], { type: it.type }); return o; });
+      })).then(function(recs){
+        return idbTx('blobs', 'readwrite', function(s){ s.clear(); recs.forEach(function(r){ s.add(r); }); });
+      });
+    },
+    sha256: sha256Hex
+  };
+
   /* ---- reads and writes of a named key ---- */
   function get(name, fallback){
     return adapter().getRaw(name).then(function(raw){
@@ -2261,13 +2313,44 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     }
   });
 
+  /* M4: move attached files out of the records (data URLs) into IndexedDB blobs, verified byte for byte */
+  registerMigration({
+    id: 'M4', version: 3, title: 'העברת קבצים מצורפים ל-IndexedDB',
+    run: async function(ctx){
+      var report = { files: 0, bytes: 0, keptInRecord: 0, errors: [] };
+      var moved = async function(f, ownerType, ownerId){
+        if (!f || typeof f.dataUrl !== 'string') return false;
+        try{
+          var blob = await (await fetch(f.dataUrl)).blob();
+          var buf = await blob.arrayBuffer(), sha = await sha256Hex(buf);
+          var meta = await blobs.put(blob, { name: f.name, type: blob.type || 'application/octet-stream', ownerType: ownerType, ownerId: ownerId });
+          var back = await blobs.get(meta.id);
+          var backBuf = back ? await back.blob.arrayBuffer() : null;
+          if (!backBuf || backBuf.byteLength !== buf.byteLength || (await sha256Hex(backBuf)) !== sha){ await blobs.remove(meta.id); throw new Error('אימות הקובץ נכשל: ' + (f.name || '')); }
+          f.fileId = meta.id; f.sha256 = sha; f.type = meta.type; f.size = f.size || buf.byteLength; delete f.dataUrl;
+          report.files++; report.bytes += buf.byteLength;
+          return true;
+        }catch(e){ report.keptInRecord++; report.errors.push(String(e && e.message || e)); return false; }
+      };
+      var info = await ctx.get('infoItems', null), reqs = await ctx.get('attendanceRequests', null), tasks = await ctx.get('tasks', null);
+      var changed = { infoItems: false, attendanceRequests: false, tasks: false };
+      if (Array.isArray(info)) for (var i = 0; i < info.length; i++){ if (await moved(info[i].file, 'infoItems', info[i].id)) changed.infoItems = true; }
+      if (Array.isArray(reqs)) for (var j = 0; j < reqs.length; j++){ if (await moved(reqs[j].file, 'attendanceRequests', reqs[j].id)) changed.attendanceRequests = true; }
+      if (Array.isArray(tasks)) for (var k = 0; k < tasks.length; k++){ var cs = tasks[k].comments || []; for (var m = 0; m < cs.length; m++){ if (await moved(cs[m].file, 'tasks', tasks[k].id)) changed.tasks = true; } }
+      if (changed.infoItems && !(await ctx.set('infoItems', info))) throw new Error('כתיבה נכשלה ב-infoItems');
+      if (changed.attendanceRequests && !(await ctx.set('attendanceRequests', reqs))) throw new Error('כתיבה נכשלה ב-attendanceRequests');
+      if (changed.tasks && !(await ctx.set('tasks', tasks))) throw new Error('כתיבה נכשלה ב-tasks');
+      return report;
+    }
+  });
+
   window.DataStore = {
     PREFIX: PREFIX,
     get: get, set: set, remove: remove, keys: keys, collection: collection,
     on: on, off: off, emit: emit,
     adapterName: function(){ return adapter().name; },
     META_COLLECTIONS: META_COLLECTIONS,
-    openDb: openDb, idbTx: idbTx, audit: audit,
+    openDb: openDb, idbTx: idbTx, audit: audit, blobs: blobs,
     schemaVersion: schemaVersion, latestSchema: latestSchema,
     registerMigration: registerMigration, migrate: migrate,
     migrationState: function(){ return migrationState; },
@@ -2345,18 +2428,69 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
 
   window.hubShowError = function(title, detail){ failures++; showBanner(title, detail); };
 
-  /* returns '' when the file can be attached, otherwise the reason (Hebrew) */
-  window.hubAttachmentProblem = function(file){
-    if (!file) return '';
+  /* old rule, only used when IndexedDB is unavailable and files must stay inside localStorage */
+  function legacyAttachmentProblem(file){
     var prefix = ('data:' + (file.type || 'application/octet-stream') + ';base64,').length;
     var est = Math.ceil(file.size / 3) * 4 + prefix;
     var free = LIMIT - usedChars() - MARGIN;
     if (est <= free) return '';
+    return 'הקובץ "' + file.name + '" (' + (file.size / 1048576).toFixed(1) + ' MB) לא ייכנס לשמירה בדפדפן הזה, ולכן לא צורף ושום דבר לא נשמר.\n\nאחרי הקידוד הוא תופס כ-' + mChars(est) + ' מיליון תווים, ונשאר מקום לכ-' + mChars(Math.max(0, free)) + ' מיליון.';
+  }
+  var MAX_FILE = 10 * 1048576;
+  window.hubMaxAttachmentBytes = MAX_FILE;
+
+  /* resolves '' when the file can be attached, otherwise the reason (Hebrew). Files go to IndexedDB, so the limits are
+     a per-file cap and the free space the browser reports, not the 5M-character localStorage limit. */
+  window.hubAttachmentProblem = async function(file){
+    if (!file) return '';
     var mb = (file.size / 1048576).toFixed(1);
-    var hint = file.size > 3 * 1048576 ? 'נסה לצמצם או לדחוס את הקובץ (עד כ-3MB).' : 'פנה מקום (מחק קבצים מצורפים ישנים) או הורד גיבוי ומחק נתונים שאינם נחוצים.';
-    return 'הקובץ "' + file.name + '" (' + mb + ' MB) לא ייכנס לשמירה, ולכן לא צורף ושום דבר לא נשמר.\n\n'
-      + 'אחרי הקידוד לשמירה בדפדפן הוא תופס כ-' + mChars(est) + ' מיליון תווים, ונשאר מקום לכ-' + mChars(Math.max(0, free)) + ' מיליון (מתוך כ-5 מיליון, המגבלה השמרנית של הדפדפנים).\n\n' + hint;
+    if (!window.indexedDB) return legacyAttachmentProblem(file);
+    if (file.size > MAX_FILE) return 'הקובץ "' + file.name + '" (' + mb + ' MB) גדול מדי, ולכן לא צורף ושום דבר לא נשמר.\n\nהגודל המקסימלי לקובץ מצורף הוא ' + (MAX_FILE / 1048576) + ' MB. אפשר לדחוס או לצמצם את הקובץ ולנסות שוב.';
+    try{
+      if (navigator.storage && navigator.storage.estimate){
+        var est = await navigator.storage.estimate();
+        var free = (est.quota || 0) - (est.usage || 0);
+        var need = file.size * 2 + 2000000;           /* the copy being written plus room for the backup and the log */
+        if (est.quota && free < need) return 'הקובץ "' + file.name + '" (' + mb + ' MB) לא ייכנס לשמירה: נשאר בדפדפן מקום פנוי של כ-' + Math.max(0, free / 1048576).toFixed(0) + ' MB בלבד, ולכן הקובץ לא צורף ושום דבר לא נשמר.\n\nפנה מקום (מחק קבצים מצורפים ישנים או נקה קבצים יתומים בלשונית "משתמשים") ונסה שוב.';
+      }
+    }catch(e){}
+    return '';
   };
+
+  /* stores the file and resolves the attachment descriptor kept in the record */
+  window.hubStoreAttachment = async function(file, ownerType){
+    if (!window.indexedDB || !window.DataStore){
+      return await new Promise(function(resolve, reject){
+        var r = new FileReader(); r.onload = function(){ resolve({ name: file.name, dataUrl: r.result, size: file.size }); }; r.onerror = function(){ reject(r.error); }; r.readAsDataURL(file);
+      });
+    }
+    try{
+      var m = await DataStore.blobs.put(file, { ownerType: ownerType || null });
+      return { name: m.name, size: m.size, type: m.type, fileId: m.id, sha256: m.sha256 };
+    }catch(e){
+      window.hubShowError('השמירה נכשלה – הקובץ לא נשמר. הנתונים לא נשמרו.', 'נכשלה שמירת הקובץ "' + file.name + '" באחסון הדפדפן (' + ((e && e.name) || 'שגיאה') + '). מה שמוצג במסך לא נשמר. פנה מקום ונסה שוב.');
+      throw e;
+    }
+  };
+
+  /* markup attributes for a download link: files in IndexedDB are fetched on click, legacy ones keep their data URL */
+  function attr(s){ return String(s === undefined || s === null ? '' : s).replace(/[&<>"']/g, function(c){ return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  window.hubFileLink = function(f){
+    if (f && f.fileId) return 'href="#" data-file-id="' + attr(f.fileId) + '" data-file-name="' + attr(f.name) + '"';
+    return 'href="' + attr(f && f.dataUrl || '#') + '" download="' + attr(f && f.name) + '"';
+  };
+  document.addEventListener('click', async function(e){
+    var a = e.target.closest ? e.target.closest('a[data-file-id]') : null;
+    if (!a) return;
+    e.preventDefault();
+    try{
+      var rec = await DataStore.blobs.get(a.getAttribute('data-file-id'));
+      if (!rec){ window.hubShowError('הקובץ לא נמצא', 'הקובץ המצורף אינו קיים באחסון הדפדפן (ייתכן שנמחק או שהגיבוי ששוחזר נוצר בלעדיו).'); return; }
+      var url = URL.createObjectURL(rec.blob), d = document.createElement('a');
+      d.href = url; d.download = a.getAttribute('data-file-name') || rec.name; document.body.appendChild(d); d.click(); d.remove();
+      setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
+    }catch(err){ window.hubShowError('פתיחת הקובץ נכשלה', String(err && err.message || err)); }
+  });
 })();
 </script>
 <script>
@@ -2402,7 +2536,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
   }
   function canonical(keys){ return JSON.stringify(Object.keys(keys).sort().map(function(n){ return [n, keys[n]]; })); }
   /* what the checksum covers: the data keys, plus the audit log when the file has one */
-  function checksumInput(data){ return canonical(data.keys) + (Array.isArray(data.audit) ? '|audit:' + JSON.stringify(data.audit) : ''); }
+  function checksumInput(data){ return canonical(data.keys) + (Array.isArray(data.audit) ? '|audit:' + JSON.stringify(data.audit) : '') + (Array.isArray(data.blobs) ? '|blobs:' + JSON.stringify(data.blobs.map(function(b){ return [b.id, b.sha256, b.size]; }).sort()) : ''); }
   async function sha256(str){
     if (!(window.crypto && crypto.subtle)) return 'none';
     var buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
@@ -2436,11 +2570,12 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     var counts = {}; Object.keys(keys).forEach(function(n){ counts[n] = itemCount(keys[n]); });
     var user = (typeof currentUser === 'function' && currentUser()) || null;
     var auditLog = (window.DataStore && DataStore.audit) ? await DataStore.audit.all() : [];
+    var blobItems = (window.DataStore && DataStore.blobs) ? await DataStore.blobs.exportAll() : [];
     var out = {
       format: FORMAT, version: VERSION, schemaVersion: currentSchema(),
       createdAt: new Date().toISOString(), createdBy: user ? user.username : '', reason: reason || 'manual',
       origin: location.origin, includesUsers: !!includeUsers,
-      keys: keys, counts: counts, audit: auditLog
+      keys: keys, counts: counts, audit: auditLog, blobs: blobItems
     };
     out.checksum = 'sha256:' + await sha256(checksumInput(out));
     return out;
@@ -2459,6 +2594,16 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     if (data.checksum && data.checksum.indexOf('sha256:') === 0 && data.checksum !== 'sha256:none'){
       var actual = 'sha256:' + await sha256(checksumInput(data));
       if (actual !== data.checksum) throw new Error('סכום הביקורת אינו תואם: הקובץ שונה או נפגם אחרי היצירה');
+    }
+    if (Array.isArray(data.blobs)){
+      for (var bi = 0; bi < data.blobs.length; bi++){
+        var bl = data.blobs[bi];
+        if (!bl || typeof bl.dataUrl !== 'string') throw new Error('מבנה הגיבוי פגום (קובץ מצורף בלי תוכן)');
+        if (bl.sha256 && window.DataStore && DataStore.blobs){
+          var bytes = await (await fetch(bl.dataUrl)).arrayBuffer();
+          if ((await DataStore.blobs.sha256(bytes)) !== bl.sha256) throw new Error('הקובץ המצורף "' + bl.name + '" בגיבוי פגום (סכום הביקורת שלו אינו תואם)');
+        }
+      }
     }
     var bad = names.filter(function(n){ return itemCount(data.keys[n]) === -1; });
     data.__badKeys = bad;
@@ -2513,6 +2658,8 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
   async function applyBackup(data, opts){
     opts = opts || {};
     var before = readAll(true);                         /* in-memory rollback copy */
+    var hasAudit = Array.isArray(data.audit) && window.DataStore && DataStore.audit, hasBlobs = Array.isArray(data.blobs) && window.DataStore && DataStore.blobs;
+    var beforeAudit = hasAudit ? await DataStore.audit.all() : null, beforeBlobs = hasBlobs ? await DataStore.blobs.exportAll() : null;
     var keepUsers = !data.includesUsers;
     var toRemove = hubKeys().filter(function(k){ return !(keepUsers && k === PREFIX + 'users'); });
     try{
@@ -2521,10 +2668,12 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
         if (keepUsers && n === 'users') return;
         localStorage.setItem(PREFIX + n, data.keys[n]);
       });
-      if (Array.isArray(data.audit) && window.DataStore && DataStore.audit) await DataStore.audit.replaceAll(data.audit);
+      if (hasBlobs) await DataStore.blobs.replaceAll(data.blobs);
+      if (hasAudit) await DataStore.audit.replaceAll(data.audit);
     }catch(e){
       hubKeys().forEach(function(k){ localStorage.removeItem(k); });
       Object.keys(before).forEach(function(n){ try{ localStorage.setItem(PREFIX + n, before[n]); }catch(err){} });
+      try{ if (hasBlobs) await DataStore.blobs.replaceAll(beforeBlobs); if (hasAudit) await DataStore.audit.replaceAll(beforeAudit); }catch(err){ console.error('could not roll back IndexedDB', err); }
       throw new Error('השחזור נכשל וכל הנתונים הקודמים הוחזרו (' + (e && e.name ? e.name : 'שגיאה') + ')');
     }
     return before;
@@ -2625,7 +2774,10 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
           return '<tr><td>' + esc(m.id) + '</td><td>' + esc(m.title) + '</td><td>' + esc(new Date(m.at).toLocaleString('he-IL')) + '</td><td>' + n + '</td></tr>'; }).join('') + '</tbody></table></div>' : '<div class="locked-note">עדיין לא בוצעו שדרוגי נתונים.</div>';
       });
     }
-    el('health-attach').textContent = a.n ? ('קבצים מצורפים: ' + a.n + ', ' + fmtKb(a.chars) + ' ק"ב בסה"כ, הגדול ביותר ' + fmtKb(a.max) + ' ק"ב.') : 'אין קבצים מצורפים.';
+    function referencedIds(){ var refs = {}; var g = function(n){ try{ return JSON.parse(localStorage.getItem(PREFIX + n) || 'null'); }catch(e){ return null; } }; (g('infoItems') || []).forEach(function(i){ if (i && i.file && i.file.fileId) refs[i.file.fileId] = 1; }); (g('attendanceRequests') || []).forEach(function(r){ if (r && r.file && r.file.fileId) refs[r.file.fileId] = 1; }); (g('tasks') || []).forEach(function(t){ ((t && t.comments) || []).forEach(function(c){ if (c && c.file && c.file.fileId) refs[c.file.fileId] = 1; }); }); return refs; }
+    window.hubReferencedFileIds = referencedIds;
+    if (window.DataStore && DataStore.blobs){ DataStore.blobs.list().then(function(list){ var refs = referencedIds(), sz = list.reduce(function(s, b){ return s + b.size; }, 0), orph = list.filter(function(b){ return !refs[b.id]; }).length; var box = el('health-files'); if (box) box.textContent = 'קבצים מצורפים באחסון הדפדפן (IndexedDB): ' + list.length + ', ' + (sz / 1048576).toFixed(2) + ' MB' + (orph ? ', מתוכם ' + orph + ' יתומים (שאף רשומה לא מפנה אליהם)' : '') + '.'; }); }
+    el('health-attach').textContent = a.n ? ('קבצים בתוך הנתונים (פורמט ישן): ' + a.n + ', ' + fmtKb(a.chars) + ' ק"ב בסה"כ, הגדול ביותר ' + fmtKb(a.max) + ' ק"ב.') : 'אין קבצים מצורפים.';
   }
   async function probeQuota(){
     var out = el('bk-quota-result'); if (!out) return;
@@ -2648,6 +2800,15 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     el('bk-restore-btn').addEventListener('click', restore);
     el('health-refresh').addEventListener('click', function(){ renderHealth(); renderAuto(); });
     el('bk-quota-btn').addEventListener('click', probeQuota);
+    el('bk-gc-btn').addEventListener('click', async function(){
+      if (!window.DataStore) return;
+      var orphans = await DataStore.blobs.orphans(window.hubReferencedFileIds ? window.hubReferencedFileIds() : {}, 600000);
+      if (!orphans.length){ say('אין קבצים יתומים (קבצים שאף רשומה לא מפנה אליהם ושנוצרו לפני יותר מ-10 דקות).', 'ok'); return; }
+      if (!confirm('למחוק ' + orphans.length + ' קבצים יתומים (' + (orphans.reduce(function(s, b){ return s + b.size; }, 0) / 1048576).toFixed(2) + ' MB)? אי אפשר לשחזר אותם אלא מגיבוי.')) return;
+      for (var oi = 0; oi < orphans.length; oi++) await DataStore.blobs.remove(orphans[oi].id);
+      DataStore.audit.logEvent('files-cleanup', { removed: orphans.length });
+      say('נמחקו ' + orphans.length + ' קבצים יתומים.', 'ok'); renderHealth();
+    });
     el('bk-auto-list').addEventListener('click', function(e){
       var b = e.target.closest ? e.target.closest('[data-bk-act]') : null; if (!b) return;
       var id = Number(b.getAttribute('data-bk-id')), act = b.getAttribute('data-bk-act');
@@ -2775,24 +2936,17 @@ let state = {
 
 function uid(prefix){ return prefix + Math.random().toString(36).slice(2,9); }
 
-function readFileInputAsAttachment(inputId){
-  return new Promise((resolve, reject)=>{
-    const inp = document.getElementById(inputId);
-    if (!inp || !inp.files || !inp.files.length){ resolve(null); return; }
-    const file = inp.files[0];
-    const problem = (typeof hubAttachmentProblem === 'function') ? hubAttachmentProblem(file) : (file.size > 4*1024*1024 ? 'הקובץ גדול מדי — הגודל המקסימלי הוא כ-4MB' : '');
-    if (problem){
-      alert(problem);
-      reject(new Error('file-too-large'));
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = ()=> resolve({name:file.name, dataUrl:reader.result, size:file.size});
-    reader.onerror = ()=> reject(reader.error);
-    reader.readAsDataURL(file);
-  });
+async function readFileInputAsAttachment(inputId){
+  const inp = document.getElementById(inputId);
+  if (!inp || !inp.files || !inp.files.length) return null;
+  const file = inp.files[0];
+  const problem = (typeof hubAttachmentProblem === 'function') ? await hubAttachmentProblem(file) : (file.size > 4*1024*1024 ? 'הקובץ גדול מדי — הגודל המקסימלי הוא כ-4MB' : '');
+  if (problem){
+    alert(problem);
+    throw new Error('file-too-large');
+  }
+  return await hubStoreAttachment(file, inputId);
 }
-
 function seedData(){
   /* A fresh install starts with one neutral record for the main (system) user; no sample people are created. */
   const sys = {id: uid('e'), name:'משתמש מערכת', role:'', department:'', managerId:null, email:'', phone:'', startDate:''};
@@ -4694,7 +4848,7 @@ function openTaskComments(taskId){
         return `<div class="comment-item">
           <div class="comment-head"><strong>${author?escapeHtml(author.name):'—'}</strong><span class="comment-date">${new Date(c.createdAt).toLocaleString('he-IL')}</span></div>
           ${c.text?`<div class="comment-text">${escapeHtml(c.text)}</div>`:''}
-          ${c.file?`<a class="comment-file" href="${c.file.dataUrl}" download="${escapeHtml(c.file.name)}">📎 ${escapeHtml(c.file.name)}</a>`:''}
+          ${c.file?`<a class="comment-file" ${hubFileLink(c.file)}>📎 ${escapeHtml(c.file.name)}</a>`:''}
         </div>`;
       }).join('')
     : `<div class="empty-state" style="padding:16px;">אין עדיין תגובות למשימה זו</div>`;
@@ -4705,7 +4859,7 @@ function openTaskComments(taskId){
     <div class="comments-list">${commentsHtml}</div>
     <div class="form-section-title">הוסף תגובה</div>
     <div class="field"><textarea id="cm-text" placeholder="כתוב עדכון, סטטוס או תגובה..."></textarea></div>
-    <div class="field"><label>קובץ מצורף (אופציונלי, עד כ-4MB)</label><input type="file" id="cm-file"></div>
+    <div class="field"><label>קובץ מצורף (אופציונלי, עד 10MB)</label><input type="file" id="cm-file"></div>
     <div class="modal-actions">
       <button class="primary" onclick="addTaskComment('${taskId}')">שלח תגובה</button>
       <button class="ghost" onclick="closeModal()">סגור</button>
@@ -4786,7 +4940,7 @@ function renderMgrInfo(){
       </div>
       ${i.content?`<div class="p-section"><div class="p-desc">${escapeHtml(i.content)}</div></div>`:''}
       ${extraEmps.length?`<div class="p-section" style="font-size:12px; color:var(--text-dim);">שותפו גם עם: ${extraEmps.map(e=>escapeHtml(e.name)).join(', ')}</div>`:''}
-      ${i.file?`<a class="comment-file" href="${i.file.dataUrl}" download="${escapeHtml(i.file.name)}">📎 ${escapeHtml(i.file.name)}</a>`:''}
+      ${i.file?`<a class="comment-file" ${hubFileLink(i.file)}>📎 ${escapeHtml(i.file.name)}</a>`:''}
       <div class="p-foot">
         <span>הועלה ע"י ${author?escapeHtml(author.name):'—'} · ${new Date(i.createdAt).toLocaleDateString('he-IL')}</span>
         <button class="icon-btn danger-txt" onclick="deleteInfoItem('${i.id}')">🗑️</button>
@@ -4806,7 +4960,7 @@ function openInfoForm(){
     </div>
     <div class="field"><label>כותרת</label><input type="text" id="info-title"></div>
     <div class="field"><label>תוכן</label><textarea id="info-content" placeholder="פרטי המידע..."></textarea></div>
-    <div class="field"><label>קובץ מצורף (אופציונלי, עד כ-4MB)</label><input type="file" id="info-file"></div>
+    <div class="field"><label>קובץ מצורף (אופציונלי, עד 10MB)</label><input type="file" id="info-file"></div>
     <div class="locked-note">🔒 ברירת מחדל: המידע גלוי אליך ולכל מי שבכיר ממך במבנה הארגוני. ניתן להרחיב את החשיפה מטה.</div>
     <div class="field"><label>שתף גם לפי דרגה (אופציונלי)</label><div class="checkbox-list">${rankChecks}</div></div>
     <div class="field"><label>שתף גם עם עובדים ספציפיים (אופציונלי)</label>${employeeCheckboxList('info-allowedEmployees', [])}</div>
@@ -5713,7 +5867,7 @@ function openAttendanceRequestForm(){
     <div class="field"><label>תאריך</label><input type="date" id="req-date" value="${new Date().toISOString().slice(0,10)}"></div>
     <div class="field"><label>סטטוס מבוקש</label><select id="req-status">${options}</select></div>
     <div class="field"><label>הערה / הסבר</label><textarea id="req-note" placeholder="לדוגמה: אישור מחלה מצורף..."></textarea></div>
-    <div class="field"><label>קובץ מצורף (אופציונלי, עד כ-4MB)</label><input type="file" id="req-file"></div>
+    <div class="field"><label>קובץ מצורף (אופציונלי, עד 10MB)</label><input type="file" id="req-file"></div>
     <div class="locked-note">📤 הבקשה תישלח למי שבכיר ממך במבנה הארגוני לאישור</div>
     <div class="modal-actions">
       <button class="primary" onclick="submitAttendanceRequest()">שלח בקשה</button>
@@ -5777,7 +5931,7 @@ function renderAttendanceRequests(){
         <span class="req-status ${r.status}">${statusLabelHe[r.status]}</span>
       </div>
       ${r.note?`<div class="r-note">${escapeHtml(r.note)}</div>`:''}
-      ${r.file?`<a class="comment-file" href="${r.file.dataUrl}" download="${escapeHtml(r.file.name)}">📎 ${escapeHtml(r.file.name)}</a>`:''}
+      ${r.file?`<a class="comment-file" ${hubFileLink(r.file)}>📎 ${escapeHtml(r.file.name)}</a>`:''}
       ${r.status==='pending' ? `<div class="r-actions">
         <button class="ghost" onclick="resolveAttendanceRequest('${r.id}', 'approved')">✔ אשר</button>
         <button class="ghost danger-txt" onclick="resolveAttendanceRequest('${r.id}', 'rejected')">✕ דחה</button>
