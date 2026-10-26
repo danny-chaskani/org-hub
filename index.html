@@ -1086,6 +1086,19 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     nav.tabs{ transition: none !important; }
     body{ transition: none; }
   }
+  /* backup and data health */
+  .backup-section{ padding: 16px 0; border-top: 1px solid var(--rule); }
+  .backup-section:first-child{ padding-top: 0; border-top: 0; }
+  .backup-section h3{ font-size: 15px; margin: 0 0 8px; }
+  .backup-section .locked-note{ display: block; }
+  .backup-actions{ display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 12px; }
+  .backup-msg{ font-size: 13px; margin-top: 10px; min-height: 18px; }
+  .backup-msg.ok{ color: var(--positive); }
+  .backup-msg.err{ color: var(--negative); }
+  .usage-bar{ height: 8px; background: var(--active); border-radius: 4px; overflow: hidden; margin: 6px 0; }
+  .usage-bar > div{ height: 100%; width: 0; background: var(--accent); transition: width 240ms var(--ease-out); }
+  .usage-bar.warn > div{ background: var(--warning); }
+  .usage-bar.danger > div{ background: var(--negative); }
   /* Reduced motion: keep fades, drop travel */
   @media (prefers-reduced-motion: reduce){
     .modal, .modal-backdrop, .panel.active{ animation-name: panelIn; }
@@ -1511,6 +1524,38 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
         </table>
       </div>
     </div>
+
+    <div class="panel-head" style="margin-top:28px;">
+      <div><h2 style="font-size:18px;">גיבוי ושחזור</h2><p>הורדת כל נתוני המערכת לקובץ אחד ושחזורם. הנתונים שמורים כרגע רק בדפדפן הזה, ולכן כדאי לגבות לפני שינוי גדול.</p></div>
+    </div>
+    <div class="card" id="backupCard">
+      <div class="backup-section">
+        <h3>גיבוי</h3>
+        <label class="checkbox-row"><input type="checkbox" id="bk-include-users" checked> לכלול חשבונות משתמשים (שמות משתמש וסיסמאות מוצפנות)</label>
+        <div class="backup-actions"><button class="primary" id="bk-export-btn" type="button">הורד גיבוי מלא</button></div>
+      </div>
+      <div class="backup-section">
+        <h3>שחזור מקובץ</h3>
+        <div class="locked-note">בחר קובץ גיבוי. הוא נבדק לפני כל שינוי, ורק אחרי אישור שלך הנתונים הנוכחיים מוחלפים.</div>
+        <input type="file" id="bk-file" accept=".json,application/json">
+        <div id="bk-preview"></div>
+        <div class="backup-actions"><button class="ghost danger-txt" id="bk-restore-btn" type="button" disabled>שחזר מהקובץ</button></div>
+        <div id="bk-msg" class="backup-msg" role="status" aria-live="polite"></div>
+      </div>
+      <div class="backup-section">
+        <h3>גיבויי בטיחות אוטומטיים</h3>
+        <div id="bk-auto-list"></div>
+      </div>
+      <div class="backup-section">
+        <h3>מצב הנתונים והמכסה</h3>
+        <div id="health-total" class="locked-note"></div>
+        <div class="usage-bar" id="usage-bar"><div></div></div>
+        <div id="health-attach" class="locked-note"></div>
+        <div class="locked-note">קובץ מצורף נשמר כטקסט (base64) וגדל בכ-33%. קובץ של 4MB תופס כ-5.3 מיליון תווים, יותר ממגבלה של כ-5 מיליון בדפדפנים רגילים, ועלול לא להישמר.</div>
+        <div class="table-scroll" style="max-height:280px;"><table><thead><tr><th>מפתח</th><th>פריטים</th><th>גודל (ק"ב)</th><th></th></tr></thead><tbody id="health-body"></tbody></table></div>
+        <div class="backup-actions" style="margin-top:12px;"><button class="ghost" id="health-refresh" type="button">רענן</button> <button class="ghost" id="bk-quota-btn" type="button">בדוק את המכסה בדפדפן הזה</button> <span id="bk-quota-result" class="locked-note"></span></div>
+      </div>
+    </div>
   </section>
 
 </main>
@@ -1811,6 +1856,302 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     await storeSet('dashboardLayout', state.dashboardLayout);
   };
   setArrangeUi();
+})();
+</script>
+<script>
+/* ================================================================
+   Stage 0: backup, restore and data health (additive).
+   Works on the raw "hub:*" localStorage keys, so a restored file is
+   byte-identical to what was exported. Safety copies go to IndexedDB.
+   ================================================================ */
+(function(){
+  'use strict';
+  var PREFIX = 'hub:';
+  var FORMAT = 'org-hub-backup';
+  var VERSION = 1;
+  var SCHEMA_VERSION = 1;             /* data schema this file was written against */
+  var CONSERVATIVE_LIMIT = 5000000;   /* characters: the usual per-origin localStorage limit of desktop browsers (~5 MB) */
+  var AUTO_KEEP = 5;
+  var el = function(id){ return document.getElementById(id); };
+  var esc = function(s){ return typeof escapeHtml === 'function' ? escapeHtml(s) : String(s); };
+  var pending = null;                 /* parsed backup waiting for confirmation */
+
+  function isLocalMode(){ return !(typeof hasArtifactStorage === 'function' && hasArtifactStorage()); }
+  function hubKeys(){
+    var out = [];
+    for (var i = 0; i < localStorage.length; i++){ var k = localStorage.key(i); if (k && k.indexOf(PREFIX) === 0) out.push(k); }
+    return out.sort();
+  }
+  function readAll(includeUsers){
+    var keys = {};
+    hubKeys().forEach(function(k){
+      var name = k.slice(PREFIX.length);
+      if (!includeUsers && name === 'users') return;
+      keys[name] = localStorage.getItem(k);
+    });
+    return keys;
+  }
+  function itemCount(raw){
+    try{
+      var v = JSON.parse(raw);
+      if (Array.isArray(v)) return v.length;
+      if (v && typeof v === 'object') return Object.keys(v).length;
+      return v === null ? 0 : 1;
+    }catch(e){ return -1; }
+  }
+  function canonical(keys){ return JSON.stringify(Object.keys(keys).sort().map(function(n){ return [n, keys[n]]; })); }
+  async function sha256(str){
+    if (!(window.crypto && crypto.subtle)) return 'none';
+    var buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+    return Array.prototype.map.call(new Uint8Array(buf), function(b){ return ('0' + b.toString(16)).slice(-2); }).join('');
+  }
+  function fmtKb(chars){ return (chars / 1024).toFixed(1); }
+  function stamp(d){
+    var p = function(n){ return ('0' + n).slice(-2); };
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + '-' + p(d.getHours()) + p(d.getMinutes());
+  }
+  function say(text, kind){
+    var m = el('bk-msg'); if (!m) return;
+    m.textContent = text || '';
+    m.className = 'backup-msg' + (kind ? ' ' + kind : '');
+  }
+
+  /* ---------- IndexedDB (safety copies) ---------- */
+  function openDb(){
+    return new Promise(function(resolve, reject){
+      if (!window.indexedDB){ reject(new Error('no-indexeddb')); return; }
+      var req = indexedDB.open('hub-db', 1);
+      req.onupgradeneeded = function(){ var db = req.result; if (!db.objectStoreNames.contains('backups')) db.createObjectStore('backups', { keyPath: 'id', autoIncrement: true }); };
+      req.onsuccess = function(){ resolve(req.result); };
+      req.onerror = function(){ reject(req.error); };
+    });
+  }
+  function tx(mode, fn){
+    return openDb().then(function(db){
+      return new Promise(function(resolve, reject){
+        var t = db.transaction('backups', mode), store = t.objectStore('backups'), out = fn(store);
+        t.oncomplete = function(){ db.close(); resolve(out && out.result !== undefined ? out.result : undefined); };
+        t.onerror = function(){ db.close(); reject(t.error); };
+        t.onabort = function(){ db.close(); reject(t.error); };
+      });
+    });
+  }
+  function autoList(){ return tx('readonly', function(s){ return s.getAll(); }).then(function(r){ return (r || []).sort(function(a, b){ return b.id - a.id; }); }); }
+  function autoPut(rec){ return tx('readwrite', function(s){ return s.add(rec); }); }
+  function autoDelete(id){ return tx('readwrite', function(s){ return s.delete(id); }); }
+  function autoGet(id){ return tx('readonly', function(s){ return s.get(id); }); }
+  async function trimAuto(){
+    var list = await autoList();
+    for (var i = AUTO_KEEP; i < list.length; i++) await autoDelete(list[i].id);
+  }
+
+  /* ---------- build / parse ---------- */
+  async function buildBackup(includeUsers, reason){
+    var keys = readAll(includeUsers);
+    var counts = {}; Object.keys(keys).forEach(function(n){ counts[n] = itemCount(keys[n]); });
+    var user = (typeof currentUser === 'function' && currentUser()) || null;
+    return {
+      format: FORMAT, version: VERSION, schemaVersion: SCHEMA_VERSION,
+      createdAt: new Date().toISOString(), createdBy: user ? user.username : '', reason: reason || 'manual',
+      origin: location.origin, includesUsers: !!includeUsers,
+      keys: keys, counts: counts, checksum: 'sha256:' + await sha256(canonical(keys))
+    };
+  }
+  async function parseBackup(text){
+    var data;
+    try{ data = JSON.parse(text); }catch(e){ throw new Error('הקובץ אינו JSON תקין'); }
+    if (!data || data.format !== FORMAT) throw new Error('זה אינו קובץ גיבוי של המערכת');
+    if (typeof data.version !== 'number' || data.version > VERSION) throw new Error('גרסת הגיבוי חדשה מהגרסה שהמערכת מכירה (' + data.version + ')');
+    if (!data.keys || typeof data.keys !== 'object' || Array.isArray(data.keys)) throw new Error('מבנה הגיבוי פגום (חסרים נתונים)');
+    var names = Object.keys(data.keys);
+    for (var i = 0; i < names.length; i++){
+      if (typeof data.keys[names[i]] !== 'string') throw new Error('מבנה הגיבוי פגום (ערך לא תקין במפתח ' + names[i] + ')');
+    }
+    if (data.checksum && data.checksum.indexOf('sha256:') === 0 && data.checksum !== 'sha256:none'){
+      var actual = 'sha256:' + await sha256(canonical(data.keys));
+      if (actual !== data.checksum) throw new Error('סכום הביקורת אינו תואם: הקובץ שונה או נפגם אחרי היצירה');
+    }
+    var bad = names.filter(function(n){ return itemCount(data.keys[n]) === -1; });
+    data.__badKeys = bad;
+    return data;
+  }
+
+  /* ---------- export ---------- */
+  async function exportBackup(){
+    if (!isLocalMode()){ say('גיבוי נתמך רק כשהנתונים נשמרים בדפדפן (localStorage).', 'err'); return; }
+    var includeUsers = !!(el('bk-include-users') && el('bk-include-users').checked);
+    var data = await buildBackup(includeUsers, 'manual');
+    var blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'org-hub-backup-' + stamp(new Date()) + '.json';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function(){ URL.revokeObjectURL(a.href); }, 2000);
+    var total = Object.keys(data.counts).reduce(function(s, k){ return s + Math.max(0, data.counts[k]); }, 0);
+    say('הגיבוי הורד: ' + Object.keys(data.keys).length + ' מפתחות, ' + total + ' פריטים, ' + fmtKb(JSON.stringify(data).length) + ' ק"ב. שמור את הקובץ מחוץ לדפדפן.', 'ok');
+    return data;
+  }
+
+  /* ---------- restore ---------- */
+  function renderPreview(data){
+    var box = el('bk-preview'); if (!box) return;
+    if (!data){ box.innerHTML = ''; el('bk-restore-btn').disabled = true; return; }
+    var cur = readAll(true);
+    var names = Array.from(new Set(Object.keys(data.keys).concat(Object.keys(cur)))).sort();
+    var rows = names.map(function(n){
+      var inB = data.keys[n] !== undefined, inC = cur[n] !== undefined;
+      var cb = inB ? itemCount(data.keys[n]) : '—', cc = inC ? itemCount(cur[n]) : '—';
+      var same = inB && inC && data.keys[n] === cur[n];
+      var note = !inB ? (n === 'users' && !data.includesUsers ? 'לא בגיבוי (החשבונות הנוכחיים יישארו)' : 'יימחק (לא בגיבוי)') : !inC ? 'יתווסף' : same ? 'זהה' : 'יוחלף';
+      return '<tr><td>' + esc(n) + '</td><td>' + cb + '</td><td>' + cc + '</td><td>' + note + '</td></tr>';
+    }).join('');
+    box.innerHTML = '<div class="locked-note">נוצר ב-' + esc(new Date(data.createdAt).toLocaleString('he-IL')) + (data.createdBy ? ' על ידי ' + esc(data.createdBy) : '')
+      + ' · ' + (data.includesUsers ? 'כולל חשבונות משתמשים' : 'בלי חשבונות משתמשים') + ' · סכום ביקורת תקין</div>'
+      + (data.__badKeys.length ? '<div class="backup-msg err">מפתחות שאינם JSON תקין: ' + esc(data.__badKeys.join(', ')) + '</div>' : '')
+      + '<div class="table-scroll" style="max-height:260px;"><table><thead><tr><th>מפתח</th><th>פריטים בגיבוי</th><th>פריטים עכשיו</th><th>מה יקרה</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+    el('bk-restore-btn').disabled = false;
+  }
+  async function onFileChosen(file){
+    pending = null; renderPreview(null);
+    if (!file) return;
+    try{
+      var data = await parseBackup(await file.text());
+      pending = data; renderPreview(data);
+      say('הקובץ נבדק ותקין. עבור על הטבלה ולחץ "שחזר" כדי להמשיך.', 'ok');
+    }catch(e){ say(e.message, 'err'); }
+  }
+  async function applyBackup(data, opts){
+    opts = opts || {};
+    var before = readAll(true);                         /* in-memory rollback copy */
+    var keepUsers = !data.includesUsers;
+    var toRemove = hubKeys().filter(function(k){ return !(keepUsers && k === PREFIX + 'users'); });
+    try{
+      toRemove.forEach(function(k){ localStorage.removeItem(k); });
+      Object.keys(data.keys).forEach(function(n){
+        if (keepUsers && n === 'users') return;
+        localStorage.setItem(PREFIX + n, data.keys[n]);
+      });
+    }catch(e){
+      hubKeys().forEach(function(k){ localStorage.removeItem(k); });
+      Object.keys(before).forEach(function(n){ try{ localStorage.setItem(PREFIX + n, before[n]); }catch(err){} });
+      throw new Error('השחזור נכשל וכל הנתונים הקודמים הוחזרו (' + (e && e.name ? e.name : 'שגיאה') + ')');
+    }
+    return before;
+  }
+  async function restore(){
+    if (!pending) return;
+    if (typeof isSuperUser === 'function' && !isSuperUser()){ say('רק משתמש-על יכול לשחזר.', 'err'); return; }
+    var data = pending;
+    if (!confirm('השחזור מחליף את כל הנתונים הנוכחיים בנתוני הגיבוי. לפני כן ייווצר גיבוי בטיחות אוטומטי בדפדפן. להמשיך?')) return;
+    try{
+      var safety = await buildBackup(true, 'before-restore');
+      try{ await autoPut({ createdAt: safety.createdAt, reason: safety.reason, size: JSON.stringify(safety).length, payload: safety }); await trimAuto(); }
+      catch(e){ if (!confirm('לא ניתן לשמור גיבוי בטיחות אוטומטי בדפדפן הזה. להמשיך בלי גיבוי בטיחות? מומלץ קודם להוריד גיבוי ידני.')) return; }
+      await applyBackup(data);
+      say('השחזור הושלם. טוען מחדש…', 'ok');
+      setTimeout(function(){ location.reload(); }, 400);
+    }catch(e){ say(e.message, 'err'); }
+  }
+  async function restoreAuto(id){
+    var rec = await autoGet(id); if (!rec) return;
+    if (!confirm('לשחזר את גיבוי הבטיחות מ-' + new Date(rec.createdAt).toLocaleString('he-IL') + '? הנתונים הנוכחיים יוחלפו (ייווצר קודם גיבוי בטיחות חדש).')) return;
+    try{
+      var data = rec.payload;
+      var safety = await buildBackup(true, 'before-restore');
+      await autoPut({ createdAt: safety.createdAt, reason: safety.reason, size: JSON.stringify(safety).length, payload: safety }); await trimAuto();
+      await applyBackup(data);
+      say('השחזור הושלם. טוען מחדש…', 'ok');
+      setTimeout(function(){ location.reload(); }, 400);
+    }catch(e){ say(e.message, 'err'); }
+  }
+  async function downloadAuto(id){
+    var rec = await autoGet(id); if (!rec) return;
+    var blob = new Blob([JSON.stringify(rec.payload)], { type: 'application/json' });
+    var a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+    a.download = 'org-hub-safety-' + stamp(new Date(rec.createdAt)) + '.json';
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(function(){ URL.revokeObjectURL(a.href); }, 2000);
+  }
+  async function renderAuto(){
+    var box = el('bk-auto-list'); if (!box) return;
+    var list = [];
+    try{ list = await autoList(); }catch(e){ box.innerHTML = '<div class="locked-note">גיבויי בטיחות אוטומטיים אינם זמינים בדפדפן הזה.</div>'; return; }
+    if (!list.length){ box.innerHTML = '<div class="locked-note">אין עדיין גיבויי בטיחות. הם נוצרים אוטומטית לפני כל שחזור (נשמרים ' + AUTO_KEEP + ' אחרונים).</div>'; return; }
+    box.innerHTML = '<div class="table-scroll" style="max-height:none;"><table><thead><tr><th>נוצר</th><th>סיבה</th><th>גודל</th><th></th></tr></thead><tbody>' + list.map(function(r){
+      return '<tr><td>' + esc(new Date(r.createdAt).toLocaleString('he-IL')) + '</td><td>' + (r.reason === 'before-restore' ? 'לפני שחזור' : esc(r.reason)) + '</td><td>' + fmtKb(r.size) + ' ק"ב</td><td style="white-space:nowrap;">'
+        + '<button class="ghost" data-bk-act="restore" data-bk-id="' + r.id + '">שחזר</button> <button class="ghost" data-bk-act="download" data-bk-id="' + r.id + '">הורד</button> <button class="ghost danger-txt" data-bk-act="delete" data-bk-id="' + r.id + '">מחק</button></td></tr>';
+    }).join('') + '</tbody></table></div>';
+  }
+
+  /* ---------- health report ---------- */
+  function attachmentStats(){
+    var n = 0, chars = 0, max = 0;
+    var add = function(f){ if (f && typeof f.dataUrl === 'string'){ n++; chars += f.dataUrl.length; if (f.dataUrl.length > max) max = f.dataUrl.length; } };
+    function get(name){ try{ return JSON.parse(localStorage.getItem(PREFIX + name) || 'null'); }catch(e){ return null; } }
+    (get('infoItems') || []).forEach(function(i){ add(i && i.file); });
+    (get('attendanceRequests') || []).forEach(function(r){ add(r && r.file); });
+    (get('tasks') || []).forEach(function(t){ ((t && t.comments) || []).forEach(function(c){ add(c && c.file); }); });
+    return { n: n, chars: chars, max: max };
+  }
+  function healthReport(){
+    var rows = hubKeys().map(function(k){
+      var raw = localStorage.getItem(k), name = k.slice(PREFIX.length);
+      return { key: name, count: itemCount(raw), chars: k.length + raw.length, bad: itemCount(raw) === -1 };
+    }).sort(function(a, b){ return b.chars - a.chars; });
+    var hubChars = rows.reduce(function(s, r){ return s + r.chars; }, 0);
+    var all = 0;
+    for (var i = 0; i < localStorage.length; i++){ var kk = localStorage.key(i); all += kk.length + (localStorage.getItem(kk) || '').length; }
+    return { rows: rows, hubChars: hubChars, allChars: all, pct: all / CONSERVATIVE_LIMIT * 100, attachments: attachmentStats() };
+  }
+  function renderHealth(){
+    var body = el('health-body'); if (!body) return;
+    var h = healthReport();
+    body.innerHTML = h.rows.map(function(r){
+      return '<tr><td>' + esc(r.key) + '</td><td>' + (r.count < 0 ? '—' : r.count) + '</td><td>' + fmtKb(r.chars) + '</td><td>' + (r.bad ? '<span class="req-status rejected">לא JSON תקין</span>' : '') + '</td></tr>';
+    }).join('') || '<tr><td colspan="4">אין נתונים שמורים</td></tr>';
+    var pct = Math.min(100, h.pct);
+    var cls = h.pct >= 85 ? 'danger' : h.pct >= 60 ? 'warn' : '';
+    el('health-total').innerHTML = 'סה"כ בדפדפן: <b>' + fmtKb(h.allChars) + ' ק"ב</b> (' + h.allChars.toLocaleString('he-IL') + ' תווים), מתוכם נתוני המערכת ' + fmtKb(h.hubChars) + ' ק"ב. '
+      + 'ביחס למגבלה השמרנית של כ-5 מיליון תווים: <b>' + h.pct.toFixed(1) + '%</b>.';
+    var bar = el('usage-bar'); bar.className = 'usage-bar ' + cls; bar.firstElementChild.style.width = pct + '%';
+    var a = h.attachments;
+    el('health-attach').textContent = a.n ? ('קבצים מצורפים: ' + a.n + ', ' + fmtKb(a.chars) + ' ק"ב בסה"כ, הגדול ביותר ' + fmtKb(a.max) + ' ק"ב.') : 'אין קבצים מצורפים.';
+  }
+  async function probeQuota(){
+    var out = el('bk-quota-result'); if (!out) return;
+    if (!confirm('הבדיקה ממלאת זמנית את האחסון המקומי עד שהדפדפן חוסם, ואז מנקה. היא לא נוגעת בנתוני המערכת, אבל כדאי לא לעבוד במקביל. להמשיך?')) return;
+    out.textContent = 'בודק…';
+    var key = '__quota_probe__', chunk = new Array(100001).join('x'), n = 0, err = null;
+    try{ while (n < 1200){ localStorage.setItem(key + n, chunk); n++; } }catch(e){ err = e; }
+    for (var i = 0; i < n + 1; i++) localStorage.removeItem(key + i);
+    var ok = !err;
+    out.textContent = ok ? ('הדפדפן לא חסם עד ' + (n * 100000).toLocaleString('he-IL') + ' תווים נוספים (המגבלה גבוהה מהמדוד).')
+      : ('הדפדפן חסם אחרי כ-' + (n * 100000).toLocaleString('he-IL') + ' תווים נוספים מעבר למה שכבר שמור.');
+    renderHealth();
+  }
+
+  /* ---------- wiring ---------- */
+  function init(){
+    var exp = el('bk-export-btn'); if (!exp) return;
+    exp.addEventListener('click', function(){ exportBackup().catch(function(e){ say(e.message, 'err'); }); });
+    el('bk-file').addEventListener('change', function(){ onFileChosen(this.files && this.files[0]); });
+    el('bk-restore-btn').addEventListener('click', restore);
+    el('health-refresh').addEventListener('click', function(){ renderHealth(); renderAuto(); });
+    el('bk-quota-btn').addEventListener('click', probeQuota);
+    el('bk-auto-list').addEventListener('click', function(e){
+      var b = e.target.closest ? e.target.closest('[data-bk-act]') : null; if (!b) return;
+      var id = Number(b.getAttribute('data-bk-id')), act = b.getAttribute('data-bk-act');
+      if (act === 'restore') restoreAuto(id);
+      else if (act === 'download') downloadAuto(id);
+      else if (act === 'delete' && confirm('למחוק את גיבוי הבטיחות הזה?')) autoDelete(id).then(renderAuto);
+    });
+    var tabBtn = document.querySelector('.tab-btn[data-tab="users"]');
+    if (tabBtn) tabBtn.addEventListener('click', function(){ renderHealth(); renderAuto(); });
+    if (!isLocalMode()){ el('bk-export-btn').disabled = true; say('הנתונים נשמרים בסביבת artifact ולא ב-localStorage, ולכן גיבוי וקובץ אינם זמינים כאן.', 'err'); }
+    renderHealth(); renderAuto();
+  }
+  /* exposed for the next stages and for tests */
+  window.hubBackup = { build: buildBackup, parse: parseBackup, apply: applyBackup, health: healthReport, inspectFile: onFileChosen, restoreChosen: restore, exportNow: exportBackup, autoList: autoList };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 })();
 </script>
 <script>
