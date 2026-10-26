@@ -1562,9 +1562,12 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
         <div id="health-total" class="locked-note"></div>
         <div class="usage-bar" id="usage-bar"><div></div></div>
         <div id="health-attach" class="locked-note"></div>
+        <div id="health-schema" class="locked-note"></div>
         <div class="locked-note">קובץ מצורף נשמר כטקסט (base64) וגדל בכ-33%. קובץ של 4MB תופס כ-5.3 מיליון תווים, יותר ממגבלה של כ-5 מיליון בדפדפנים רגילים, ועלול לא להישמר.</div>
         <div class="table-scroll" style="max-height:280px;"><table><thead><tr><th>מפתח</th><th>פריטים</th><th>גודל (ק"ב)</th><th></th></tr></thead><tbody id="health-body"></tbody></table></div>
         <div class="backup-actions" style="margin-top:12px;"><button class="ghost" id="health-refresh" type="button">רענן</button> <button class="ghost" id="bk-quota-btn" type="button">בדוק את המכסה בדפדפן הזה</button> <span id="bk-quota-result" class="locked-note"></span></div>
+        <h3 style="margin-top:18px;">שדרוגי נתונים</h3>
+        <div id="migration-log"></div>
       </div>
     </div>
   </section>
@@ -1872,10 +1875,11 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
 <script>
 /* ================================================================
    DataStore: the single layer every read and write of app data goes through.
-   Round 1, stage 1: a thin facade over the existing storage (same keys, same
-   format). Later stages add metadata, an audit log, files and notifications
-   behind this same API. Everything is asynchronous so that swapping the local
-   adapter for a server adapter later does not change any caller.
+   Stage 1: a facade over the existing storage (same keys, same format).
+   Stage 2: record metadata (rev, updatedAt, updatedBy), a schema version and a
+   migration framework that takes a safety backup before it changes anything.
+   Everything is asynchronous so that swapping the local adapter for a server
+   adapter later does not change any caller.
    ================================================================ */
 (function(){
   'use strict';
@@ -1887,6 +1891,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
   /* ---- adapters: raw string in, raw string out ---- */
   var localAdapter = {
     name: 'local',
+    peekRaw: function(key){ return localStorage.getItem(PREFIX + key); },     /* synchronous read, used for diffing before a write */
     getRaw: function(key){ return Promise.resolve(localStorage.getItem(PREFIX + key)); },
     setRaw: function(key, raw){ localStorage.setItem(PREFIX + key, raw); return Promise.resolve(); },
     removeRaw: function(key){ localStorage.removeItem(PREFIX + key); return Promise.resolve(); },
@@ -1912,6 +1917,46 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     (handlers[evt] || []).slice().forEach(function(fn){ try{ fn(payload); }catch(e){ console.error('DataStore handler failed', evt, e); } });
   }
 
+  /* ---- record metadata (stage 2) ---- */
+  var META_COLLECTIONS = ['employees', 'meetings', 'tasks', 'postings', 'positions', 'convergence', 'attendance', 'attendanceRequests', 'infoItems', 'contactRoles', 'incentives', 'users', 'grants'];
+  var META_FIELDS = ['rev', 'updatedAt', 'updatedBy'];
+  var NOISE_FIELDS = { users: ['lastLoginAt'] };   /* changes that must not count as an edit */
+  function hasMeta(name){ return META_COLLECTIONS.indexOf(name) > -1; }
+  function canon(v){
+    if (Array.isArray(v)) return '[' + v.map(canon).join(',') + ']';
+    if (v && typeof v === 'object') return '{' + Object.keys(v).sort().map(function(k){ return JSON.stringify(k) + ':' + canon(v[k]); }).join(',') + '}';
+    return JSON.stringify(v === undefined ? null : v);
+  }
+  function content(name, rec){
+    var o = {}, noise = NOISE_FIELDS[name] || [];
+    Object.keys(rec).forEach(function(k){ if (META_FIELDS.indexOf(k) < 0 && noise.indexOf(k) < 0) o[k] = rec[k]; });
+    return canon(o);
+  }
+  function actorId(){ try{ return (typeof state !== 'undefined' && state && state.authUserId) || null; }catch(e){ return null; } }
+  /* Stamps rev/updatedAt/updatedBy on new and changed records. Returns the change set so later stages can audit it. */
+  function stamp(name, arr, a){
+    if (!hasMeta(name) || !Array.isArray(arr) || !a.peekRaw) return null;
+    var prevMap = {};
+    try{ var prev = JSON.parse(a.peekRaw(name) || '[]'); if (Array.isArray(prev)) prev.forEach(function(r){ if (r && typeof r === 'object' && r.id !== undefined) prevMap[r.id] = r; }); }catch(e){}
+    var now = new Date().toISOString(), actor = actorId(), seen = {}, changes = { created: [], updated: [], removed: [], prevMap: prevMap };
+    arr.forEach(function(rec){
+      if (!rec || typeof rec !== 'object' || rec.id === undefined) return;
+      seen[rec.id] = true;
+      var p = prevMap[rec.id];
+      if (!p){
+        if (!rec.rev){ rec.rev = 1; rec.updatedAt = now; rec.updatedBy = actor; }
+        changes.created.push(rec);
+      } else if (content(name, p) === content(name, rec)){
+        META_FIELDS.forEach(function(f){ if (rec[f] === undefined && p[f] !== undefined) rec[f] = p[f]; });
+      } else {
+        rec.rev = (p.rev || 1) + 1; rec.updatedAt = now; rec.updatedBy = actor;
+        changes.updated.push({ before: p, after: rec });
+      }
+    });
+    Object.keys(prevMap).forEach(function(id){ if (!seen[id]) changes.removed.push(prevMap[id]); });
+    return changes;
+  }
+
   /* ---- reads and writes of a named key ---- */
   function get(name, fallback){
     return adapter().getRaw(name).then(function(raw){
@@ -1921,14 +1966,16 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
   /* resolves true when the value was saved, false when the browser refused (the failure is reported to the user) */
   function set(name, value){
     var a = adapter();
-    var raw;
-    try{ raw = JSON.stringify(value); }
-    catch(e){ return Promise.resolve(fail(name, e, value)); }
+    var raw, changes = null;
+    try{
+      try{ changes = stamp(name, value, a); }catch(e){ console.error('metadata stamp failed', name, e); }
+      raw = JSON.stringify(value);
+    }catch(e){ return Promise.resolve(fail(name, e, value)); }
     var pending;
     try{ pending = a.setRaw(name, raw); }                  /* local writes happen synchronously, exactly as before */
     catch(e){ return Promise.resolve(fail(name, e, value)); }
     return Promise.resolve(pending).then(function(){
-      emit('change', { name: name, value: value });
+      emit('change', { name: name, value: value, changes: changes });
       return true;
     }, function(e){ return fail(name, e, value); });
   }
@@ -1943,7 +1990,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
 
   /* ---- collections stored as one array under one key (ids are string ids) ---- */
   function collection(name){
-    var api = {
+    return {
       name: name,
       list: function(){ return get(name, []); },
       get: function(id){ return get(name, []).then(function(a){ return a.find(function(r){ return r.id === id; }) || null; }); },
@@ -1970,14 +2017,98 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
         });
       }
     };
-    return api;
   }
+
+  /* ---- schema version and migrations (stage 2) ---- */
+  var MIGRATIONS = [];
+  var migrationState = { ran: [], failed: null, blocked: false, pending: [] };
+  function registerMigration(m){
+    MIGRATIONS.push(m);
+    MIGRATIONS.sort(function(x, y){ return x.version - y.version; });
+  }
+  function latestSchema(){ return MIGRATIONS.length ? MIGRATIONS[MIGRATIONS.length - 1].version : 1; }
+  function schemaVersion(){ return get('schemaVersion', 1); }
+  function nowIso(){ return new Date().toISOString(); }
+
+  async function logMigration(entry){
+    var log = await get('migrationLog', []);
+    log.push(entry);
+    await set('migrationLog', log.slice(-50));
+  }
+  function notify(title, detail){ if (typeof window.hubShowError === 'function') window.hubShowError(title, detail); }
+
+  /* Runs every migration newer than the stored schema version, in order.
+     Before the first one it saves a safety backup (and refuses to migrate without it);
+     if a migration throws, the pre-migration data is restored. */
+  async function migrate(){
+    migrationState = { ran: [], failed: null, blocked: false, pending: [] };
+    var cur = await schemaVersion();
+    var todo = MIGRATIONS.filter(function(m){ return m.version > cur; });
+    if (!todo.length) return migrationState;
+    var existing = await keys();
+    var hasData = existing.filter(function(k){ return k !== 'schemaVersion' && k !== 'migrationLog'; }).length > 0;
+    if (!hasData){                                   /* fresh install: nothing to migrate or protect */
+      await set('schemaVersion', latestSchema());
+      return migrationState;
+    }
+    var safety = null;
+    if (window.hubBackup && hubBackup.saveSafety) safety = await hubBackup.saveSafety('before-migration v' + cur + ' to v' + latestSchema());
+    if (!safety){
+      migrationState.blocked = true;
+      notify('שדרוג הנתונים לא הופעל', 'לא ניתן היה לשמור גיבוי בטיחות אוטומטי בדפדפן הזה, ולכן הנתונים לא שודרגו (הם נשארו כמו שהיו והמערכת ממשיכה לעבוד). הורד גיבוי ידני מלשונית "משתמשים" ורענן את הדף כדי לנסות שוב.');
+      return migrationState;
+    }
+    for (var i = 0; i < todo.length; i++){
+      var m = todo[i];
+      if (m.requiresConfirm){ migrationState.pending = todo.slice(i); break; }     /* meaning-changing migrations wait for the user */
+      try{
+        var report = await m.run({ get: get, set: set, keys: keys, hasMeta: hasMeta, META_COLLECTIONS: META_COLLECTIONS });
+        await set('schemaVersion', m.version);
+        await logMigration({ id: m.id, version: m.version, title: m.title, at: nowIso(), backupId: safety.id, report: report || {} });
+        migrationState.ran.push({ id: m.id, report: report || {} });
+      }catch(e){
+        console.error('migration failed', m.id, e);
+        migrationState.failed = { id: m.id, error: String(e && e.message || e) };
+        try{ if (m.rollback) await m.rollback(); await hubBackup.applySafety(safety.payload); }catch(err){ console.error('rollback failed', err); }
+        notify('שדרוג הנתונים נכשל ובוטל', 'שלב ' + m.id + ' נכשל (' + migrationState.failed.error + '). הנתונים הוחזרו למצב שלפני השדרוג, והמערכת ממשיכה לעבוד כרגיל. גיבוי הבטיחות נשמר בלשונית "משתמשים".');
+        break;
+      }
+    }
+    return migrationState;
+  }
+
+  /* M2: stamp every existing record with revision metadata (no change to the data itself) */
+  registerMigration({
+    id: 'M2', version: 2, title: 'מטא-דאטה לרשומות (גרסה, זמן עדכון ומעדכן)',
+    run: async function(ctx){
+      var report = {};
+      for (var i = 0; i < META_COLLECTIONS.length; i++){
+        var name = META_COLLECTIONS[i];
+        var arr = await ctx.get(name, null);
+        if (!Array.isArray(arr)) continue;
+        var n = 0;
+        arr.forEach(function(rec){
+          if (rec && typeof rec === 'object' && rec.rev === undefined){
+            rec.rev = 1; rec.updatedAt = rec.updatedAt || rec.createdAt || null; rec.updatedBy = rec.updatedBy || rec.createdBy || null; n++;
+          }
+        });
+        if (n){ if (!(await ctx.set(name, arr))) throw new Error('כתיבה נכשלה ב-' + name); }
+        report[name] = n;
+      }
+      return report;
+    }
+  });
 
   window.DataStore = {
     PREFIX: PREFIX,
     get: get, set: set, remove: remove, keys: keys, collection: collection,
     on: on, off: off, emit: emit,
-    adapterName: function(){ return adapter().name; }
+    adapterName: function(){ return adapter().name; },
+    META_COLLECTIONS: META_COLLECTIONS,
+    schemaVersion: schemaVersion, latestSchema: latestSchema,
+    registerMigration: registerMigration, migrate: migrate,
+    migrationState: function(){ return migrationState; },
+    migrationLog: function(){ return get('migrationLog', []); }
   };
 })();
 </script>
@@ -2049,6 +2180,8 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     showBanner(title, detail);
   };
 
+  window.hubShowError = function(title, detail){ failures++; showBanner(title, detail); };
+
   /* returns '' when the file can be attached, otherwise the reason (Hebrew) */
   window.hubAttachmentProblem = function(file){
     if (!file) return '';
@@ -2074,7 +2207,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
   var PREFIX = 'hub:';
   var FORMAT = 'org-hub-backup';
   var VERSION = 1;
-  var SCHEMA_VERSION = 1;             /* data schema this file was written against */
+  function currentSchema(){ try{ return JSON.parse(localStorage.getItem(PREFIX + 'schemaVersion') || '1'); }catch(e){ return 1; } }
   var CONSERVATIVE_LIMIT = 5000000;   /* characters: the usual per-origin localStorage limit of desktop browsers (~5 MB) */
   var AUTO_KEEP = 5;
   var el = function(id){ return document.getElementById(id); };
@@ -2156,7 +2289,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     var counts = {}; Object.keys(keys).forEach(function(n){ counts[n] = itemCount(keys[n]); });
     var user = (typeof currentUser === 'function' && currentUser()) || null;
     return {
-      format: FORMAT, version: VERSION, schemaVersion: SCHEMA_VERSION,
+      format: FORMAT, version: VERSION, schemaVersion: currentSchema(),
       createdAt: new Date().toISOString(), createdBy: user ? user.username : '', reason: reason || 'manual',
       origin: location.origin, includesUsers: !!includeUsers,
       keys: keys, counts: counts, checksum: 'sha256:' + await sha256(canonical(keys))
@@ -2168,6 +2301,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     if (!data || data.format !== FORMAT) throw new Error('זה אינו קובץ גיבוי של המערכת');
     if (typeof data.version !== 'number' || data.version > VERSION) throw new Error('גרסת הגיבוי חדשה מהגרסה שהמערכת מכירה (' + data.version + ')');
     if (!data.keys || typeof data.keys !== 'object' || Array.isArray(data.keys)) throw new Error('מבנה הגיבוי פגום (חסרים נתונים)');
+    if (typeof data.schemaVersion === 'number' && window.DataStore && data.schemaVersion > DataStore.latestSchema()) throw new Error('הגיבוי נוצר בגרסה חדשה יותר של המערכת (גרסת נתונים ' + data.schemaVersion + '), ולכן אי אפשר לשחזר אותו כאן');
     var names = Object.keys(data.keys);
     for (var i = 0; i < names.length; i++){
       if (typeof data.keys[names[i]] !== 'string') throw new Error('מבנה הגיבוי פגום (ערך לא תקין במפתח ' + names[i] + ')');
@@ -2257,6 +2391,15 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
       setTimeout(function(){ location.reload(); }, 400);
     }catch(e){ say(e.message, 'err'); }
   }
+  /* a safety copy in IndexedDB; resolves {id, payload}, or null when it could not be saved */
+  async function saveSafety(reason){
+    try{
+      var b = await buildBackup(true, reason);
+      var id = await autoPut({ createdAt: b.createdAt, reason: b.reason, size: JSON.stringify(b).length, payload: b });
+      await trimAuto();
+      return { id: id, payload: b };
+    }catch(e){ console.error('safety backup failed', e); return null; }
+  }
   async function restoreAuto(id){
     var rec = await autoGet(id); if (!rec) return;
     if (!confirm('לשחזר את גיבוי הבטיחות מ-' + new Date(rec.createdAt).toLocaleString('he-IL') + '? הנתונים הנוכחיים יוחלפו (ייווצר קודם גיבוי בטיחות חדש).')) return;
@@ -2282,7 +2425,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     try{ list = await autoList(); }catch(e){ box.innerHTML = '<div class="locked-note">גיבויי בטיחות אוטומטיים אינם זמינים בדפדפן הזה.</div>'; return; }
     if (!list.length){ box.innerHTML = '<div class="locked-note">אין עדיין גיבויי בטיחות. הם נוצרים אוטומטית לפני כל שחזור (נשמרים ' + AUTO_KEEP + ' אחרונים).</div>'; return; }
     box.innerHTML = '<div class="table-scroll" style="max-height:none;"><table><thead><tr><th>נוצר</th><th>סיבה</th><th>גודל</th><th></th></tr></thead><tbody>' + list.map(function(r){
-      return '<tr><td>' + esc(new Date(r.createdAt).toLocaleString('he-IL')) + '</td><td>' + (r.reason === 'before-restore' ? 'לפני שחזור' : esc(r.reason)) + '</td><td>' + fmtKb(r.size) + ' ק"ב</td><td style="white-space:nowrap;">'
+      return '<tr><td>' + esc(new Date(r.createdAt).toLocaleString('he-IL')) + '</td><td>' + (r.reason === 'before-restore' ? 'לפני שחזור' : String(r.reason).indexOf('before-migration') === 0 ? 'לפני שדרוג נתונים' : esc(r.reason)) + '</td><td>' + fmtKb(r.size) + ' ק"ב</td><td style="white-space:nowrap;">'
         + '<button class="ghost" data-bk-act="restore" data-bk-id="' + r.id + '">שחזר</button> <button class="ghost" data-bk-act="download" data-bk-id="' + r.id + '">הורד</button> <button class="ghost danger-txt" data-bk-act="delete" data-bk-id="' + r.id + '">מחק</button></td></tr>';
     }).join('') + '</tbody></table></div>';
   }
@@ -2319,6 +2462,15 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
       + 'ביחס למגבלה השמרנית של כ-5 מיליון תווים: <b>' + h.pct.toFixed(1) + '%</b>.';
     var bar = el('usage-bar'); bar.className = 'usage-bar ' + cls; bar.firstElementChild.style.width = pct + '%';
     var a = h.attachments;
+    if (window.DataStore){
+      Promise.all([DataStore.schemaVersion(), DataStore.migrationLog()]).then(function(r){
+        var s = el('health-schema'); if (s) s.textContent = 'גרסת נתונים: ' + r[0] + ' (העדכנית: ' + DataStore.latestSchema() + ')';
+        var box = el('migration-log'); if (!box) return;
+        box.innerHTML = r[1].length ? '<div class="table-scroll" style="max-height:none;"><table><thead><tr><th>שלב</th><th>מה</th><th>מתי</th><th>רשומות שעודכנו</th></tr></thead><tbody>' + r[1].slice().reverse().map(function(m){
+          var n = 0; Object.keys(m.report || {}).forEach(function(k){ var v = m.report[k]; if (typeof v === 'number') n += v; });
+          return '<tr><td>' + esc(m.id) + '</td><td>' + esc(m.title) + '</td><td>' + esc(new Date(m.at).toLocaleString('he-IL')) + '</td><td>' + n + '</td></tr>'; }).join('') + '</tbody></table></div>' : '<div class="locked-note">עדיין לא בוצעו שדרוגי נתונים.</div>';
+      });
+    }
     el('health-attach').textContent = a.n ? ('קבצים מצורפים: ' + a.n + ', ' + fmtKb(a.chars) + ' ק"ב בסה"כ, הגדול ביותר ' + fmtKb(a.max) + ' ק"ב.') : 'אין קבצים מצורפים.';
   }
   async function probeQuota(){
@@ -2355,7 +2507,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     renderHealth(); renderAuto();
   }
   /* exposed for the next stages and for tests */
-  window.hubBackup = { build: buildBackup, parse: parseBackup, apply: applyBackup, health: healthReport, inspectFile: onFileChosen, restoreChosen: restore, exportNow: exportBackup, autoList: autoList };
+  window.hubBackup = { saveSafety: saveSafety, applySafety: function(p){ return applyBackup(p); }, build: buildBackup, parse: parseBackup, apply: applyBackup, health: healthReport, inspectFile: onFileChosen, restoreChosen: restore, exportNow: exportBackup, autoList: autoList };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 })();
 </script>
@@ -3250,6 +3402,7 @@ async function restoreHistoryEntry(domain, entryId){
 
 /* ---------------- init ---------------- */
 async function init(){
+  try{ await DataStore.migrate(); }catch(e){ console.error('migration runner failed', e); }
   const emp = await storeGet('employees', null);
   if (emp && emp.length){
     state.employees = emp;
