@@ -431,7 +431,7 @@ window.addEventListener('error', function(e){
   td{ padding: 12px; border-bottom: 1px solid var(--rule); color: var(--ink); vertical-align: middle; white-space: nowrap; }
   td[colspan]{ white-space: normal; }
   /* free-text columns wrap; everything else stays on one line and the table scrolls sideways */
-  #empTable td:nth-child(6), #posTable td:nth-child(2), #posTable td:nth-child(11), #posTable td:nth-child(12),
+  #empTable td:nth-child(7), #posTable td:nth-child(2), #posTable td:nth-child(11), #posTable td:nth-child(12),
   #posTable td:nth-child(13), #incTable td:nth-child(13){ white-space: normal; min-width: 170px; }
   tr:last-child td{ border-bottom: none; }
   td .icon-btn{ vertical-align: middle; }
@@ -778,26 +778,27 @@ window.addEventListener('error', function(e){
 }
 @media (max-width: 800px){
   #empTable td:nth-child(3)::before{ content: "תפקיד"; }
-  #empTable td:nth-child(4)::before{ content: "מחלקה"; }
-  #empTable td:nth-child(5)::before{ content: "מנהל ישיר"; }
-  #empTable td:nth-child(6)::before{ content: "תקן נוכחי"; }
-  #empTable td:nth-child(7)::before{ content: "סטטוס"; }
-  #empTable td:nth-child(8)::before{ content: "אימייל"; }
-  #empTable td:nth-child(9)::before{ content: "טלפון"; }
-  #empTable td:nth-child(10)::before{ content: "תאריך התחלה"; }
-  #empTable td:nth-child(11)::before{ content: "תאריך גיוס"; }
-  #empTable td:nth-child(12)::before{ content: "שחרור מחובה"; }
-  #empTable td:nth-child(13)::before{ content: "קליטה ליחידה"; }
+  #empTable td:nth-child(4)::before{ content: "מרכז"; }
+  #empTable td:nth-child(5)::before{ content: "מדור"; }
+  #empTable td:nth-child(6)::before{ content: "מנהל ישיר"; }
+  #empTable td:nth-child(7)::before{ content: "תקן נוכחי"; }
+  #empTable td:nth-child(8)::before{ content: "סטטוס"; }
+  #empTable td:nth-child(9)::before{ content: "אימייל"; }
+  #empTable td:nth-child(10)::before{ content: "טלפון"; }
+  #empTable td:nth-child(11)::before{ content: "תאריך התחלה"; }
+  #empTable td:nth-child(12)::before{ content: "תאריך גיוס"; }
+  #empTable td:nth-child(13)::before{ content: "שחרור מחובה"; }
+  #empTable td:nth-child(14)::before{ content: "קליטה ליחידה"; }
   #empTable td:nth-child(2){ font-weight:700; color:var(--text); font-size:15px; flex:0 0 auto; padding-top:0; }
   #empTable td:nth-child(2)::before{ content:none; }
   #empTable td:nth-child(2){ flex:1 1 100%; min-width:0; }
   #empTable td:nth-child(1){ position:absolute; top:12px; inset-inline-end:12px; padding:0; }
   #empTable td:nth-child(1)::before{ content:none; }
-  #empTable td:nth-child(14){ flex:0 0 auto; flex-direction:row; align-items:center; gap:6px; margin-top:6px; padding-top:6px; }
-  #empTable td:nth-child(14)::before{ content:none; }
   #empTable td:nth-child(15){ flex:0 0 auto; flex-direction:row; align-items:center; gap:6px; margin-top:6px; padding-top:6px; }
   #empTable td:nth-child(15)::before{ content:none; }
-  #empTable td:nth-child(14){ margin-inline-start:auto; }
+  #empTable td:nth-child(16){ flex:0 0 auto; flex-direction:row; align-items:center; gap:6px; margin-top:6px; padding-top:6px; }
+  #empTable td:nth-child(16)::before{ content:none; }
+  #empTable td:nth-child(15){ margin-inline-start:auto; }
 }
 
 @media (max-width: 800px){
@@ -970,7 +971,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
   #convTable td:nth-child(12)::before{ content:none; }
   #convTable td:nth-child(12){ margin-inline-start:auto; }
   #attTable td:nth-child(2)::before{ content: "תפקיד"; }
-  #attTable td:nth-child(3)::before{ content: "מחלקה"; }
+  #attTable td:nth-child(3)::before{ content: "מרכז"; }
   #attTable td:nth-child(4)::before{ content: "סטטוס נוכחות"; }
   #attTable td:nth-child(1){ font-weight:700; color:var(--text); font-size:15px; flex:0 0 auto; padding-top:0; }
   #attTable td:nth-child(1)::before{ content:none; }
@@ -1266,7 +1267,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
         <button class="ghost" id="posHistoryBtn" style="display:none;" onclick="openHistoryModal('positions')">היסטוריית שינויים</button>
       </div>
     </div>
-    <div class="locked-note" style="margin-bottom:14px;">כל מנהל בכיר במחלקה (לפי שדה "יחידת רישומת") חשוף לתקני מחלקתו בלבד. כל עובד חשוף גם לתקן שלו האישי, גם אם אינו מנהל מחלקה. העובד הבכיר ביותר בארגון חשוף לכל התקנים ויכול להעניק הרשאות צפייה נוספות.</div>
+    <div class="locked-note" style="margin-bottom:14px;">כל מנהל בכיר במרכז (לפי שדה "יחידת רישומת") חשוף לתקני מרכזו בלבד. כל עובד חשוף גם לתקן שלו האישי, גם אם אינו מנהל מרכז. העובד הבכיר ביותר בארגון חשוף לכל התקנים ויכול להעניק הרשאות צפייה נוספות.</div>
     <div class="card">
       <div class="post-filters">
         <select id="filterPosUnit"><option value="">כל יחידות הרישומת</option></select>
@@ -1362,7 +1363,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     <div class="card">
       <div class="post-filters">
         <div class="field" style="margin:0; width:auto;"><label>תאריך</label><input type="date" id="attDate" style="width:auto;"></div>
-        <select id="attDeptFilter"><option value="">כל המחלקות</option></select>
+        <select id="attDeptFilter"><option value="">כל המרכזים</option></select>
         <button class="ghost" id="attTodayBtn">היום</button>
       </div>
     </div>
@@ -1370,7 +1371,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     <div class="card">
       <div class="table-scroll">
         <table id="attTable">
-          <thead><tr><th>שם</th><th>תפקיד</th><th>מחלקה</th><th>סטטוס נוכחות</th></tr></thead>
+          <thead><tr><th>שם</th><th>תפקיד</th><th>מרכז</th><th>סטטוס נוכחות</th></tr></thead>
           <tbody></tbody>
         </table>
       </div>
@@ -1481,7 +1482,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     <div class="card">
       <div class="table-scroll">
         <table id="empTable">
-          <thead><tr><th><input type="checkbox" id="empSelectAll" onchange="toggleSelectAllEmployees(this.checked)"></th><th>שם</th><th>תפקיד</th><th>מחלקה</th><th>מנהל ישיר</th><th>תקן נוכחי</th><th>סטטוס</th><th>אימייל</th><th>טלפון</th><th>תאריך התחלה</th><th>תאריך גיוס</th><th>שחרור מחובה</th><th>קליטה ליחידה</th><th></th><th></th></tr></thead>
+          <thead><tr><th><input type="checkbox" id="empSelectAll" onchange="toggleSelectAllEmployees(this.checked)"></th><th>שם</th><th>תפקיד</th><th>מרכז</th><th>מדור</th><th>מנהל ישיר</th><th>תקן נוכחי</th><th>סטטוס</th><th>אימייל</th><th>טלפון</th><th>תאריך התחלה</th><th>תאריך גיוס</th><th>שחרור מחובה</th><th>קליטה ליחידה</th><th></th><th></th></tr></thead>
           <tbody></tbody>
         </table>
       </div>
@@ -1883,16 +1884,22 @@ function readFileInputAsAttachment(inputId){
 }
 
 function seedData(){
-  const ceo = {id: uid('e'), name:'רונית לביא', role:'מנכ"לית', department:'הנהלה', managerId:null, email:'ronit@company.co.il', phone:'050-1234567', startDate:'2019-01-01'};
-  const svcMgr = {id: uid('e'), name:'איתי כהן', role:'סמנכ"ל שירות לקוחות', department:'שירות לקוחות', managerId:ceo.id, email:'itay@company.co.il', phone:'050-2223344', startDate:'2020-03-01'};
-  const opsMgr = {id: uid('e'), name:'מאיה שגיא', role:'סמנכ"לית תפעול', department:'תפעול', managerId:ceo.id, email:'maya@company.co.il', phone:'050-3334455', startDate:'2020-06-15'};
-  const teamLead = {id: uid('e'), name:'דניאל אברהם', role:'ראש צוות שירות', department:'שירות לקוחות', managerId:svcMgr.id, email:'daniel@company.co.il', phone:'050-4445566', startDate:'2021-09-01'};
-  const rep1 = {id: uid('e'), name:'נועה פרץ', role:'נציגת שירות', department:'שירות לקוחות', managerId:teamLead.id, email:'noa@company.co.il', phone:'050-5556677', startDate:'2022-02-01'};
-  const rep2 = {id: uid('e'), name:'עומר בר', role:'נציג שירות', department:'שירות לקוחות', managerId:teamLead.id, email:'omer@company.co.il', phone:'050-6667788', startDate:'2022-05-10'};
-  state.employees = [ceo, svcMgr, opsMgr, teamLead, rep1, rep2];
-  state.currentUserId = ceo.id;
+  /* A fresh install starts with one neutral record for the main (system) user; no sample people are created. */
+  const sys = {id: uid('e'), name:'משתמש מערכת', role:'', department:'', managerId:null, email:'', phone:'', startDate:''};
+  state.employees = [sys];
+  state.currentUserId = sys.id;
 }
-
+/* Older installs were seeded with a sample owner. Rename that exact seeded record only (matched by its sample e-mail and name). */
+function migrateLegacySampleOwner(){
+  let changed = false;
+  state.employees.forEach(e=>{
+    if (e.name === 'רונית לביא' && e.email === 'ronit@company.co.il' && e.role === 'מנכ"לית'){
+      e.name = 'משתמש מערכת'; e.role = ''; e.department = ''; e.email = ''; e.phone = '';
+      changed = true;
+    }
+  });
+  return changed;
+}
 /* ---------------- init ---------------- */
 /* ================= AUTH: users, login, forced first-time password change ================= */
 const PBKDF2_ITERATIONS = 150000;
@@ -2714,6 +2721,7 @@ async function init(){
   const emp = await storeGet('employees', null);
   if (emp && emp.length){
     state.employees = emp;
+    if (migrateLegacySampleOwner()) await storeSet('employees', state.employees);
   } else {
     seedData();
   }
@@ -2895,7 +2903,7 @@ function renderEmployees(){
     lbl.textContent = `${list.length} מוצגים · ${act} פעילים · ${state.employees.length-act} לא פעילים`;
   }
   if (!list.length){
-    tbody.innerHTML = `<tr><td colspan="15"><div class="empty-state"><div class="big">👥</div>${state.employees.length ? 'אין עובדים התואמים לסינון שנבחר' : 'עדיין אין עובדים במערכת'}</div></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="16"><div class="empty-state"><div class="big">👥</div>${state.employees.length ? 'אין עובדים התואמים לסינון שנבחר' : 'עדיין אין עובדים במערכת'}</div></td></tr>`;
     updateEmpBulkToolbar();
     return;
   }
@@ -2907,6 +2915,7 @@ function renderEmployees(){
       <td>${escapeHtml(e.name)}</td>
       <td>${escapeHtml(e.role)}</td>
       <td><span class="badge dept">${escapeHtml(e.department||'—')}</span></td>
+      <td>${escapeHtml(e.mador||'—')}</td>
       <td>${mgr ? escapeHtml(mgr.name) : '—'}</td>
       <td>${pos ? `${escapeHtml(pos.serialNumber)} — ${escapeHtml(pos.jobText)}` : '<span class="vacant-txt">ללא תקן</span>'}</td>
       <td>${e.active===false ? '<span class="tag">לא פעיל</span>' : '<span class="req-status approved">פעיל</span>'}</td>
@@ -2994,7 +3003,7 @@ function bulkExportSelectedEmployees(){
     const mgr = e.managerId ? empById(e.managerId) : null;
     const pos = getPositionByEmployeeId(e.id);
     return {
-      'שם': e.name, 'תפקיד': e.role, 'מחלקה': e.department, 'מנהל ישיר': mgr?mgr.name:'',
+      'שם': e.name, 'תפקיד': e.role, 'מרכז': e.department, 'מדור': e.mador, 'מנהל ישיר': mgr?mgr.name:'',
       'תקן נוכחי': pos ? `${pos.serialNumber} — ${pos.jobText}` : '', 'אימייל': e.email, 'טלפון': e.phone, 'תאריך התחלה': e.startDate
     };
   });
@@ -3069,7 +3078,7 @@ async function confirmAddEmployeesToConvergence(){
 function employeeFormHtml(existing, presetManagerId){
   const e = existing || {
     name:'',role:'',department:'',managerId: presetManagerId || '', email:'', phone:'', startDate:'',
-    professionNumber:'', professionText:'', industry:'', team:'', ramad:'', rank:'', level:'', serviceType:'',
+    professionNumber:'', professionText:'', industry:'', mador:'', team:'', ramad:'', rank:'', level:'', serviceType:'',
     isVolunteer:false, isCadet:false, education:'', flexA:false, flexB:false, studies:'',
     city:'', street:'', notes:''
   };
@@ -3102,12 +3111,13 @@ function employeeFormHtml(existing, presetManagerId){
     <div class="form-section-title">שיוך ארגוני</div>
     <div class="grid2">
       <div class="field"><label>תפקיד</label><input type="text" id="f-role" value="${escapeHtml(e.role)}"></div>
-      <div class="field"><label>מחלקה</label><input type="text" id="f-department" value="${escapeHtml(e.department)}"></div>
+      <div class="field"><label>מרכז</label><input type="text" id="f-department" value="${escapeHtml(e.department)}"></div>
     </div>
     <div class="grid2">
       <div class="field"><label>ענף</label><input type="text" id="f-industry" value="${escapeHtml(e.industry)}"></div>
-      <div class="field"><label>צוות</label><input type="text" id="f-team" value="${escapeHtml(e.team)}"></div>
+      <div class="field"><label>מדור</label><input type="text" id="f-mador" value="${escapeHtml(e.mador)}"></div>
     </div>
+    <div class="field"><label>צוות</label><input type="text" id="f-team" value="${escapeHtml(e.team)}"></div>
     <div class="field"><label>מנהל ישיר (במערכת)</label>
       <select id="f-managerId">
         <option value="">— ללא מנהל (בכיר ביותר) —</option>
@@ -3219,6 +3229,7 @@ async function saveEmployee(existingId){
     professionNumber: document.getElementById('f-professionNumber').value.trim(),
     professionText: document.getElementById('f-professionText').value.trim(),
     industry: document.getElementById('f-industry').value.trim(),
+    mador: document.getElementById('f-mador').value.trim(),
     team: document.getElementById('f-team').value.trim(),
     ramad: document.getElementById('f-ramad').value.trim(),
     rank: document.getElementById('f-rank').value,
@@ -3393,8 +3404,9 @@ function openEmployeeProfile(id){
     <h3 style="margin-bottom:10px;">${escapeHtml(e.name)}</h3>
     <div class="profile-meta">
       <div><div class="lbl3">תפקיד</div>${escapeHtml(e.role||'—')}</div>
-      <div><div class="lbl3">מחלקה</div>${escapeHtml(e.department||'—')}</div>
+      <div><div class="lbl3">מרכז</div>${escapeHtml(e.department||'—')}</div>
       <div><div class="lbl3">ענף</div>${escapeHtml(e.industry||'—')}</div>
+      <div><div class="lbl3">מדור</div>${escapeHtml(e.mador||'—')}</div>
       <div><div class="lbl3">צוות</div>${escapeHtml(e.team||'—')}</div>
       <div><div class="lbl3">מנהל ישיר</div>${mgr?escapeHtml(mgr.name):'—'}</div>
       <div><div class="lbl3">רמ"ד</div>${escapeHtml(e.ramad||'—')}</div>
@@ -4702,7 +4714,7 @@ function renderAttDeptOptions(){
   const current = sel.value;
   const visible = visibleEmployeesForAttendance();
   const depts = [...new Set(visible.map(e=>e.department).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'he'));
-  sel.innerHTML = `<option value="">כל המחלקות</option>` + depts.map(d=>`<option value="${escapeHtml(d)}">${escapeHtml(d)}</option>`).join('');
+  sel.innerHTML = `<option value="">כל המרכזים</option>` + depts.map(d=>`<option value="${escapeHtml(d)}">${escapeHtml(d)}</option>`).join('');
   sel.value = current;
 }
 
@@ -4888,8 +4900,9 @@ const IMPORT_CONFIGS = {
     fields: [
       {key:'name', label:'שם מלא', required:true},
       {key:'role', label:'תפקיד'},
-      {key:'department', label:'מחלקה'},
+      {key:'department', label:'מרכז', aliases:['מחלקה']},
       {key:'industry', label:'ענף'},
+      {key:'mador', label:'מדור'},
       {key:'team', label:'צוות'},
       {key:'managerName', label:'שם המנהל הישיר (יקושר אוטומטית לפי שם)'},
       {key:'ramad', label:'רמ"ד'},
@@ -4936,7 +4949,7 @@ const IMPORT_CONFIGS = {
       const emp = {
         id: uid('e'), name:row.name, role:row.role, department:row.department, managerId:null,
         email:row.email, phone:row.phone, startDate:row.startDate, enlistmentDate:row.enlistmentDate, compulsoryReleaseDate:row.compulsoryReleaseDate, unitIntakeDate:row.unitIntakeDate, personalNumber:row.personalNumber, grade:row.grade,
-        industry:row.industry, team:row.team, ramad:row.ramad, rank:row.rank, level:row.level, serviceType:row.serviceType,
+        industry:row.industry, mador:row.mador, team:row.team, ramad:row.ramad, rank:row.rank, level:row.level, serviceType:row.serviceType,
         professionNumber:row.professionNumber, professionText:row.professionText,
         isVolunteer:false, isCadet:false, education:row.education, flexA:false, flexB:false,
         studies:row.studies, city:row.city, street:row.street, notes:row.notes, active: row.active !== 'לא'
@@ -4949,6 +4962,7 @@ const IMPORT_CONFIGS = {
       if (row.role) existing.role = row.role;
       if (row.department) existing.department = row.department;
       if (row.industry) existing.industry = row.industry;
+      if (row.mador) existing.mador = row.mador;
       if (row.team) existing.team = row.team;
       if (row.ramad) existing.ramad = row.ramad;
       if (row.rank) existing.rank = row.rank;
@@ -5195,14 +5209,15 @@ function handleExcelImportFile(file, configKey){
   };
   reader.readAsArrayBuffer(file);
 }
-function guessColumn(columns, label, key){
-  return columns.find(c => c===label || c.trim()===label || c.toLowerCase()===key.toLowerCase()) || '';
+function guessColumn(columns, label, key, aliases){
+  const names = [label].concat(aliases || []);
+  return columns.find(c => names.includes(c) || names.includes(c.trim()) || c.toLowerCase()===key.toLowerCase()) || '';
 }
 function openImportMappingModal(configKey, rows, columns){
   const cfg = IMPORT_CONFIGS[configKey];
   pendingImport = { rows, columns, configKey };
   const fieldsHtml = cfg.fields.map(f=>{
-    const guess = guessColumn(columns, f.label, f.key);
+    const guess = guessColumn(columns, f.label, f.key, f.aliases);
     const options = `<option value="">— לא לייבא —</option>` + columns.map(c=>`<option value="${escapeHtml(c)}" ${c===guess?'selected':''}>${escapeHtml(c)}</option>`).join('');
     return `<div class="field"><label>${escapeHtml(f.label)}${f.required?' *':''}</label><select id="map-${f.key}">${options}</select></div>`;
   }).join('');
@@ -5404,7 +5419,7 @@ function exportEmployees(){
     const mgr = e.managerId ? empById(e.managerId) : null;
     const pos = getPositionByEmployeeId(e.id);
     return {
-      'שם': e.name, 'תפקיד': e.role, 'מחלקה': e.department, 'ענף': e.industry, 'צוות': e.team,
+      'שם': e.name, 'תפקיד': e.role, 'מרכז': e.department, 'ענף': e.industry, 'מדור': e.mador, 'צוות': e.team,
       'מנהל ישיר': mgr ? mgr.name : '', 'רמ"ד': e.ramad, 'רמת הרשאה': e.rank, 'זוטר/מובהק': e.level, 'סוג שירות': e.serviceType, 'פעיל': e.active===false ? 'לא' : 'כן',
       'תקן נוכחי': pos ? `${pos.serialNumber} — ${pos.jobText}` : '',
       'אימייל': e.email, 'טלפון': e.phone, 'תאריך התחלה': e.startDate, 'תאריך גיוס': e.enlistmentDate, 'תאריך שחרור מחובה': e.compulsoryReleaseDate, 'תאריך קליטה ליחידה': e.unitIntakeDate, 'מספר אישי': e.personalNumber, 'דרגה': e.grade,
@@ -5451,7 +5466,7 @@ function exportAttendance(){
   if (deptFilter) visible = visible.filter(e=>e.department===deptFilter);
   const rows = visible.map(e=>{
     const rec = getAttRecord(e.id, date);
-    return { 'שם': e.name, 'תפקיד': e.role, 'מחלקה': e.department, 'תאריך': date, 'סטטוס נוכחות': rec ? attStatusLabel(rec.status) : '' };
+    return { 'שם': e.name, 'תפקיד': e.role, 'מרכז': e.department, 'תאריך': date, 'סטטוס נוכחות': rec ? attStatusLabel(rec.status) : '' };
   });
   exportToExcel(`נוכחות_${date}`, rows);
 }
@@ -5755,7 +5770,7 @@ function incDerivedBlockHtml(empId){
   if (!e) return `<div class="widget-empty">בחר עובד כדי לראות את פרטיו</div>`;
   const d = incDerived({employeeId: empId});
   const row = (l,v)=>`<div><div class="lbl3">${l}</div>${escapeHtml(v || '—')}</div>`;
-  return `<div class="profile-meta">${row('שם מלא', d.name)}${row('תפקיד', d.role)}${row('מחלקה', d.department)}${row('דרגה', d.grade)}${row('מספר אישי', d.personalNumber)}${row('זוטר/מובהק', d.level)}${row('סוג שירות', d.serviceType)}</div>`;
+  return `<div class="profile-meta">${row('שם מלא', d.name)}${row('תפקיד', d.role)}${row('מרכז', d.department)}${row('דרגה', d.grade)}${row('מספר אישי', d.personalNumber)}${row('זוטר/מובהק', d.level)}${row('סוג שירות', d.serviceType)}</div>`;
 }
 function openIncentiveForm(id){
   const ex = id ? state.incentives.find(i=>i.id===id) : null;
@@ -5845,7 +5860,7 @@ async function deleteIncentive(id){
 function exportIncentives(){
   const rows = incFiltered().map(i=>{
     const d = incDerived(i);
-    return {'שם מלא': d.name, 'תפקיד': d.role, 'מחלקה': d.department, 'דרגה': d.grade, 'מספר אישי': d.personalNumber,
+    return {'שם מלא': d.name, 'תפקיד': d.role, 'מרכז': d.department, 'דרגה': d.grade, 'מספר אישי': d.personalNumber,
       'זוטר/מובהק': d.level, 'סוג שירות': d.serviceType, 'שם תמריץ': i.name, 'קוד תמריץ': i.code,
       'שווי כספי ברוטו': i.gross === null || i.gross === undefined ? '' : i.gross, 'תאריך תחילה': i.startDate, 'תאריך סיום': i.endDate,
       'ענף': i.industry, 'מדור': i.mador, 'הוזן': i.entered ? 'V' : '', 'הערות': i.notes};
@@ -6297,7 +6312,7 @@ Object.assign(WIDGET_DEFS, {
       const fallback = rows.map((r,i)=>`<div class="widget-row"><span>${escapeHtml(r)}</span><span>${datasets.map(d=>d.label+': '+d.data[i]).join(' · ')}</span></div>`).join('');
       return `<div class="widget-big">${emps.length}</div>` + stackedChart(rows, datasets, fallback);
     } },
-  empByDepartment: { group:'employees', label:'עובדים לפי מחלקה',
+  empByDepartment: { group:'employees', label:'עובדים לפי מרכז',
     render: () => chartBreakdown(scopeEmployees(), e=>e.department, null, 6, 'hbar') },
   empByRank: { group:'employees', label:'עובדים לפי רמת הרשאה (רע"ן/רמ"ד/רש"צ/צפייה עצמית)',
     render: () => chartBreakdown(scopeEmployees(), e=>e.rank, RANKS.concat([SELF_VIEW]), null, 'bar') },
