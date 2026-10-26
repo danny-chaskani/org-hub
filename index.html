@@ -1871,6 +1871,118 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
 </script>
 <script>
 /* ================================================================
+   DataStore: the single layer every read and write of app data goes through.
+   Round 1, stage 1: a thin facade over the existing storage (same keys, same
+   format). Later stages add metadata, an audit log, files and notifications
+   behind this same API. Everything is asynchronous so that swapping the local
+   adapter for a server adapter later does not change any caller.
+   ================================================================ */
+(function(){
+  'use strict';
+  var PREFIX = 'hub:';
+  var handlers = {};
+
+  function artifactMode(){ return typeof window !== 'undefined' && window.storage && typeof window.storage.get === 'function'; }
+
+  /* ---- adapters: raw string in, raw string out ---- */
+  var localAdapter = {
+    name: 'local',
+    getRaw: function(key){ return Promise.resolve(localStorage.getItem(PREFIX + key)); },
+    setRaw: function(key, raw){ localStorage.setItem(PREFIX + key, raw); return Promise.resolve(); },
+    removeRaw: function(key){ localStorage.removeItem(PREFIX + key); return Promise.resolve(); },
+    keys: function(){
+      var out = [];
+      for (var i = 0; i < localStorage.length; i++){ var k = localStorage.key(i); if (k && k.indexOf(PREFIX) === 0) out.push(k.slice(PREFIX.length)); }
+      return Promise.resolve(out.sort());
+    }
+  };
+  var artifactAdapter = {
+    name: 'artifact',
+    getRaw: function(key){ return window.storage.get(key, false).then(function(r){ return r ? r.value : null; }); },
+    setRaw: function(key, raw){ return window.storage.set(key, raw, false); },
+    removeRaw: function(key){ return window.storage.delete ? window.storage.delete(key, false) : Promise.resolve(); },
+    keys: function(){ return window.storage.list ? window.storage.list('', false).then(function(r){ return (r && r.keys) || []; }) : Promise.resolve([]); }
+  };
+  function adapter(){ return artifactMode() ? artifactAdapter : localAdapter; }
+
+  /* ---- events ---- */
+  function on(evt, fn){ (handlers[evt] = handlers[evt] || []).push(fn); return function(){ off(evt, fn); }; }
+  function off(evt, fn){ handlers[evt] = (handlers[evt] || []).filter(function(f){ return f !== fn; }); }
+  function emit(evt, payload){
+    (handlers[evt] || []).slice().forEach(function(fn){ try{ fn(payload); }catch(e){ console.error('DataStore handler failed', evt, e); } });
+  }
+
+  /* ---- reads and writes of a named key ---- */
+  function get(name, fallback){
+    return adapter().getRaw(name).then(function(raw){
+      return raw === null || raw === undefined ? fallback : JSON.parse(raw);
+    }).catch(function(){ return fallback; });
+  }
+  /* resolves true when the value was saved, false when the browser refused (the failure is reported to the user) */
+  function set(name, value){
+    var a = adapter();
+    var raw;
+    try{ raw = JSON.stringify(value); }
+    catch(e){ return Promise.resolve(fail(name, e, value)); }
+    var pending;
+    try{ pending = a.setRaw(name, raw); }                  /* local writes happen synchronously, exactly as before */
+    catch(e){ return Promise.resolve(fail(name, e, value)); }
+    return Promise.resolve(pending).then(function(){
+      emit('change', { name: name, value: value });
+      return true;
+    }, function(e){ return fail(name, e, value); });
+  }
+  function fail(name, e, value){
+    console.error('storage set failed', name, e);
+    if (typeof window.hubSaveFailed === 'function') window.hubSaveFailed(name, e, value);
+    emit('error', { name: name, error: e });
+    return false;
+  }
+  function remove(name){ return adapter().removeRaw(name).then(function(){ emit('change', { name: name, removed: true }); return true; }, function(){ return false; }); }
+  function keys(){ return adapter().keys(); }
+
+  /* ---- collections stored as one array under one key (ids are string ids) ---- */
+  function collection(name){
+    var api = {
+      name: name,
+      list: function(){ return get(name, []); },
+      get: function(id){ return get(name, []).then(function(a){ return a.find(function(r){ return r.id === id; }) || null; }); },
+      put: function(rec){
+        return get(name, []).then(function(a){
+          var i = a.findIndex(function(r){ return r.id === rec.id; });
+          if (i >= 0) a[i] = rec; else a.push(rec);
+          return set(name, a).then(function(ok){ return ok ? rec : null; });
+        });
+      },
+      patch: function(id, fields){
+        return get(name, []).then(function(a){
+          var i = a.findIndex(function(r){ return r.id === id; });
+          if (i < 0) return null;
+          a[i] = Object.assign({}, a[i], fields);
+          return set(name, a).then(function(ok){ return ok ? a[i] : null; });
+        });
+      },
+      remove: function(id){
+        return get(name, []).then(function(a){
+          var b = a.filter(function(r){ return r.id !== id; });
+          if (b.length === a.length) return false;
+          return set(name, b);
+        });
+      }
+    };
+    return api;
+  }
+
+  window.DataStore = {
+    PREFIX: PREFIX,
+    get: get, set: set, remove: remove, keys: keys, collection: collection,
+    on: on, off: off, emit: emit,
+    adapterName: function(){ return adapter().name; }
+  };
+})();
+</script>
+<script>
+/* ================================================================
    Storage guard (additive): a failed save is always shown to the user,
    and attachments are checked against the space left before saving.
    ================================================================ */
@@ -2251,28 +2363,11 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
 /* ---------------- storage helpers ---------------- */
 function hasArtifactStorage(){ return typeof window !== 'undefined' && window.storage && typeof window.storage.get === 'function'; }
 async function storeSet(key, value){
-  let saved = true;
-  if (hasArtifactStorage()){
-    try{ await window.storage.set(key, JSON.stringify(value), false); }catch(e){ saved = false; console.error('storage set failed', key, e); if (typeof hubSaveFailed === 'function') hubSaveFailed(key, e, value); }
-  } else {
-    try{ localStorage.setItem('hub:'+key, JSON.stringify(value)); }catch(e){ saved = false; console.error('local storage set failed', key, e); if (typeof hubSaveFailed === 'function') hubSaveFailed(key, e, value); }
-  }
+  const saved = await DataStore.set(key, value);
   if (saved && (key === 'convergence' || key === 'positions')) await captureHistory(key);
   return saved;
 }
-async function storeGet(key, fallback){
-  if (hasArtifactStorage()){
-    try{
-      const r = await window.storage.get(key, false);
-      return r ? JSON.parse(r.value) : fallback;
-    }catch(e){ return fallback; }
-  }
-  try{
-    const raw = localStorage.getItem('hub:'+key);
-    return raw === null ? fallback : JSON.parse(raw);
-  }catch(e){ return fallback; }
-}
-
+function storeGet(key, fallback){ return DataStore.get(key, fallback); }
 /* ---------------- state ---------------- */
 let state = {
   employees: [],
