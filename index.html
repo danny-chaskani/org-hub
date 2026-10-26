@@ -849,7 +849,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     header{ padding: calc(8px + env(safe-area-inset-top)) 12px 8px; gap: 8px; flex-wrap: wrap; }
     .brand{ gap: 8px; }
     .brand h1{ font-size: 14px; }
-    .whoami{ gap: 6px; font-size: 12px; flex-wrap: nowrap; }
+    .whoami{ gap: 6px; font-size: 12px; flex-wrap: wrap; justify-content: flex-end; }
     #whoamiLabel{ display: none; }
     .whoami button.ghost{ padding: 0 9px; font-size: 12px; min-height: 34px; }
     main{
@@ -1086,6 +1086,24 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     nav.tabs{ transition: none !important; }
     body{ transition: none; }
   }
+  /* notifications */
+  button.icon-btn.bell-btn{ width: 36px; height: 36px; padding: 0; position: relative; flex: none; display: inline-flex; align-items: center; justify-content: center; color: var(--ink-2); filter: none; }
+  .bell-btn::before{
+    content: ''; width: 20px; height: 20px; background: currentColor;
+    -webkit-mask: var(--ico-bell) center / contain no-repeat; mask: var(--ico-bell) center / contain no-repeat;
+    --ico-bell: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9a6 6 0 0 1 12 0c0 5 2 6.5 2 6.5H4S6 14 6 9z'/%3E%3Cpath d='M10 19a2 2 0 0 0 4 0'/%3E%3C/svg%3E");
+  }
+  .notif-badge{ position: absolute; top: 1px; inset-inline-start: 0; min-width: 17px; height: 17px; padding: 0 4px; border-radius: 9px; background: var(--negative); color: var(--on-accent); font-size: 11px; font-weight: 700; line-height: 17px; text-align: center; }
+  .notif-badge[hidden]{ display: none; }
+  .notif-toolbar{ display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+  .notif-item{ border: 1px solid var(--border); border-radius: var(--r-card); padding: 12px 14px; margin-bottom: 8px; background: var(--sheet); }
+  .notif-item.unread{ background: var(--accent-soft); border-color: var(--accent-soft-strong); }
+  .notif-head{ display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .notif-time{ font-size: 12.5px; color: var(--muted); }
+  .notif-title{ font-weight: 600; margin-top: 6px; }
+  .notif-body{ margin-top: 4px; color: var(--ink-2); font-size: 13.5px; line-height: 1.6; }
+  .notif-actions{ display: flex; gap: 8px; margin-top: 10px; }
+
   /* failed-save alert */
   .save-error{
     position: fixed; top: 12px; inset-inline: 12px; z-index: 3000; max-width: 720px; margin-inline: auto;
@@ -1137,6 +1155,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
 <header>
   <div class="brand"><button type="button" class="icon-btn nav-toggle" id="navToggle" aria-label="פתיחה וסגירה של תפריט הניווט" aria-controls="mainNav" aria-expanded="true"></button><span class="dot"></span><h1>מרכז ניהול ארגוני</h1></div>
   <div class="whoami">
+    <button type="button" class="icon-btn bell-btn" id="notifBell" aria-label="התראות"><span class="notif-badge" id="notifBadge" hidden></span></button>
     <button type="button" class="icon-btn theme-toggle" id="themeToggle" aria-label="החלפה בין מצב בהיר למצב כהה"></button>
     <span id="whoamiLabel"></span>
     <button class="ghost" onclick="openChangePasswordModal()">החלפת סיסמה</button>
@@ -1939,7 +1958,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
   }
 
   /* ---- record metadata (stage 2) ---- */
-  var META_COLLECTIONS = ['employees', 'meetings', 'tasks', 'postings', 'positions', 'convergence', 'attendance', 'attendanceRequests', 'infoItems', 'contactRoles', 'incentives', 'users', 'grants'];
+  var META_COLLECTIONS = ['employees', 'meetings', 'tasks', 'postings', 'positions', 'convergence', 'attendance', 'attendanceRequests', 'infoItems', 'contactRoles', 'incentives', 'users', 'grants', 'notifications'];
   var META_FIELDS = ['rev', 'updatedAt', 'updatedBy'];
   var NOISE_FIELDS = { users: ['lastLoginAt'] };   /* changes that must not count as an edit */
   function hasMeta(name){ return META_COLLECTIONS.indexOf(name) > -1; }
@@ -2286,6 +2305,9 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
         notify('שדרוג הנתונים נכשל ובוטל', 'שלב ' + m.id + ' נכשל (' + migrationState.failed.error + '). הנתונים הוחזרו למצב שלפני השדרוג, והמערכת ממשיכה לעבוד כרגיל. גיבוי הבטיחות נשמר בלשונית "משתמשים".');
         break;
       }
+    }
+    if (migrationState.ran.length && window.hubNotify){
+      try{ await hubNotify.forSuperUsers({ kind: 'system', title: 'שדרוג הנתונים הושלם', body: 'בוצעו: ' + migrationState.ran.map(function(r){ return r.id; }).join(', ') + '. גיבוי בטיחות של המצב שלפני השדרוג נשמר בלשונית "משתמשים".', dedupeKey: 'migration:' + latestSchema() }); }catch(e){ console.error('notify failed', e); }
     }
     audit.setSource('ui');
     return migrationState;
@@ -2896,6 +2918,155 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
   }
   window.hubAuditView = { reload: function(){ return load(true); } };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
+})();
+</script>
+<script>
+/* ================================================================
+   Notifications (stage 5): one generic inbox for every kind of alert
+   (sync review, conflicts, reminders, forms, tasks, events, system).
+   Stored under the "notifications" key through DataStore, addressed to a user id.
+   The inbox opens by itself at every sign-in that has something waiting.
+   ================================================================ */
+(function(){
+  'use strict';
+  var KEY = 'notifications';
+  var KIND = { system: 'מערכת', 'sync-review': 'סנכרון', conflict: 'סתירה', reminder: 'תזכורת', 'abroad-form': 'טופס חו"ל', task: 'משימה', event: 'אירוע' };
+  var el = function(id){ return document.getElementById(id); };
+  var esc = function(s){ return typeof escapeHtml === 'function' ? escapeHtml(s) : String(s); };
+  function newId(){ return 'n' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
+  function me(){ try{ return (typeof state !== 'undefined' && state && state.authUserId) || null; }catch(e){ return null; } }
+  function isPending(n){ return n.state !== 'done'; }
+
+  async function all(){ var a = await DataStore.get(KEY, []); return Array.isArray(a) ? a : []; }
+
+  /* creates a notification; when dedupeKey is given, an open one with the same key for the same recipient is not duplicated */
+  async function add(spec){
+    if (!spec || !spec.recipientId || !spec.title) return null;
+    var list = await all();
+    if (spec.dedupeKey && list.some(function(n){ return n.recipientId === spec.recipientId && n.dedupeKey === spec.dedupeKey && isPending(n); })) return null;
+    var n = {
+      id: newId(), recipientId: spec.recipientId, kind: spec.kind || 'system', domain: spec.domain || null, ruleId: spec.ruleId || null,
+      title: spec.title, body: spec.body || '', payload: spec.payload || null, state: 'unread', dueAt: spec.dueAt || null,
+      dedupeKey: spec.dedupeKey || null, createdAt: new Date().toISOString(), readAt: null, doneAt: null
+    };
+    list.push(n);
+    if (!(await DataStore.set(KEY, list))) return null;
+    refreshBadge();
+    return n;
+  }
+  async function forSuperUsers(spec){
+    var users = await DataStore.get('users', []), out = [];
+    for (var i = 0; i < users.length; i++){
+      var u = users[i];
+      if (u && u.isSuper && u.active !== false) out.push(await add(Object.assign({}, spec, { recipientId: u.id })));
+    }
+    return out.filter(Boolean);
+  }
+  async function listFor(userId, opts){
+    opts = opts || {};
+    var list = (await all()).filter(function(n){ return n.recipientId === userId && (opts.includeDone ? true : isPending(n)); });
+    return list.sort(function(a, b){ return (a.state === 'unread' ? 0 : 1) - (b.state === 'unread' ? 0 : 1) || (a.createdAt < b.createdAt ? 1 : -1); });
+  }
+  async function unreadCount(userId){ return (await all()).filter(function(n){ return n.recipientId === userId && n.state === 'unread'; }).length; }
+  async function pendingCount(userId){ return (await all()).filter(function(n){ return n.recipientId === userId && isPending(n); }).length; }
+  async function update(id, fn){
+    var list = await all(), n = list.find(function(x){ return x.id === id; });
+    if (!n) return false;
+    fn(n);
+    var ok = await DataStore.set(KEY, list);
+    refreshBadge();
+    return ok;
+  }
+  function markRead(id){ return update(id, function(n){ if (n.state === 'unread'){ n.state = 'read'; n.readAt = new Date().toISOString(); } }); }
+  function markDone(id){ return update(id, function(n){ n.state = 'done'; n.doneAt = new Date().toISOString(); if (!n.readAt) n.readAt = n.doneAt; }); }
+  async function markAllRead(userId){
+    var list = await all(), now = new Date().toISOString(), changed = false;
+    list.forEach(function(n){ if (n.recipientId === userId && n.state === 'unread'){ n.state = 'read'; n.readAt = now; changed = true; } });
+    if (changed) await DataStore.set(KEY, list);
+    refreshBadge();
+    return changed;
+  }
+
+  /* ---- bell and badge ---- */
+  async function refreshBadge(){
+    var badge = el('notifBadge'), bell = el('notifBell'); if (!badge || !bell) return;
+    var uid = me(); if (!uid){ badge.hidden = true; return; }
+    var n = await unreadCount(uid), p = await pendingCount(uid);
+    badge.hidden = n === 0; badge.textContent = n > 99 ? '99+' : String(n);
+    bell.title = p ? 'התראות (' + p + ' ממתינות)' : 'התראות';
+    bell.setAttribute('aria-label', n ? 'התראות, ' + n + ' שלא נקראו' : 'התראות');
+  }
+
+  /* ---- inbox ---- */
+  var view = 'pending';
+  function when(iso){ try{ return new Date(iso).toLocaleString('he-IL'); }catch(e){ return ''; } }
+  async function renderList(){
+    var box = el('notif-list'); if (!box) return;
+    var uid = me(), list = await listFor(uid, { includeDone: view === 'done' });
+    if (view === 'done') list = list.filter(function(n){ return n.state === 'done'; });
+    if (!list.length){ box.innerHTML = '<div class="empty-state" style="padding:28px 12px;">' + (view === 'done' ? 'אין התראות שטופלו' : 'אין התראות ממתינות') + '</div>'; return; }
+    box.innerHTML = list.map(function(n){
+      return '<div class="notif-item ' + (n.state === 'unread' ? 'unread' : '') + '" data-nid="' + esc(n.id) + '">'
+        + '<div class="notif-head"><span class="tag">' + esc(KIND[n.kind] || n.kind) + '</span><span class="notif-time">' + esc(when(n.createdAt)) + '</span></div>'
+        + '<div class="notif-title">' + esc(n.title) + '</div>' + (n.body ? '<div class="notif-body">' + esc(n.body) + '</div>' : '')
+        + (n.state === 'done' ? '<div class="notif-time">טופל ב-' + esc(when(n.doneAt)) + '</div>' : '<div class="notif-actions">' + (n.state === 'unread' ? '<button class="ghost" data-nact="read" type="button">סמן כנקרא</button>' : '') + '<button class="primary" data-nact="done" type="button">טופל</button></div>')
+        + '</div>';
+    }).join('');
+  }
+  async function openInbox(){
+    if (!me()) return;
+    var superUser = typeof isSuperUser === 'function' && isSuperUser();
+    openModal('<h3>התראות</h3>'
+      + '<div class="notif-toolbar"><div class="task-filters" style="margin:0;"><button class="ghost active" data-nview="pending" type="button">ממתינות</button><button class="ghost" data-nview="done" type="button">טופלו</button></div>'
+      + '<button class="ghost" data-nact="allread" type="button">סמן הכול כנקרא</button></div>'
+      + '<div id="notif-list"></div>'
+      + '<div class="modal-actions">' + (superUser ? '<button class="ghost" data-nact="test" type="button">שלח לעצמי התראת בדיקה</button>' : '') + '<button class="ghost" onclick="closeModal()" type="button">סגור</button></div>', false);
+    view = 'pending';
+    await renderList();
+  }
+  document.addEventListener('click', async function(e){
+    var box = e.target.closest ? e.target.closest('#modalBody') : null;
+    var bell = e.target.closest ? e.target.closest('#notifBell') : null;
+    if (bell){ openInbox(); return; }
+    if (!box) return;
+    var v = e.target.closest('[data-nview]');
+    if (v && el('notif-list')){
+      view = v.getAttribute('data-nview');
+      box.querySelectorAll('[data-nview]').forEach(function(b){ b.classList.toggle('active', b === v); });
+      renderList(); return;
+    }
+    var b = e.target.closest('[data-nact]');
+    if (!b || !el('notif-list')) return;
+    var act = b.getAttribute('data-nact'), item = b.closest('.notif-item'), id = item && item.getAttribute('data-nid');
+    if (act === 'read') await markRead(id);
+    else if (act === 'done') await markDone(id);
+    else if (act === 'allread') await markAllRead(me());
+    else if (act === 'test') await add({ recipientId: me(), kind: 'system', title: 'התראת בדיקה', body: 'כך נראית התראה בתיבה. לחיצה על "טופל" מסירה אותה מהרשימה.' });
+    renderList();
+  });
+
+  /* ---- shown at every sign-in that has something waiting ---- */
+  var body = document.body, wasLocked = body.classList.contains('auth-locked');
+  function flagKey(){ return 'hubui.notifShown:' + me(); }
+  async function onSignedIn(){
+    await refreshBadge();
+    var uid = me(); if (!uid) return;
+    try{ if (sessionStorage.getItem(flagKey())) return; }catch(e){}
+    if (await pendingCount(uid) > 0){
+      try{ sessionStorage.setItem(flagKey(), '1'); }catch(e){}
+      var d = document.querySelector('.tab-btn[data-tab="dashboard"]');
+      setTimeout(function(){ if (!document.getElementById('modalBackdrop').classList.contains('active')) openInbox(); }, 250);
+    }
+  }
+  new MutationObserver(function(){
+    var locked = body.classList.contains('auth-locked');
+    if (wasLocked && !locked) setTimeout(onSignedIn, 500);
+    if (locked && !wasLocked){ try{ Object.keys(sessionStorage).filter(function(k){ return k.indexOf('hubui.notifShown:') === 0; }).forEach(function(k){ sessionStorage.removeItem(k); }); }catch(e){} var b = el('notifBadge'); if (b) b.hidden = true; }
+    wasLocked = locked;
+  }).observe(body, { attributes: true, attributeFilter: ['class'] });
+  window.addEventListener('storage', function(e){ if (e.key === 'hub:' + KEY) refreshBadge(); });
+
+  window.hubNotify = { add: add, forSuperUsers: forSuperUsers, list: listFor, unreadCount: unreadCount, pendingCount: pendingCount, markRead: markRead, markDone: markDone, markAllRead: markAllRead, open: openInbox, refresh: refreshBadge };
 })();
 </script>
 <script>
