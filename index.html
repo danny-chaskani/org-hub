@@ -1086,6 +1086,17 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     nav.tabs{ transition: none !important; }
     body{ transition: none; }
   }
+  /* failed-save alert */
+  .save-error{
+    position: fixed; top: 12px; inset-inline: 12px; z-index: 3000; max-width: 720px; margin-inline: auto;
+    background: var(--negative-tint); color: var(--negative-ink);
+    border: 2px solid var(--negative); border-radius: var(--r-card);
+    padding: 14px 16px; box-shadow: var(--shadow-float);
+  }
+  .save-error-title{ font-weight: 700; font-size: 15px; }
+  .save-error-detail{ margin-top: 4px; font-size: 13.5px; line-height: 1.6; }
+  .save-error-actions{ display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+
   /* backup and data health */
   .backup-section{ padding: 16px 0; border-top: 1px solid var(--rule); }
   .backup-section:first-child{ padding-top: 0; border-top: 0; }
@@ -1860,6 +1871,88 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
 </script>
 <script>
 /* ================================================================
+   Storage guard (additive): a failed save is always shown to the user,
+   and attachments are checked against the space left before saving.
+   ================================================================ */
+(function(){
+  'use strict';
+  var LIMIT = 5000000;       /* characters: the usual per-origin localStorage limit of desktop browsers */
+  var MARGIN = 50000;        /* room kept for the rest of the record that carries the file */
+  window.hubStorageLimitChars = LIMIT;
+  var LABELS = {
+    employees:'עובדים', meetings:'סיכומי פגישות', tasks:'משימות', postings:'שיבוצים', positions:'ניהול תקנים',
+    convergence:'התכנסות', attendance:'נוכחות', attendanceRequests:'בקשות נוכחות', infoItems:'מידע למנהלים',
+    dashboard:'נתוני לוח הבקרה', dashboardPrefs:'התאמות לוח הבקרה', dashboardLayout:'התאמות לוח הבקרה',
+    contactRoles:'דף קשר', incentives:'תמריצים', users:'משתמשים', grants:'הרשאות', restrictedTabs:'הרשאות לשוניות',
+    convergenceAllocations:'הקצאות התכנסות', convergenceHistory:'היסטוריית התכנסות', positionsHistory:'היסטוריית תקנים',
+    convergencePermissions:'הרשאות התכנסות', positionsPermissions:'הרשאות תקנים', currentUserId:'המשתמש הפעיל'
+  };
+  var failures = 0, banner = null;
+
+  function usedChars(){
+    var n = 0;
+    try{ for (var i = 0; i < localStorage.length; i++){ var k = localStorage.key(i); n += k.length + (localStorage.getItem(k) || '').length; } }catch(e){}
+    return n;
+  }
+  function mChars(n){ return (n / 1000000).toFixed(2); }
+  function isQuota(e){
+    return !!e && (e.name === 'QuotaExceededError' || e.name === 'NS_ERROR_DOM_QUOTA_REACHED' || e.code === 22 || e.code === 1014 || /quota/i.test(String(e.message || '')));
+  }
+
+  function ensureBanner(){
+    if (banner && document.body.contains(banner)) return banner;
+    banner = document.createElement('div');
+    banner.id = 'saveErrorBanner';
+    banner.className = 'save-error';
+    banner.setAttribute('role', 'alert');
+    banner.setAttribute('aria-live', 'assertive');
+    document.body.appendChild(banner);
+    return banner;
+  }
+  function showBanner(title, detail){
+    var b = ensureBanner();
+    b.innerHTML = '';
+    var h = document.createElement('div'); h.className = 'save-error-title'; h.textContent = title + (failures > 1 ? ' (קרה ' + failures + ' פעמים)' : '');
+    var d = document.createElement('div'); d.className = 'save-error-detail'; d.textContent = detail;
+    var row = document.createElement('div'); row.className = 'save-error-actions';
+    var reload = document.createElement('button'); reload.type = 'button'; reload.className = 'ghost'; reload.textContent = 'טען מחדש את הנתונים השמורים';
+    reload.addEventListener('click', function(){ location.reload(); });
+    var close = document.createElement('button'); close.type = 'button'; close.className = 'ghost'; close.textContent = 'סגור';
+    close.addEventListener('click', function(){ failures = 0; b.remove(); });
+    row.appendChild(reload); row.appendChild(close);
+    b.appendChild(h); b.appendChild(d); b.appendChild(row);
+  }
+
+  /* called by storeSet when a write fails */
+  window.hubSaveFailed = function(key, err, value){
+    failures++;
+    var label = LABELS[key] || key;
+    var hasFile = false;
+    try{ hasFile = JSON.stringify(value).indexOf('"dataUrl"') > -1; }catch(e){}
+    var title;
+    if (isQuota(err)) title = hasFile ? 'השמירה נכשלה – הקובץ גדול מדי או שהאחסון בדפדפן מלא. הנתונים לא נשמרו.' : 'השמירה נכשלה – האחסון בדפדפן מלא. הנתונים לא נשמרו.';
+    else title = 'השמירה נכשלה (' + ((err && err.name) || 'שגיאה') + '). הנתונים לא נשמרו.';
+    var detail = 'נכשלה שמירת: ' + label + '. מה שמוצג במסך כרגע לא נשמר ויאבד ברענון. '
+      + (isQuota(err) ? 'פנה מקום (מחק קבצים מצורפים או נתונים ישנים), או הורד גיבוי מלשונית "משתמשים" לפני שתמשיך, ואז נסה שוב.' : 'נסה שוב, ואם זה חוזר הורד גיבוי מלשונית "משתמשים".');
+    showBanner(title, detail);
+  };
+
+  /* returns '' when the file can be attached, otherwise the reason (Hebrew) */
+  window.hubAttachmentProblem = function(file){
+    if (!file) return '';
+    var prefix = ('data:' + (file.type || 'application/octet-stream') + ';base64,').length;
+    var est = Math.ceil(file.size / 3) * 4 + prefix;
+    var free = LIMIT - usedChars() - MARGIN;
+    if (est <= free) return '';
+    var mb = (file.size / 1048576).toFixed(1);
+    var hint = file.size > 3 * 1048576 ? 'נסה לצמצם או לדחוס את הקובץ (עד כ-3MB).' : 'פנה מקום (מחק קבצים מצורפים ישנים) או הורד גיבוי ומחק נתונים שאינם נחוצים.';
+    return 'הקובץ "' + file.name + '" (' + mb + ' MB) לא ייכנס לשמירה, ולכן לא צורף ושום דבר לא נשמר.\n\n'
+      + 'אחרי הקידוד לשמירה בדפדפן הוא תופס כ-' + mChars(est) + ' מיליון תווים, ונשאר מקום לכ-' + mChars(Math.max(0, free)) + ' מיליון (מתוך כ-5 מיליון, המגבלה השמרנית של הדפדפנים).\n\n' + hint;
+  };
+})();
+</script>
+<script>
+/* ================================================================
    Stage 0: backup, restore and data health (additive).
    Works on the raw "hub:*" localStorage keys, so a restored file is
    byte-identical to what was exported. Safety copies go to IndexedDB.
@@ -2158,12 +2251,14 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
 /* ---------------- storage helpers ---------------- */
 function hasArtifactStorage(){ return typeof window !== 'undefined' && window.storage && typeof window.storage.get === 'function'; }
 async function storeSet(key, value){
+  let saved = true;
   if (hasArtifactStorage()){
-    try{ await window.storage.set(key, JSON.stringify(value), false); }catch(e){ console.error('storage set failed', key, e); }
+    try{ await window.storage.set(key, JSON.stringify(value), false); }catch(e){ saved = false; console.error('storage set failed', key, e); if (typeof hubSaveFailed === 'function') hubSaveFailed(key, e, value); }
   } else {
-    try{ localStorage.setItem('hub:'+key, JSON.stringify(value)); }catch(e){ console.error('local storage set failed', key, e); }
+    try{ localStorage.setItem('hub:'+key, JSON.stringify(value)); }catch(e){ saved = false; console.error('local storage set failed', key, e); if (typeof hubSaveFailed === 'function') hubSaveFailed(key, e, value); }
   }
-  if (key === 'convergence' || key === 'positions') await captureHistory(key);
+  if (saved && (key === 'convergence' || key === 'positions')) await captureHistory(key);
+  return saved;
 }
 async function storeGet(key, fallback){
   if (hasArtifactStorage()){
@@ -2212,8 +2307,9 @@ function readFileInputAsAttachment(inputId){
     const inp = document.getElementById(inputId);
     if (!inp || !inp.files || !inp.files.length){ resolve(null); return; }
     const file = inp.files[0];
-    if (file.size > 4*1024*1024){
-      alert('הקובץ גדול מדי — הגודל המקסימלי הוא כ-4MB');
+    const problem = (typeof hubAttachmentProblem === 'function') ? hubAttachmentProblem(file) : (file.size > 4*1024*1024 ? 'הקובץ גדול מדי — הגודל המקסימלי הוא כ-4MB' : '');
+    if (problem){
+      alert(problem);
       reject(new Error('file-too-large'));
       return;
     }
