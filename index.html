@@ -266,6 +266,7 @@ window.addEventListener('error', function(e){
   .tab-btn:active{ transform: scale(0.98); }
   .tab-btn:focus-visible{ outline-offset: -2px; }
     .tab-btn[data-tab="dashboard"]{ --ico: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3.5' y='3.5' width='7' height='7' rx='1.5'/%3E%3Crect x='13.5' y='3.5' width='7' height='7' rx='1.5'/%3E%3Crect x='3.5' y='13.5' width='7' height='7' rx='1.5'/%3E%3Crect x='13.5' y='13.5' width='7' height='7' rx='1.5'/%3E%3C/svg%3E"); }
+  .tab-btn[data-tab="roles"]{ --ico: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3.5' y='7.5' width='17' height='12' rx='2'/%3E%3Cpath d='M9 7.5v-2a1.5 1.5 0 0 1 1.5-1.5h3a1.5 1.5 0 0 1 1.5 1.5v2M3.5 13h17'/%3E%3C/svg%3E"); }
   .tab-btn[data-tab="orgchart"]{ --ico: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='9' y='3.5' width='6' height='5' rx='1'/%3E%3Crect x='3' y='15.5' width='6' height='5' rx='1'/%3E%3Crect x='15' y='15.5' width='6' height='5' rx='1'/%3E%3Cpath d='M12 8.5v3.5M6 15.5V12h12v3.5'/%3E%3C/svg%3E"); }
   .tab-btn[data-tab="meetings"]{ --ico: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3.5' y='5' width='17' height='15' rx='2'/%3E%3Cpath d='M3.5 10h17M8 3v4M16 3v4'/%3E%3C/svg%3E"); }
   .tab-btn[data-tab="tasks"]{ --ico: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='4' y='4' width='16' height='16' rx='3'/%3E%3Cpath d='M8.5 12.5l2.5 2.5 4.5-5'/%3E%3C/svg%3E"); }
@@ -1188,6 +1189,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
   <button class="tab-btn" data-tab="incentives">תמריצים</button>
   <div class="nav-group-title">אנשים</div>
   <button class="tab-btn" data-tab="contacts">דף קשר</button>
+  <button class="tab-btn" data-tab="roles">תפקידים</button>
   <button class="tab-btn" data-tab="employees">עובדים</button>
   <div class="nav-group-title">ניהול המערכת</div>
   <button class="tab-btn" data-tab="permissions">הרשאות</button>
@@ -1232,7 +1234,29 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
         <button class="ghost" onclick="exportEmployees()">ייצוא לאקסל</button>
       </div>
     </div>
+    <div class="card" id="orgViewBar">
+      <div class="task-filters" style="margin:0;"><button class="ghost active" type="button" data-ov="people">עץ עובדים</button><button class="ghost" type="button" data-ov="roles">עץ תפקידים</button></div>
+      <div id="roleFilters" hidden style="margin-top:10px; display:flex; gap:14px; flex-wrap:wrap; align-items:center;">
+        <label class="checkbox-row"><input type="checkbox" id="of-filled"> בעלי תפקידים בלבד</label>
+        <label class="checkbox-row"><input type="checkbox" id="of-vacant"> תפקידים בלי אנשים</label>
+        <label class="checkbox-row"><input type="checkbox" id="of-hide"> הסתר שמות (מבנה תפקידים בלבד)</label>
+        <label class="checkbox-row"><input type="checkbox" id="of-notin"> אנשים ותפקידים שלא באיוש</label>
+        <select id="of-depth" aria-label="היררכיה"><option value="0">כל ההיררכיה</option><option value="1">רמה עליונה בלבד (בלי כפיפים)</option><option value="2">עד רמה 2</option><option value="3">עד רמה 3</option></select>
+      </div>
+    </div>
     <div class="card org-wrap"><div id="orgTree" class="tree"></div></div>
+    <div class="card org-wrap" id="roleTreeWrap" hidden><div id="roleTree" class="tree"></div><div id="roleNotIn" hidden></div></div>
+  </section>
+
+  <!-- ROLES -->
+  <section class="panel" id="panel-roles">
+    <div class="panel-head">
+      <div><h2>תפקידים</h2><p>מקומות במבנה הארגוני: מי מאייש כל תפקיד, מתי הוא מתפנה, ומתי נכנס המחליף</p></div>
+      <div style="display:flex; gap:8px; flex-wrap:wrap;"><button class="primary" id="roles-add" type="button">+ תפקיד חדש</button><button class="ghost" id="roles-export" type="button">ייצוא לאקסל</button></div>
+    </div>
+    <div id="rolesBootstrap"></div>
+    <div class="card"><div class="grid2" id="rolesFilters"></div><div style="display:flex; gap:10px; align-items:center;"><button class="ghost" id="roles-clear" type="button">נקה סינון</button><span id="rolesCount" class="locked-note"></span></div></div>
+    <div class="card"><div class="table-scroll"><table id="rolesTable"><thead><tr><th>תפקיד</th><th>יחידה</th><th>דרג</th><th>מאייש / מחליף</th><th>סטטוס איוש</th><th>תקן</th><th></th></tr></thead><tbody id="rolesBody"></tbody></table></div></div>
   </section>
 
   <!-- MEETINGS -->
@@ -1985,7 +2009,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
   }
 
   /* ---- record metadata (stage 2) ---- */
-  var META_COLLECTIONS = ['employees', 'meetings', 'tasks', 'postings', 'positions', 'convergence', 'attendance', 'attendanceRequests', 'infoItems', 'contactRoles', 'incentives', 'users', 'grants', 'notifications', 'orgUnits'];
+  var META_COLLECTIONS = ['employees', 'meetings', 'tasks', 'postings', 'positions', 'convergence', 'attendance', 'attendanceRequests', 'infoItems', 'contactRoles', 'incentives', 'users', 'grants', 'notifications', 'orgUnits', 'roles'];
   var META_FIELDS = ['rev', 'updatedAt', 'updatedBy'];
   var NOISE_FIELDS = { users: ['lastLoginAt'] };   /* changes that must not count as an edit */
   function hasMeta(name){ return META_COLLECTIONS.indexOf(name) > -1; }
@@ -2218,7 +2242,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
      visible records, and writes merge them back with the records the user cannot see, so nothing hidden is lost.
      Which records belong to which center: an explicit centerId wins; otherwise it follows the employee the record
      is about, and anything unassigned belongs to the main center. */
-  var SCOPED = ['employees', 'positions', 'convergence', 'incentives', 'attendance', 'attendanceRequests', 'meetings', 'tasks'];
+  var SCOPED = ['employees', 'positions', 'convergence', 'incentives', 'attendance', 'attendanceRequests', 'meetings', 'tasks', 'roles'];
   var scope = null;                                    /* { kind: 'center'|'hq', centerId, ownEmployeeId } or null (no limit) */
   function setScope(s){ scope = s || null; }
   function getScope(){ return scope; }
@@ -3262,6 +3286,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
       var n = DataStore.scopedNames[i];
       if (Object.prototype.hasOwnProperty.call(state, n)) state[n] = await DataStore.get(n, state[n]);
     }
+    if (window.hubRoles) await hubRoles.reload();
   };
   window.hubClearScope = function(){ DataStore.setScope(null); };
   window.hubScopeLabel = function(u){
@@ -4583,6 +4608,291 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     return { attached: attached, created: created, pending: pending };
   }
   window.hubImportUnits = { analyze: analyze, previewHtml: previewHtml, collect: collect, attach: attach, planRow: planRow };
+})();
+</script>
+<script>
+/* ================================================================
+   Roles (round 3, stage 9): a role is a place in the structure, a position is a budget line.
+   - roles are stored under "roles"; occupancy is DERIVED: from the linked position (current / future holder)
+     or from the manual holder of a role without a position. Gaps and overlaps are computed, never stored.
+   - roles list with filters (level, branch, mador, center, occupancy), and role-aware views of the org structure tab.
+   ================================================================ */
+(function(){
+  'use strict';
+  var el = function(id){ return document.getElementById(id); };
+  var esc = function(s){ return typeof escapeHtml === 'function' ? escapeHtml(s) : String(s); };
+  var STATUS = { filled: 'מאויש', vacant: 'פנוי', gap: 'פער איוש', overlap: 'חפיפה' };
+  var roles = [], units = [];
+  function today(){ return new Date().toISOString().slice(0, 10); }
+  function addDays(iso, n){ var d = new Date(iso + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }
+  function newId(){ return 'r' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+  function uById(id){ return units.find(function(u){ return u.id === id; }) || null; }
+  function chain(id){ var out = [], c = uById(id), g = 0; while (c && g++ < 8){ out.unshift(c); c = c.parentId ? uById(c.parentId) : null; } return out; }
+  function unitPath(id){ return chain(id).map(function(u){ return u.name; }).join(' › '); }
+  function unitPart(id, kind){ var u = chain(id).find(function(x){ return x.kind === kind; }); return u ? u.name : ''; }
+  function centerIdOfUnit(id){ var c = chain(id)[0]; return c ? c.id : null; }
+
+  async function reload(){
+    await hubOrg.refresh(); units = await hubOrg.units();
+    var r = await DataStore.get('roles', []); roles = Array.isArray(r) ? r : [];
+    return roles;
+  }
+  async function saveRoles(){ var ok = await DataStore.set('roles', roles); if (ok) roles = await DataStore.get('roles', roles); return ok; }
+  function posById(id){ return state.positions.find(function(p){ return p.id === id; }) || null; }
+
+  /* ---------- occupancy (derived) ---------- */
+  function holderFromPosition(pos){
+    var ca = pos.currentAppointment || {}, fa = pos.futureAppointment || {};
+    var e = ca.linkedEmployeeId ? empById(ca.linkedEmployeeId) : null;
+    var cur = (e || ca.fullName) ? { empId: e ? e.id : null, name: e ? e.name : ca.fullName, from: e ? (e.unitIntakeDate || e.startDate || '') : '', to: e ? (effectiveReleaseDate(e).date || ca.releaseDate || '') : (ca.releaseDate || '') } : null;
+    var fe = fa.personalNumber ? state.employees.find(function(x){ return hubIds.norm(x.personalNumber) === hubIds.norm(fa.personalNumber); }) : null;
+    var fut = (fa.fullName || fe) ? { empId: fe ? fe.id : null, name: fe ? fe.name : fa.fullName, from: fa.staffingDate || '' } : null;
+    return { cur: cur, fut: fut };
+  }
+  function holders(role){
+    var pos = role.positionId ? posById(role.positionId) : null;
+    if (pos) return holderFromPosition(pos);
+    var m = role.manual || {}, e = m.currentEmployeeId ? empById(m.currentEmployeeId) : null, fe = m.futureEmployeeId ? empById(m.futureEmployeeId) : null;
+    return { cur: e ? { empId: e.id, name: e.name, from: m.from || '', to: m.to || (effectiveReleaseDate(e).date || '') } : null, fut: fe ? { empId: fe.id, name: fe.name, from: m.futureFrom || '' } : null };
+  }
+  /* { cur, fut, status, gap:{from,to|null}, overlap:{from,to} } */
+  function occupancy(role, now){
+    now = now || today();
+    var h = holders(role), cur = h.cur, fut = h.fut, res = { cur: cur, fut: fut, status: 'vacant', gap: null, overlap: null };
+    var curActive = !!cur && (!cur.to || cur.to >= now);
+    var futStarted = !!fut && fut.from && fut.from <= now;
+    if (curActive && fut && fut.from && cur.to && fut.from <= cur.to) res.overlap = { from: fut.from, to: cur.to };
+    if (cur && cur.to && (!fut || !fut.from || fut.from > addDays(cur.to, 1))) res.gap = { from: addDays(cur.to, 1), to: fut && fut.from ? addDays(fut.from, -1) : null };
+    if (curActive) res.status = (res.overlap && res.overlap.from <= now) ? 'overlap' : 'filled';
+    else if (futStarted) res.status = 'filled';
+    else if (fut) res.status = 'gap';
+    else res.status = 'vacant';
+    if (res.status === 'filled' && curActive && res.overlap) res.status = res.overlap.from <= now ? 'overlap' : 'filled';
+    return res;
+  }
+  function currentHolderId(role){ var o = occupancy(role); if (o.cur && (!o.cur.to || o.cur.to >= today())) return o.cur.empId; return o.fut && o.fut.from && o.fut.from <= today() ? o.fut.empId : null; }
+  function occupiedEmployeeIds(){
+    var set = new Set(); roles.forEach(function(r){ var h = holders(r); if (h.cur && h.cur.empId) set.add(h.cur.empId); if (h.fut && h.fut.empId) set.add(h.fut.empId); }); return set;
+  }
+
+  /* ---------- bootstrap: roles from positions (only on approval) ---------- */
+  function missingFromPositions(){
+    var have = new Set(roles.map(function(r){ return r.positionId; }).filter(Boolean));
+    return state.positions.filter(function(p){ return !have.has(p.id); });
+  }
+  async function createFromPositions(){
+    var list = missingFromPositions(), n = 0, main = hubOrg.mainId();
+    var byPos = {}; roles.forEach(function(r){ if (r.positionId) byPos[r.positionId] = r; });
+    list.forEach(function(p){
+      var cu = units.find(function(u){ return u.kind === 'center' && hubIds.norm(u.name) === hubIds.norm(p.registrationUnit); });
+      var unitId = cu ? cu.id : main;
+      var r = { id: newId(), title: p.jobText || p.serialNumber, orgUnitId: unitId, centerId: centerIdOfUnit(unitId), parentRoleId: null, level: p.grade || p.seniorityLevel || '', positionId: p.id, notes: '', active: true, sortOrder: roles.length };
+      roles.push(r); byPos[p.id] = r; n++;
+    });
+    /* parent = the role of the manager of the holder, when both have one */
+    roles.forEach(function(r){
+      if (r.parentRoleId || !r.positionId) return;
+      var p = posById(r.positionId), e = p && p.currentAppointment && p.currentAppointment.linkedEmployeeId ? empById(p.currentAppointment.linkedEmployeeId) : null;
+      var mgr = e && e.managerId ? empById(e.managerId) : null, mp = mgr ? state.positions.find(function(x){ return x.currentAppointment && x.currentAppointment.linkedEmployeeId === mgr.id; }) : null;
+      if (mp && byPos[mp.id] && byPos[mp.id].id !== r.id) r.parentRoleId = byPos[mp.id].id;
+    });
+    await saveRoles();
+    return n;
+  }
+
+  /* ---------- filters (multi-select dropdowns) ---------- */
+  var F = {};                                                 /* key -> Set */
+  var NONE = '\u0001none';
+  function ms(key, label, options){
+    var sel = F[key];
+    return '<div class="field"><label>' + esc(label) + '</label><details class="ef-list"><summary>' + (sel ? sel.size + ' נבחרו' : 'הכול') + '</summary><div class="ef-opts">'
+      + options.map(function(o){ return '<label class="checkbox-row"><input type="checkbox" data-rf-opt="' + key + '" value="' + esc(o.k) + '"' + (sel && sel.has(o.k) ? ' checked' : '') + '> ' + esc(o.label) + '</label>'; }).join('') + '</div></details></div>';
+  }
+  function distinct(fn){ var seen = {}, out = []; roles.forEach(function(r){ var v = fn(r); var k = v || NONE; if (!seen[k]){ seen[k] = 1; out.push({ k: k, label: v || '(ריק)' }); } }); return out.sort(function(a, b){ return a.label.localeCompare(b.label, 'he'); }); }
+  var COLS = {
+    level: function(r){ return r.level || ''; },
+    branch: function(r){ return unitPart(r.orgUnitId, 'branch'); },
+    mador: function(r){ return unitPart(r.orgUnitId, 'mador'); },
+    center: function(r){ var c = chain(r.orgUnitId)[0]; return c ? c.name : ''; },
+    status: function(r){ return occupancy(r).status; }
+  };
+  function passes(r){
+    for (var k in F){ if (!F[k] || !COLS[k]) continue; var v = COLS[k](r); if (!F[k].has(v || NONE)) return false; }
+    return true;
+  }
+  function filterPanel(){
+    var st = Object.keys(STATUS).map(function(k){ return { k: k, label: STATUS[k] }; });
+    return ms('level', 'דרג', distinct(COLS.level)) + ms('branch', 'ענף', distinct(COLS.branch)) + ms('mador', 'מדור', distinct(COLS.mador)) + ms('center', 'מרכז', distinct(COLS.center)) + ms('status', 'סטטוס איוש', st);
+  }
+
+  /* ---------- roles list ---------- */
+  function statusTag(s){ var cls = s === 'filled' ? 'approved' : s === 'vacant' ? 'rejected' : 'pending'; return '<span class="req-status ' + cls + '">' + STATUS[s] + '</span>'; }
+  function holderText(o){
+    var t = o.cur ? esc(o.cur.name) + (o.cur.to ? ' <span class="locked-note" style="display:inline">עד ' + esc(o.cur.to) + '</span>' : '') : '<span class="vacant-txt">—</span>';
+    if (o.fut) t += '<div class="locked-note">מחליף/ה: ' + esc(o.fut.name) + (o.fut.from ? ' מ-' + esc(o.fut.from) : '') + '</div>';
+    if (o.gap) t += '<div class="locked-note" style="color:var(--danger-text)">פער איוש מ-' + esc(o.gap.from) + (o.gap.to ? ' עד ' + esc(o.gap.to) : '') + '</div>';
+    return t;
+  }
+  async function renderList(){
+    if (!el('rolesBody')) return;
+    await reload();
+    renderFiltersAndBootstrap();
+    renderRows();
+  }
+  function renderFiltersAndBootstrap(){
+    var miss = missingFromPositions().length;
+    el('rolesBootstrap').innerHTML = miss ? '<div class="locked-note">יש ' + miss + ' תקנים בלי תפקיד. <button class="ghost" type="button" id="roles-bootstrap-btn">צור תפקידים מהתקנים</button> (נוצרים תפקידים בלבד, שום נתון קיים לא משתנה)</div>' : '';
+    el('rolesFilters').innerHTML = filterPanel();
+  }
+  function renderRows(){
+    var list = roles.filter(passes).sort(function(a, b){ return unitPath(a.orgUnitId).localeCompare(unitPath(b.orgUnitId), 'he') || a.title.localeCompare(b.title, 'he'); });
+    el('rolesCount').textContent = list.length + ' מתוך ' + roles.length + ' תפקידים';
+    el('rolesBody').innerHTML = list.map(function(r){
+      var o = occupancy(r), pos = r.positionId ? posById(r.positionId) : null;
+      return '<tr><td><b>' + esc(r.title) + '</b>' + (r.active === false ? ' <span class="tag">לא פעיל</span>' : '') + '</td><td>' + esc(unitPath(r.orgUnitId) || '—') + '</td><td>' + esc(r.level || '—') + '</td><td>' + holderText(o) + '</td><td>' + statusTag(o.status) + '</td><td>' + (pos ? esc(pos.serialNumber) : '—') + '</td><td style="white-space:nowrap;"><button class="icon-btn" data-role-edit="' + esc(r.id) + '" title="עריכה">✏️</button><button class="icon-btn danger-txt" data-role-del="' + esc(r.id) + '" title="מחיקה">🗑️</button></td></tr>';
+    }).join('') || '<tr><td colspan="7"><div class="empty-state">' + (roles.length ? 'אין תפקידים התואמים לסינון' : 'עדיין אין תפקידים') + '</div></td></tr>';
+  }
+
+  /* ---------- role form ---------- */
+  function unitOptions(sel){
+    return units.filter(function(u){ return u.active !== false || u.id === sel; }).sort(function(a, b){ return unitPath(a.id).localeCompare(unitPath(b.id), 'he'); })
+      .map(function(u){ return '<option value="' + esc(u.id) + '"' + (u.id === sel ? ' selected' : '') + '>' + esc(unitPath(u.id)) + '</option>'; }).join('');
+  }
+  function empOpts(sel){ return '<option value="">— ללא —</option>' + state.employees.filter(function(e){ return isActiveEmp(e) || e.id === sel; }).map(function(e){ return '<option value="' + esc(e.id) + '"' + (e.id === sel ? ' selected' : '') + '>' + esc(e.name) + '</option>'; }).join(''); }
+  function openForm(id){
+    var r = id ? roles.find(function(x){ return x.id === id; }) : null;
+    var x = r || { title: '', orgUnitId: hubOrg.mainId(), parentRoleId: '', level: '', positionId: '', notes: '', active: true, manual: {} }, m = x.manual || {};
+    var usedPos = new Set(roles.filter(function(q){ return q.positionId && (!r || q.id !== r.id); }).map(function(q){ return q.positionId; }));
+    var posOpts = '<option value="">— ללא תקן —</option>' + state.positions.filter(function(p){ return !usedPos.has(p.id); }).map(function(p){ return '<option value="' + esc(p.id) + '"' + (p.id === x.positionId ? ' selected' : '') + '>' + esc(p.serialNumber + ' — ' + (p.jobText || '')) + '</option>'; }).join('');
+    var parOpts = '<option value="">— ללא (תפקיד עליון) —</option>' + roles.filter(function(q){ return !r || q.id !== r.id; }).map(function(q){ return '<option value="' + esc(q.id) + '"' + (q.id === x.parentRoleId ? ' selected' : '') + '>' + esc(q.title) + '</option>'; }).join('');
+    var levels = Array.from(new Set(roles.map(function(q){ return q.level; }).concat(state.positions.map(function(p){ return p.grade; })).filter(Boolean)));
+    openModal('<h3>' + (r ? 'עריכת תפקיד' : 'תפקיד חדש') + '</h3>'
+      + '<div class="field"><label>שם התפקיד *</label><input type="text" id="ro-title" value="' + esc(x.title) + '"></div>'
+      + '<div class="field"><label>יחידה</label><select id="ro-unit">' + unitOptions(x.orgUnitId) + '</select></div>'
+      + '<div class="grid2"><div class="field"><label>דרג</label><input type="text" id="ro-level" list="ro-levels" value="' + esc(x.level) + '"><datalist id="ro-levels">' + levels.map(function(l){ return '<option value="' + esc(l) + '">'; }).join('') + '</datalist></div>'
+      + '<div class="field"><label>כפוף לתפקיד</label><select id="ro-parent">' + parOpts + '</select></div></div>'
+      + '<div class="field"><label>תקן מקושר</label><select id="ro-pos">' + posOpts + '</select><div class="locked-note">כשיש תקן, המאייש הנוכחי והעתידי נלקחים מהתקן. בלי תקן אפשר להגדיר מאייש ידנית.</div></div>'
+      + '<div id="ro-manual"><div class="form-section-title">איוש ידני (תפקיד בלי תקן)</div>'
+      + '<div class="grid2"><div class="field"><label>מאייש נוכחי</label><select id="ro-cur">' + empOpts(m.currentEmployeeId) + '</select></div><div class="field"><label>מתאריך</label><input type="date" id="ro-from" value="' + esc(m.from || '') + '"></div></div>'
+      + '<div class="grid2"><div class="field"><label>עד תאריך (ברירת מחדל: השחרור הקובע)</label><input type="date" id="ro-to" value="' + esc(m.to || '') + '"></div><div class="field"><label>מחליף עתידי</label><select id="ro-fut">' + empOpts(m.futureEmployeeId) + '</select></div></div>'
+      + '<div class="field"><label>תאריך כניסת המחליף</label><input type="date" id="ro-futfrom" value="' + esc(m.futureFrom || '') + '"></div></div>'
+      + '<div class="field"><label>הערות</label><textarea id="ro-notes">' + esc(x.notes || '') + '</textarea></div>'
+      + '<div class="field"><label class="checkbox-row"><input type="checkbox" id="ro-active"' + (x.active === false ? '' : ' checked') + '> תפקיד פעיל</label></div>'
+      + '<div class="modal-actions"><button class="primary" id="ro-save" type="button" data-id="' + esc(r ? r.id : '') + '">שמור</button><button class="ghost" onclick="closeModal()" type="button">ביטול</button></div>');
+    togglePos();
+  }
+  function togglePos(){ var s = el('ro-pos'), m = el('ro-manual'); if (s && m) m.hidden = !!s.value; }
+  async function saveForm(id){
+    var title = el('ro-title').value.trim(); if (!title){ alert('נא להזין שם תפקיד'); return; }
+    var data = { title: title, orgUnitId: el('ro-unit').value, parentRoleId: el('ro-parent').value || null, level: el('ro-level').value.trim(), positionId: el('ro-pos').value || null, notes: el('ro-notes').value.trim(), active: el('ro-active').checked };
+    data.centerId = centerIdOfUnit(data.orgUnitId);
+    data.manual = data.positionId ? {} : { currentEmployeeId: el('ro-cur').value || null, from: el('ro-from').value, to: el('ro-to').value, futureEmployeeId: el('ro-fut').value || null, futureFrom: el('ro-futfrom').value };
+    if (id){
+      /* no loops in the role tree */
+      var p = data.parentRoleId, g = 0; while (p && g++ < 50){ if (p === id){ alert('אי אפשר להגדיר כפיפות מעגלית'); return; } var pr = roles.find(function(q){ return q.id === p; }); p = pr ? pr.parentRoleId : null; }
+      var i = roles.findIndex(function(q){ return q.id === id; }); roles[i] = Object.assign({}, roles[i], data);
+    } else roles.push(Object.assign({ id: newId(), sortOrder: roles.length }, data));
+    if (!(await saveRoles())) return;
+    closeModal(); renderAll();
+  }
+  async function delRole(id){
+    var r = roles.find(function(q){ return q.id === id; }); if (!r || !confirm('למחוק את התפקיד "' + r.title + '"? הכפופים לו יועברו לתפקיד שמעליו.')) return;
+    roles.forEach(function(q){ if (q.parentRoleId === id) q.parentRoleId = r.parentRoleId || null; });
+    roles = roles.filter(function(q){ return q.id !== id; });
+    await saveRoles(); renderAll();
+  }
+
+  /* ---------- org structure tab: role tree and "not in occupancy" lists ---------- */
+  var O = { view: 'people', filled: false, vacant: false, hideNames: false, depth: 0, notIn: false };
+  function roleChildren(pid){ return roles.filter(function(r){ return (r.parentRoleId || null) === (pid || null) && r.active !== false; }); }
+  function rolePasses(r){
+    var st = occupancy(r).status;
+    if (O.filled && st === 'vacant') return false;
+    if (O.vacant && st !== 'vacant' && st !== 'gap') return false;
+    return true;
+  }
+  function roleNode(r, depth){
+    var kids = roleChildren(r.id).sort(function(a, b){ return a.title.localeCompare(b.title, 'he'); });
+    var kidHtml = (O.depth && depth + 1 >= O.depth) ? '' : kids.map(function(k){ return roleNode(k, depth + 1); }).join('');
+    if (!rolePasses(r)) return kidHtml ? '<div class="children">' + kidHtml + '</div>' : '';       /* hidden: its visible descendants move up */
+    var o = occupancy(r);
+    var node = '<div class="node-row"><div><div class="node" data-role-open="' + esc(r.id) + '" style="cursor:pointer;' + (o.status === 'vacant' ? 'border-style:dashed;' : '') + '"><div class="name">' + esc(r.title) + '</div>'
+      + (O.hideNames ? '' : '<div class="role">' + (o.cur ? esc(o.cur.name) : '<span class="vacant-txt">פנוי</span>') + '</div>')
+      + '<div class="dept">' + statusTag(o.status) + '</div></div></div>' + (kidHtml ? '<div class="children">' + kidHtml + '</div>' : '') + '</div>';
+    return node;
+  }
+  function flattenWrap(html){ return html; }
+  function renderRoleTree(){
+    var box = el('roleTree'); if (!box) return;
+    var all = roles.filter(function(r){ return r.active !== false; });
+    var ids = new Set(all.map(function(r){ return r.id; }));
+    var roots = all.filter(function(r){ return !r.parentRoleId || !ids.has(r.parentRoleId); });
+    if (!roots.length){ box.innerHTML = '<div class="empty-state"><div class="big">🏢</div>אין עדיין תפקידים. אפשר ליצור אותם בלשונית "תפקידים".</div>'; return; }
+    box.innerHTML = roots.map(function(r){ return roleNode(r, 0); }).join('') || '<div class="empty-state">אין תפקידים התואמים לסינון</div>';
+  }
+  function renderNotIn(){
+    var box = el('roleNotIn'); if (!box) return;
+    var occ = occupiedEmployeeIds();
+    var people = state.employees.filter(function(e){ return isActiveEmp(e) && !occ.has(e.id); });
+    var vacant = roles.filter(function(r){ var s = occupancy(r).status; return r.active !== false && (s === 'vacant' || s === 'gap'); });
+    box.innerHTML = '<div class="grid2"><div class="card" style="padding:12px;"><div class="form-section-title">עובדים בלי תפקיד (' + people.length + ')</div>'
+      + (people.map(function(e){ return '<div class="widget-row"><span>' + esc(e.name) + '</span><span class="locked-note">' + esc(e.role || '') + '</span></div>'; }).join('') || '<div class="locked-note">אין</div>') + '</div>'
+      + '<div class="card" style="padding:12px;"><div class="form-section-title">תפקידים בלי עובד (' + vacant.length + ')</div>'
+      + (vacant.map(function(r){ return '<div class="widget-row"><span>' + esc(r.title) + '</span><span class="locked-note">' + esc(unitPath(r.orgUnitId)) + '</span></div>'; }).join('') || '<div class="locked-note">אין</div>') + '</div></div>';
+  }
+  function renderOrgView(){
+    if (!el('orgViewBar')) return;
+    var isRoles = O.view === 'roles';
+    el('orgTree').parentElement.hidden = isRoles;
+    el('roleTreeWrap').hidden = !isRoles;
+    el('orgViewBar').querySelectorAll('[data-ov]').forEach(function(b){ b.classList.toggle('active', b.getAttribute('data-ov') === O.view); });
+    el('roleFilters').hidden = !isRoles;
+    if (!isRoles) return;
+    el('roleTree').hidden = O.notIn; el('roleNotIn').hidden = !O.notIn;
+    if (O.notIn) renderNotIn(); else renderRoleTree();
+  }
+  async function renderOrgTab(){ await reload(); renderOrgView(); }
+
+  /* ---------- events ---------- */
+  function renderAll(){ renderList(); renderOrgTab(); }
+  document.addEventListener('change', function(e){
+    var t = e.target;
+    if (t.getAttribute && t.getAttribute('data-rf-opt')){
+      var k = t.getAttribute('data-rf-opt'), vals = Array.prototype.map.call(document.querySelectorAll('[data-rf-opt="' + k + '"]:checked'), function(i){ return i.value; });
+      if (vals.length) F[k] = new Set(vals); else delete F[k];
+      var s = t.closest('details').querySelector('summary'); s.textContent = vals.length ? vals.length + ' נבחרו' : 'הכול';
+      renderListRowsOnly();
+    } else if (t.id === 'ro-pos') togglePos();
+    else if (t.id === 'of-filled'){ O.filled = t.checked; if (t.checked) { O.vacant = false; el('of-vacant').checked = false; } renderOrgView(); }
+    else if (t.id === 'of-vacant'){ O.vacant = t.checked; if (t.checked) { O.filled = false; el('of-filled').checked = false; } renderOrgView(); }
+    else if (t.id === 'of-hide'){ O.hideNames = t.checked; renderOrgView(); }
+    else if (t.id === 'of-notin'){ O.notIn = t.checked; renderOrgView(); }
+    else if (t.id === 'of-depth'){ O.depth = Number(t.value) || 0; renderOrgView(); }
+  });
+  function renderListRowsOnly(){ renderRows(); }
+  document.addEventListener('click', function(e){
+    var t = e.target.closest ? e.target : null; if (!t) return;
+    if (t.closest('#roles-add')) { openForm(null); return; }
+    if (t.closest('#roles-bootstrap-btn')){ createFromPositions().then(function(n){ renderAll(); alert('נוצרו ' + n + ' תפקידים מהתקנים.'); }); return; }
+    var ed = t.closest('[data-role-edit]'); if (ed){ openForm(ed.getAttribute('data-role-edit')); return; }
+    var dl = t.closest('[data-role-del]'); if (dl){ delRole(dl.getAttribute('data-role-del')); return; }
+    if (t.closest('#ro-save')){ saveForm(t.closest('#ro-save').getAttribute('data-id') || null); return; }
+    if (t.closest('#roles-clear')){ F = {}; renderList(); return; }
+    var op = t.closest('[data-role-open]'); if (op){ openForm(op.getAttribute('data-role-open')); return; }
+    var ov = t.closest('[data-ov]'); if (ov){ O.view = ov.getAttribute('data-ov'); renderOrgTab(); return; }
+    if (t.closest('#roles-export')){ exportRoles(); return; }
+  });
+  function exportRoles(){
+    var rows = roles.filter(passes).map(function(r){ var o = occupancy(r), pos = r.positionId ? posById(r.positionId) : null; return { 'תפקיד': r.title, 'יחידה': unitPath(r.orgUnitId), 'דרג': r.level, 'מאייש נוכחי': o.cur ? o.cur.name : '', 'עד תאריך': o.cur ? o.cur.to : '', 'מחליף': o.fut ? o.fut.name : '', 'כניסת מחליף': o.fut ? o.fut.from : '', 'סטטוס איוש': STATUS[o.status], 'תקן': pos ? pos.serialNumber : '' }; });
+    if (!rows.length){ alert('אין תפקידים לייצוא'); return; }
+    exportToExcel('תפקידים', rows);
+  }
+  function init(){
+    var tab = document.querySelector('.tab-btn[data-tab="roles"]'); if (tab) tab.addEventListener('click', renderList);
+    var o = document.querySelector('.tab-btn[data-tab="orgchart"]'); if (o) o.addEventListener('click', renderOrgTab);
+  }
+  window.hubRoles = { reload: reload, list: function(){ return roles; }, occupancy: occupancy, holders: holders, unitPath: unitPath, currentHolderId: currentHolderId, render: renderAll, open: openForm, statusLabel: STATUS };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 })();
 </script>
 <script>
