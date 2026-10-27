@@ -1674,7 +1674,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
 
     <div class="panel-head" style="margin-top:28px;">
       <div><h2 style="font-size:18px;">מבנה ארגוני</h2><p>ענפים, מדורים וצוותים בכל מרכז. עובד משויך ליחידה אחת, ושדות ענף / מדור / צוות בכרטיס שלו מתמלאים ממנה.</p></div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;"><button class="ghost" id="ot-class" type="button">דוח סיווג מדור / צוות</button><button class="ghost" id="ot-mgr" type="button">הצעת מנהלים</button><button class="ghost" id="rel-report" type="button">דוח תאריכי שחרור</button><button class="ghost" id="dup-report" type="button">דוח כפילויות וקישורים</button><button class="ghost" id="conflict-report" type="button">סתירות פתוחות</button></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;"><button class="ghost" id="ot-class" type="button">דוח סיווג מדור / צוות</button><button class="ghost" id="ot-mgr" type="button">הצעת מנהלים</button><button class="ghost" id="ot-ramad" type="button" data-hh="ramad-report">דוח רמ"ד לא תואם</button><button class="ghost" id="rel-report" type="button">דוח תאריכי שחרור</button><button class="ghost" id="dup-report" type="button">דוח כפילויות וקישורים</button><button class="ghost" id="conflict-report" type="button">סתירות פתוחות</button></div>
     </div>
     <div class="card" id="orgTreeCard"><div class="field" style="max-width:280px;"><label>מרכז</label><select id="ot-center"></select></div><div id="ot-tree"></div></div>
 
@@ -2436,6 +2436,8 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     emit('error', { name: name, error: e });
     return false;
   }
+  /* writes the full main array of a collection, bypassing the center scope and the private layer (derived updates and HQ decisions) */
+  function setMain(name, value){ var keep = scope; scope = null; try{ return set(name, value); } finally { scope = keep; } }
   function remove(name){ return adapter().removeRaw(name).then(function(){ emit('change', { name: name, removed: true }); return true; }, function(){ return false; }); }
   function keys(){ return adapter().keys(); }
 
@@ -2610,7 +2612,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     adapterName: function(){ return adapter().name; },
     META_COLLECTIONS: META_COLLECTIONS,
     openDb: openDb, idbTx: idbTx, audit: audit, blobs: blobs,
-    setScope: setScope, getScope: getScope, setInterceptor: setInterceptor, setOverlay: setOverlay, wasPrivate: wasPrivate, visibleMain: function(name){ return scopeFilter(name, peekJson(name) || []); }, scopedNames: SCOPED, peekAll: peekJson, addValidator: addValidator, ensureDefaultCenters: ensureDefaultCenters,
+    setScope: setScope, getScope: getScope, setMain: setMain, setInterceptor: setInterceptor, setOverlay: setOverlay, wasPrivate: wasPrivate, visibleMain: function(name){ return scopeFilter(name, peekJson(name) || []); }, scopedNames: SCOPED, peekAll: peekJson, addValidator: addValidator, ensureDefaultCenters: ensureDefaultCenters,
     schemaVersion: schemaVersion, latestSchema: latestSchema,
     registerMigration: registerMigration, migrate: migrate,
     migrationState: function(){ return migrationState; },
@@ -3096,7 +3098,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
   var esc = function(s){ return typeof escapeHtml === 'function' ? escapeHtml(s) : String(s); };
   var TYPE = { abroadForms:'טפסי חו"ל', responsibilities:'אחראים', syncChanges:'שינויי סנכרון', syncBatches:'קבוצות סנכרון', hqDomains:'תחומי אחריות מטה', employees:'עובדים', meetings:'סיכומי פגישות', tasks:'משימות', postings:'שיבוצים', positions:'תקנים', convergence:'התכנסות', attendance:'נוכחות', attendanceRequests:'בקשות נוכחות', infoItems:'מידע למנהלים', contactRoles:'דף קשר', incentives:'תמריצים', users:'משתמשים', grants:'הרשאות', orgUnits:'מרכזים ויחידות', unitMemberships:'היסטוריית שיוך', notifications:'התראות', system:'מערכת' };
   var ACTION = { create:'נוצר', update:'עודכן', delete:'נמחק', 'backup-export':'ייצוא גיבוי', restore:'שחזור', 'sync-submit':'שליחת סנכרון', 'sync-approve':'אישור סנכרון', 'sync-reject':'דחיית סנכרון', 'sync-review':'סנכרון לבדיקה', 'sync-discard':'ביטול שינוי פרטי', 'sync-reopen':'החזרה לעריכה', 'sync-domains':'תחומי אחריות מטה' };
-  var SOURCE = { ui:'ממשק', 'import':'ייבוא', migration:'שדרוג נתונים', sync:'סנכרון', rule:'כלל אוטומטי' };
+  var SOURCE = { ui:'ממשק', 'import':'ייבוא', migration:'שדרוג נתונים', sync:'סנכרון', rule:'כלל אוטומטי', derived:'נגזר מכרטיס העובד' };
   var FIELD = { name:'שם', role:'תפקיד', department:'מרכז', industry:'ענף', mador:'מדור', team:'צוות', ramad:'רמ"ד', rank:'רמת הרשאה', level:'זוטר/מובהק', serviceType:'סוג שירות', managerId:'מנהל ישיר', email:'אימייל', phone:'טלפון', active:'פעיל', title:'כותרת', status:'סטטוס', priority:'עדיפות', dueDate:'תאריך יעד', description:'תיאור', assignedTo:'מוקצה ל', jobText:'מלל משרה', serialNumber:'מס\' תקן', counterStatus:'מונה', freezeStatus:'הקפאה', currentAppointment:'מינוי נוכחי', futureAppointment:'מינוי עתידי', firstName:'שם פרטי', lastName:'שם משפחה', releaseDate:'תאריך שחרור', entryDate:'כניסה', exitDate:'יציאה', starred:'רידוד', gross:'שווי ברוטו', code:'קוד', entered:'הוזן', notes:'הערות', content:'תוכן', topic:'נושא', file:'קובץ', comments:'תגובות', summary:'סיכום', date:'תאריך', requestedStatus:'סטטוס מבוקש', note:'הערה', roleTitle:'תפקיד', holderName:'שם התפקידן', responsibilities:'תחומי אחריות' };
   var PAGE = 100, offset = 0, loaded = [];
 
@@ -3519,16 +3521,19 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     await DataStore.set('unitMemberships', list);
   }
   /* the legacy text fields of the employee and of the records linked to them follow the unit */
+  function derivedRun(fn){ return window.hubSync ? hubSync.derived(fn) : fn(); }
   async function writeThrough(list, e){
     if (!e.orgUnitId) return;
     var l = legacyOf(list, e.orgUnitId);
     e.industry = l.industry; e.mador = l.mador; e.team = l.team;
+    await derivedRun(async function(){
     var changed = false;
     (state.convergence || []).forEach(function(c){ if (c.employeeId === e.id && !c.orgSnapshot && (c.industry !== l.industry || c.mador !== l.mador)){ c.industry = l.industry; c.mador = l.mador; changed = true; } });
     if (changed) await storeSet('convergence', state.convergence);
     var changedI = false;
     (state.incentives || []).forEach(function(i){ if (i.employeeId === e.id && !i.orgSnapshot && (i.industry !== l.industry || i.mador !== l.mador)){ i.industry = l.industry; i.mador = l.mador; changedI = true; } });
     if (changedI) await storeSet('incentives', state.incentives);
+    });
   }
   async function resyncSubtree(list, unitId){
     var changed = false;
@@ -3546,6 +3551,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     await snapshotClosed(prevMap);                         /* closed records keep the unit they had before it changes */
     if (e.orgUnitId) await writeThrough(list, e);
     await recordMembership(empId, prevUnitId, e.orgUnitId || null);
+    if (window.hubHier) await hubHier.syncRamad();
     if (e.orgUnitId) await storeSet('employees', state.employees);
   };
   /* snapshot of the unit names of an employee (optionally for a given unit), written once when a record closes */
@@ -3562,7 +3568,8 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     return m ? m.orgUnitId : fallback;
   }
   /* closing events: a convergence whose exit date passed, an incentive whose end date passed */
-  async function snapshotClosed(prevMap){
+  async function snapshotClosed(prevMap){ return derivedRun(function(){ return snapshotClosedInner(prevMap); }); }
+  async function snapshotClosedInner(prevMap){
     prevMap = prevMap || {};
     var now = today(), mem = await DataStore.get('unitMemberships', []); if (!Array.isArray(mem)) mem = [];
     var convCh = false, incCh = false, n = 0;
@@ -4020,7 +4027,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
   }
 
   /* linked records show the employee's current name and number */
-  window.hubSyncEmployeeCopies = async function(empId){
+  async function syncEmployeeCopiesInner(empId){
     var e = empById(empId); if (!e) return;
     var parts = (e.name || '').trim().split(/\s+/), last = parts.length > 1 ? parts.pop() : '', first = parts.join(' ');
     var cv = false, inc = false, ps = false;
@@ -4029,11 +4036,14 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     (state.positions || []).forEach(function(p){
       var ca = p.currentAppointment;
       if (ca && ca.linkedEmployeeId === empId && (ca.fullName !== e.name || (ca.personalNumber || '') !== (e.personalNumber || ''))){ ca.fullName = e.name; ca.personalNumber = e.personalNumber || ''; ps = true; }
+      var eff = typeof effectiveReleaseDate === 'function' ? effectiveReleaseDate(e) : { date: '' };
+      if (ca && ca.linkedEmployeeId === empId && eff.date && ca.releaseDate !== eff.date){ ca.releaseDate = eff.date; ps = true; }
     });
     if (cv) await storeSet('convergence', state.convergence);
     if (inc) await storeSet('incentives', state.incentives);
     if (ps) await storeSet('positions', state.positions);
-  };
+  }
+  window.hubSyncEmployeeCopies = function(empId){ return window.hubSync ? hubSync.derived(function(){ return syncEmployeeCopiesInner(empId); }) : syncEmployeeCopiesInner(empId); };
 })();
 </script>
 <script>
@@ -5593,6 +5603,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
   /* ---------- the private layer: write interception and read overlay ---------- */
   function mineFor(entity, centerId){ return all(KEY_C).filter(function(c){ return c.entityType === entity && c.centerId === centerId && OPEN.indexOf(c.status) > -1; }); }
   async function intercept(entity, value, scope){
+    if (derivedDepth) return applyDerived(entity, value, scope);
     var cid = scope.centerId, def = ENTITIES[entity], main = all(entity), mainMap = {}, mine = mineFor(entity, cid), byEnt = {}, refused = [];
     main.forEach(function(r){ mainMap[r.id] = r; });
     mine.forEach(function(c){ byEnt[c.entityId] = c; });
@@ -5637,6 +5648,46 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     Object.keys(put).forEach(function(k){ next.push(put[k]); });
     if (next.length === all0.length && !Object.keys(put).length && !Object.keys(drop).length) return true;
     return !!(await DataStore.set(KEY_C, next));
+  }
+  /* ---- derived updates (round 5): a value that follows from the employee card (a name, a unit, a release date) is not a decision of the center.
+     Inside derived(fn) a center user's write is turned into a field-level delta that goes straight to main, and into every open change of that record, so nothing
+     is left to approve and no stale value comes back with an approval. Each batch is written to the sync log. ---- */
+  var derivedDepth = 0;
+  async function derived(fn){
+    var prev = DataStore.audit.getSource(); derivedDepth++; DataStore.audit.setSource('derived');
+    try{ return await fn(); } finally { derivedDepth--; DataStore.audit.setSource(prev); }
+  }
+  async function applyDerived(entity, value, scope){
+    var cid = scope.centerId, def = ENTITIES[entity], main = all(entity).slice(), mine = mineFor(entity, cid), byEnt = {}, mi = {};
+    mine.forEach(function(c){ byEnt[c.entityId] = c; }); main.forEach(function(r, i){ mi[r.id] = i; });
+    var chs = all(KEY_C).slice(), ci = {}; chs.forEach(function(c, i){ ci[c.id] = i; });
+    var mainChanged = false, chChanged = false, touched = [], fields = {}, bumped = [];
+    value.forEach(function(rec){
+      if (!rec || rec.id === undefined) return;
+      var ch = byEnt[rec.id], i = mi[rec.id], mr = i !== undefined ? main[i] : null;
+      var eff = ch ? (ch.op === 'delete' ? null : ch.after) : (mr ? strip(mr) : null);
+      if (!eff) return;
+      var nr = strip(rec), delta = {}, n = 0;
+      Object.keys(nr).forEach(function(k){ if (k === 'id' || k === 'centerId') return; if (canon(nr[k]) !== canon(eff[k])){ delta[k] = nr[k]; n++; } });
+      if (!n) return;
+      var prevRev = mr ? (mr.rev || 1) : 0;
+      if (mr){ main[i] = Object.assign({}, mr, delta); mainChanged = true; }
+      if (ch){
+        var c2 = Object.assign({}, ch); c2.after = Object.assign({}, ch.after, delta); if (c2.before) c2.before = Object.assign({}, ch.before, delta);
+        chs[ci[ch.id]] = c2; chChanged = true;
+        if (mr && (ch.baseRev || 1) === prevRev) bumped.push({ id: ch.id, entityId: rec.id });
+      }
+      touched.push(def.title(nr)); Object.keys(delta).forEach(function(k){ fields[k] = 1; });
+    });
+    if (!touched.length) return true;
+    if (mainChanged && !(await DataStore.setMain(entity, main))) return false;
+    if (bumped.length){                                             /* the change stays in step with main: the derived update is not a conflict */
+      var now = all(entity), rev = {}; now.forEach(function(r){ rev[r.id] = r.rev || 1; });
+      bumped.forEach(function(b){ chs[ci[b.id]] = Object.assign({}, chs[ci[b.id]], { baseRev: rev[b.entityId] || chs[ci[b.id]].baseRev }); });
+    }
+    if (chChanged) await DataStore.set(KEY_C, chs);
+    logEvent('sync-derived', { label: 'עדכון שנגזר מכרטיס העובד (' + Object.keys(fields).map(function(k){ return (def.fields[k] || k); }).join(', ') + '): ' + touched.slice(0, 4).join(', ') + (touched.length > 4 ? ' ועוד ' + (touched.length - 4) : ''), centerId: cid, domain: def.domain, count: touched.length });
+    return true;
   }
   function overlay(entity){
     return function(list, scope){
@@ -5860,7 +5911,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     var rows = (await DataStore.audit.query({ entityType: 'system', limit: 1000 })).filter(function(e){ return /^sync-/.test(e.action); });
     var sc = u.scope && u.scope.kind === 'center' ? u.scope.centerId : null;
     rows = rows.filter(function(e){ var d = e.after || {}; return u.isSuper || (sc ? d.centerId === sc : (!d.domain || canDecide(u, d.domain)) ); });
-    var NAME = { 'sync-submit': 'נשלח לסנכרון', 'sync-approve': 'אושר', 'sync-reject': 'נדחה', 'sync-review': 'הועבר לבדיקה', 'sync-discard': 'בוטל שינוי פרטי', 'sync-reopen': 'הוחזר לעריכה' };
+    var NAME = { 'sync-submit': 'נשלח לסנכרון', 'sync-approve': 'אושר', 'sync-reject': 'נדחה', 'sync-review': 'הועבר לבדיקה', 'sync-discard': 'בוטל שינוי פרטי', 'sync-reopen': 'הוחזר לעריכה', 'sync-derived': 'עדכון נגזר מכרטיס העובד' };
     openModal('<h3>יומן סנכרון</h3><div class="table-scroll"><table><thead><tr><th>זמן</th><th>משתמש</th><th>פעולה</th><th>פירוט</th></tr></thead><tbody>'
       + (rows.map(function(e){ var d = e.after || {}; return '<tr><td>' + esc(new Date(e.at).toLocaleString('he-IL')) + '</td><td>' + esc(e.actorName || '—') + '</td><td>' + esc(NAME[e.action] || e.action) + '</td><td>' + esc(e.label || '') + (d.note ? '<div class="locked-note" style="display:block;">' + esc(d.note) + '</div>' : '') + '</td></tr>'; }).join('') || '<tr><td colspan="4">עדיין אין פעולות סנכרון.</td></tr>')
       + '</tbody></table></div><div class="modal-actions"><button class="ghost" onclick="closeModal()" type="button">סגור</button></div>', true);
@@ -5957,7 +6008,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
   if (window.DataStore) DataStore.on('change', function(ev){ if (ev && /^(syncChanges|hqDomains)$/.test(ev.name || '')){ try{ renderBar(); }catch(x){} } });
   document.addEventListener('click', function(e){ if (e.target.closest && e.target.closest('.tab-btn[data-tab="convergence"]')) setTimeout(renderBar, 0); });
 
-  window.hubSync = { renderBar: renderBar, tag: tag, isLocked: isLocked, submit: submit, decide: decide, pendingFor: pendingFor, domainOwners: domainOwners, canDecide: canDecide, userMaySee: userMaySee, myPrivate: myPrivate, openReview: openReview, openMine: openMine, openLog: openLog, changes: function(){ return all(KEY_C); }, conflictsOf: conflictsOf, ENTITIES: ENTITIES, DOMAINS: DOMAINS };
+  window.hubSync = { derived: derived, renderBar: renderBar, tag: tag, isLocked: isLocked, submit: submit, decide: decide, pendingFor: pendingFor, domainOwners: domainOwners, canDecide: canDecide, userMaySee: userMaySee, myPrivate: myPrivate, openReview: openReview, openMine: openMine, openLog: openLog, changes: function(){ return all(KEY_C); }, conflictsOf: conflictsOf, ENTITIES: ENTITIES, DOMAINS: DOMAINS };
 })();
 </script>
 <script>
@@ -6921,6 +6972,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
   /* ---------- notifications and the log when a head changes ---------- */
   function headChanged(unit, oldId, newId){
     invalidate();
+    syncRamad().catch(function(){});
     if (!window.hubNotify || oldId === newId) return;
     function toUser(empId, text){
       var u = userOf(empId); if (!u) return;
@@ -6994,6 +7046,9 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     var b = e.target.closest ? e.target.closest('[data-hh]') : null; if (!b || typeof isSuperUser !== 'function' || !isSuperUser()) return;
     var act = b.getAttribute('data-hh');
     if (act === 'report'){ openReport(); return; }
+    if (act === 'ramad-report'){ openRamadReport(); return; }
+    if (act === 'ramad-apply'){ await applyRamadReport(); return; }
+    if (act === 'ramad-export'){ exportRamad(); return; }
     if (act === 'mode'){ await setUser(b.getAttribute('data-u'), { scopeMode: b.getAttribute('data-v') === 'hierarchy' ? 'hierarchy' : null }); openReport(); return; }
     if (act === 'all-safe'){
       var rs = rowsForReport().filter(function(r){ return !r.on && !r.lost.length; });
@@ -7007,7 +7062,120 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     await setUser(cb.getAttribute('data-u'), { isHr: cb.checked ? true : null });
   });
 
+  /* ---------- derived "ramad": the head of the employee's mador (stage 17) ---------- */
+  function normT(t){ return String(t || '').replace(/\s+/g, ' ').trim(); }
+  function ramadDerived(e){
+    if (!e) return null;
+    var h = headsOf(e).mador;
+    if (h && h.headId) return { id: h.headId, name: h.headName, unit: h.unitName };
+    var own = e.id ? C().units.find(function(u){ return u.kind === 'mador' && u.active !== false && u.headEmployeeId === e.id; }) : null;
+    return own ? { id: e.id, name: e.name || '', unit: own.name } : null;
+  }
+  /* what is shown: a manual override wins; a stored derived value follows the unit; legacy text stays until the report decides; an empty field shows the derived value */
+  function ramadEffective(e){
+    if (!e) return '';
+    var d = ramadDerived(e);
+    if (e.ramadSource === 'manual') return e.ramad || '';
+    if (e.ramadSource === 'derived') return d ? d.name : (e.ramad || '');
+    return e.ramad || (d ? d.name : '');
+  }
+  function ramadMismatch(e){
+    if (!e || e.ramadSource) return null;
+    var t = normT(e.ramad), d = ramadDerived(e);
+    if (!t || !d || normT(d.name) === t) return null;
+    return { text: t, derived: d };
+  }
+  function ramadSameAsDerived(e, text){ var d = ramadDerived(e); return !!d && normT(d.name) === normT(text); }
+  async function syncRamad(){
+    var st = S(), n = 0; invalidate();
+    (st.employees || []).forEach(function(e){
+      if (e.ramadSource !== 'derived') return;
+      var d = ramadDerived(e); if (d && e.ramad !== d.name){ e.ramad = d.name; n++; }
+    });
+    if (n) await storeSet('employees', st.employees);
+    return n;
+  }
+  function ramadFieldHtml(e){
+    var d = ramadDerived(e), mm = ramadMismatch(e);
+    var manual = e.ramadSource === 'manual' || !!mm || !d || (!e.ramadSource && !!normT(e.ramad) && !d);
+    var val = manual ? (e.ramad || '') : d.name;
+    return '<div class="field" id="ramad-wrap" data-emp="' + esc(e.id || '') + '" data-name="' + esc(e.name || '') + '" data-unit="' + esc(e.orgUnitId || '') + '"><label>רמ"ד</label>'
+      + '<input type="text" id="f-ramad" value="' + esc(val) + '"' + (manual ? '' : ' readonly') + '>'
+      + '<label class="checkbox-row"><input type="checkbox" id="f-ramad-manual"' + (manual ? ' checked' : '') + (d ? '' : ' disabled') + '> עקיפה ידנית</label>'
+      + '<div class="locked-note" id="ramad-note">' + esc(ramadNote(d, mm)) + '</div></div>';
+  }
+  function ramadNote(d, mm){
+    if (!d) return 'אין ראש מדור בשיוך הארגוני של העובד, ולכן השדה ידני.';
+    return 'נגזר מראש המדור (' + d.unit + '): ' + d.name + '.' + (mm ? ' הטקסט הקיים שונה מהנגזר ויופיע בדוח לאישור.' : '');
+  }
+  function pickedUnitNow(){
+    var w = el('ramad-wrap'); var v = (el('up-team') && el('up-team').value) || (el('up-mador') && el('up-mador').value) || (el('up-branch') && el('up-branch').value) || '';
+    return el('up-wrap') ? v : (w ? w.getAttribute('data-unit') : '');
+  }
+  function refreshRamadField(){
+    var w = el('ramad-wrap'), inp = el('f-ramad'), cb = el('f-ramad-manual'); if (!w || !inp || !cb) return;
+    invalidate();
+    var d = ramadDerived({ id: w.getAttribute('data-emp') || null, name: w.getAttribute('data-name') || '', orgUnitId: pickedUnitNow() || null });
+    if (!d){ cb.checked = true; cb.disabled = true; inp.readOnly = false; el('ramad-note').textContent = ramadNote(null, null); return; }
+    if (cb.disabled && !normT(inp.value)) cb.checked = false;
+    cb.disabled = false;
+    if (!cb.checked){ inp.value = d.name; inp.readOnly = true; } else inp.readOnly = false;
+    el('ramad-note').textContent = ramadNote(d, null);
+  }
+  document.addEventListener('change', function(ev){
+    var id = ev.target && ev.target.id;
+    if (['up-branch', 'up-mador', 'up-team', 'f-ramad-manual'].indexOf(id) > -1 && el('ramad-wrap')) refreshRamadField();
+  });
+  /* the card is saved: the field becomes derived (the text follows the unit's head) or manual; untouched legacy text stays as it is for the report */
+  function ramadApply(data, prev){
+    var inp = el('f-ramad'), cb = el('f-ramad-manual'); if (!inp) return;
+    var txt = normT(inp.value), unit = data.orgUnitId !== undefined ? data.orgUnitId : (prev ? prev.orgUnitId : null);
+    var d = ramadDerived({ id: prev ? prev.id : null, name: data.name, orgUnitId: unit || null });
+    if (cb && cb.checked || !d){
+      data.ramad = txt;
+      if (prev && !prev.ramadSource && txt === normT(prev.ramad)) return;      /* legacy text left untouched: still listed in the report */
+      data.ramadSource = txt ? 'manual' : undefined;
+    } else { data.ramad = d.name; data.ramadSource = 'derived'; }
+  }
+  function chainHtml(e){
+    var h = headsOf(e), row = function(l, x){ return '<div><div class="lbl3">' + l + '</div>' + esc(x && x.headName ? x.headName : '—') + '</div>'; };
+    return row('ראש צוות', h.team) + row('ראש ענף (רע"ן)', h.branch) + row('ראש מרכז', h.center);
+  }
+  var lastRamad = [];
+  function pathText(e){ return chainOf(e).slice().reverse().map(function(u){ return u.name; }).join(' › '); }
+  function openRamadReport(msg){
+    invalidate();
+    lastRamad = (S().employees || []).filter(function(e){ return e.active !== false && ramadMismatch(e); });
+    var body = lastRamad.map(function(e, i){
+      var m = ramadMismatch(e);
+      return '<tr><td>' + esc(e.name) + '</td><td>' + esc(pathText(e)) + '</td><td>' + esc(m.text) + '</td><td>' + esc(m.derived.name) + '</td><td><select data-rm="' + i + '"><option value="">דלג</option><option value="adopt">אמץ את הנגזר</option><option value="keep">השאר כטקסט ידני</option></select></td></tr>';
+    }).join('') || '<tr><td colspan="5">אין שדות רמ"ד שלא תואמים לנגזר.</td></tr>';
+    openModal('<h3>דוח רמ"ד שלא תואם לראש המדור</h3>'
+      + '<div class="locked-note">רמ"ד נגזר מראש המדור של העובד. כאן רשומים עובדים שהטקסט הקיים בשדה שלהם שונה מהנגזר. שום שדה לא משתנה בלי בחירה: "אמץ את הנגזר" ישנה את הטקסט וימשיך לעקוב אחרי ראש המדור, "השאר כטקסט ידני" שומר את הטקסט כעקיפה ידנית.</div>'
+      + '<div class="table-scroll"><table><thead><tr><th>עובד</th><th>יחידה</th><th>הטקסט הקיים</th><th>נגזר מראש המדור</th><th>החלטה</th></tr></thead><tbody>' + body + '</tbody></table></div>'
+      + '<div id="rm-msg" class="locked-note">' + esc(msg || '') + '</div>'
+      + '<div class="modal-actions"><button class="primary" type="button" data-hh="ramad-apply">החל על הבחירות</button><button class="ghost" type="button" data-hh="ramad-export">ייצוא לאקסל</button><button class="ghost" onclick="closeModal()" type="button">סגור</button></div>', true);
+  }
+  async function applyRamadReport(){
+    var n = 0;
+    lastRamad.forEach(function(e, i){
+      var sel = document.querySelector('[data-rm="' + i + '"]'), v = sel ? sel.value : ''; if (!v) return;
+      var rec = (S().employees || []).find(function(x){ return x.id === e.id; }); if (!rec) return;
+      if (v === 'adopt'){ rec.ramad = ramadMismatch(rec).derived.name; rec.ramadSource = 'derived'; n++; }
+      else if (v === 'keep'){ rec.ramadSource = 'manual'; n++; }
+    });
+    if (n){ await storeSet('employees', S().employees); invalidate(); if (typeof refreshAllViews === 'function') refreshAllViews(); }
+    openRamadReport(n + ' שדות עודכנו.');
+  }
+  function exportRamad(){
+    var rows = lastRamad.map(function(e){ var m = ramadMismatch(e); return { 'עובד': e.name, 'יחידה': pathText(e), 'הטקסט הקיים': m ? m.text : '', 'נגזר מראש המדור': m ? m.derived.name : '' }; });
+    if (!rows.length){ alert('אין שורות לייצוא'); return; }
+    exportToExcel('דוח_רמד_לא_תואם', rows);
+  }
+
   window.hubHier = {
+    ramadDerived: ramadDerived, ramadEffective: ramadEffective, ramadMismatch: ramadMismatch, ramadSameAsDerived: ramadSameAsDerived, syncRamad: syncRamad,
+    ramadFieldHtml: ramadFieldHtml, ramadApply: ramadApply, chainHtml: chainHtml, openRamadReport: openRamadReport,
     engaged: engaged, isAll: isAll, modeOf: modeOf, scopeFor: scopeFor, canSee: canSee, visibleEmployees: visibleEmployees, subordinateIds: subordinateIds,
     canAssign: canAssign, canManageEmployee: canManageEmployee, canCreateEmployees: canCreateEmployees, levelOf: levelOf, levelText: levelText, LEVEL_LABEL: LEVEL_LABEL,
     convVisible: convVisible, posVisible: posVisible, incVisible: incVisible, attVisible: attVisible, taskVisible: taskVisible, eventInScope: eventInScope, refVisible: refVisible,
@@ -8190,6 +8358,7 @@ async function bulkSetEmployeesActive(active){
   if (skipped) alert(`${skipped} עובדים לא הוגדרו כלא פעילים (העובד שלך, או העובד של משתמש העל האחרון).`);
 }
 async function bulkDeleteSelectedEmployees(){
+  if (window.hubHier && !hubHier.canCreateEmployees()){ alert('מחיקת עובדים נעשית על ידי משאבי אנוש'); return; }
   if (!selectedEmployeeIds.size) return;
   if (!confirm(`למחוק ${selectedEmployeeIds.size} עובדים נבחרים?`)) return;
   let skippedLinked = 0;
@@ -8338,7 +8507,7 @@ function employeeFormHtml(existing, presetManagerId){
         ${empOptions(e.managerId, existing ? existing.id : null)}
       </select>
     </div>
-    <div class="field"><label>רמ"ד</label><input type="text" id="f-ramad" value="${escapeHtml(e.ramad)}"></div>
+    ${window.hubHier ? hubHier.ramadFieldHtml(e) : `<div class="field"><label>רמ"ד</label><input type="text" id="f-ramad" value="${escapeHtml(e.ramad)}"></div>`}
     <div class="field"><label>רמת הרשאה</label>
       <select id="f-rank">
         <option value="" ${!e.rank?'selected':''}>— לא הוגדר (לפי המבנה הארגוני) —</option>
@@ -8455,6 +8624,7 @@ async function saveEmployee(existingId){
   const prevUnitId = existingId ? ((empById(existingId)||{}).orgUnitId || null) : null;
   const pickedUnit = window.hubUnitPickerValue ? hubUnitPickerValue() : undefined;
   if (pickedUnit) data.orgUnitId = pickedUnit; else if (pickedUnit === '' && prevUnitId) data.orgUnitId = null;
+  if (window.hubHier) hubHier.ramadApply(data, existingId ? empById(existingId) : null);
   if (existingId && (empById(existingId).managerId || null) !== data.managerId) data.managerSource = 'manual';
   if (existingId && data.active === false && isActiveEmp(empById(existingId))){
     if (existingId === state.currentUserId){ alert('לא ניתן להגדיר את עצמך כלא פעיל'); return; }
@@ -8507,19 +8677,22 @@ async function saveEmployee(existingId){
       positionsChanged = true;
     }
   });
+  let linkedNow = false;
   if (selectedPositionId){
     const pos = state.positions.find(p=>p.id===selectedPositionId);
     if (pos){
       if (!pos.currentAppointment) pos.currentAppointment = {fullName:'', personalNumber:'', releaseDate:'', linkedEmployeeId:null};
-      pos.currentAppointment.linkedEmployeeId = employeeId;
-      pos.currentAppointment.fullName = name;
-      positionsChanged = true;
+      if (pos.currentAppointment.linkedEmployeeId !== employeeId){
+        pos.currentAppointment.linkedEmployeeId = employeeId;
+        pos.currentAppointment.fullName = name;
+        positionsChanged = true; linkedNow = true;
+      }
     }
   }
   {
     const effNow = effectiveReleaseDate(state.employees.find(x=>x.id===employeeId));
     const linkedPos = state.positions.find(p=>p.currentAppointment && p.currentAppointment.linkedEmployeeId===employeeId);
-    if (effNow.date && linkedPos && linkedPos.currentAppointment.releaseDate !== effNow.date){ linkedPos.currentAppointment.releaseDate = effNow.date; positionsChanged = true; }
+    if (linkedNow && effNow.date && linkedPos && linkedPos.currentAppointment.releaseDate !== effNow.date){ linkedPos.currentAppointment.releaseDate = effNow.date; positionsChanged = true; }
   }
   if (positionsChanged) await storeSet('positions', state.positions);
   if (selectedPositionId){ const eRec = state.employees.find(x=>x.id===employeeId); if (eRec && eRec.positionSerial) eRec.positionSerial = ''; }
@@ -8634,7 +8807,7 @@ function openEmployeeProfile(id){
       <div><div class="lbl3">מדור</div>${escapeHtml(e.mador||'—')}</div>
       <div><div class="lbl3">צוות</div>${escapeHtml(e.team||'—')}</div>
       <div><div class="lbl3">מנהל ישיר</div>${mgr?escapeHtml(mgr.name):'—'}</div>
-      <div><div class="lbl3">רמ"ד</div>${escapeHtml(e.ramad||'—')}</div>
+      <div><div class="lbl3">רמ"ד</div>${escapeHtml((window.hubHier ? hubHier.ramadEffective(e) : e.ramad)||'—')}</div>${window.hubHier ? hubHier.chainHtml(e) : ''}
       <div><div class="lbl3">רמת הרשאה</div>${escapeHtml(e.rank||'—')}</div>
       <div><div class="lbl3">זוטר/מובהק</div>${escapeHtml(e.level||'—')}</div>
       <div><div class="lbl3">סוג שירות</div>${escapeHtml(e.serviceType||'—')}</div>
@@ -10237,7 +10410,7 @@ const IMPORT_CONFIGS = {
       if (row.industry) existing.industry = row.industry;
       if (row.mador) existing.mador = row.mador;
       if (row.team) existing.team = row.team;
-      if (row.ramad) existing.ramad = row.ramad;
+      if (row.ramad){ if (existing.ramadSource === 'derived' && window.hubHier && !hubHier.ramadSameAsDerived(existing, row.ramad)) existing.ramadSource = 'manual'; existing.ramad = row.ramad; }
       if (row.rank) existing.rank = row.rank;
       if (row.level) existing.level = row.level;
       if (row.serviceType) existing.serviceType = row.serviceType;
@@ -10742,7 +10915,7 @@ function exportEmployees(){
     const pos = getPositionByEmployeeId(e.id);
     return {
       'שם': e.name, 'תפקיד': e.role, 'מרכז': e.department, 'ענף': e.industry, 'מדור': e.mador, 'צוות': e.team,
-      'מנהל ישיר': mgr ? mgr.name : '', 'רמ"ד': e.ramad, 'רמת הרשאה': e.rank, 'זוטר/מובהק': e.level, 'סוג שירות': e.serviceType, 'פעיל': e.active===false ? 'לא' : 'כן',
+      'מנהל ישיר': mgr ? mgr.name : '', 'רמ"ד': (window.hubHier ? hubHier.ramadEffective(e) : e.ramad), 'רמת הרשאה': e.rank, 'זוטר/מובהק': e.level, 'סוג שירות': e.serviceType, 'פעיל': e.active===false ? 'לא' : 'כן',
       'תקן נוכחי': pos ? `${pos.serialNumber} — ${pos.jobText}` : '',
       'אימייל': e.email, 'טלפון': e.phone, 'תאריך התחלה': e.startDate, 'תאריך גיוס': e.enlistmentDate, 'סיום חובה': e.compulsoryReleaseDate, 'שחרור בפועל': e.actualReleaseDate, 'סיום חוזה': e.contractEndDate, 'תאריך שחרור קובע': effectiveReleaseDate(e).date, 'תאריך קליטה ליחידה': e.unitIntakeDate, 'מספר אישי': e.personalNumber, 'דרגה': e.grade,
       'מספר מקצוע': e.professionNumber, 'מלל מקצוע': e.professionText,
