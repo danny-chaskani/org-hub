@@ -923,6 +923,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     /* tables become stacked rows (employees, positions, convergence, attendance, users) */
   /* tables → cards (employees, positions, convergence, attendance, users) */
   .card:has(> .table-scroll > #empTable), .card:has(> .table-scroll > #posTable), .card:has(> .table-scroll > #convTable), .card:has(> .table-scroll > #attTable), .card:has(> .table-scroll > #usersTable){ background: none; border: 0; box-shadow: none; padding: 0; backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .dup-err{ margin-top:8px; padding:10px 12px; border-radius:var(--r-md,10px); background:var(--danger-soft); color:var(--danger-text); font-size:13px; display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
   .ot-row{ display:flex; flex-wrap:wrap; gap:6px; align-items:center; padding-block:8px; border-bottom:1px solid var(--border); }
   .ot-actions{ margin-inline-start:auto; display:flex; gap:6px; flex-wrap:wrap; }
   .table-scroll:has(> #empTable, > #posTable, > #convTable, > #attTable, > #usersTable){ max-height: none; overflow: visible; border: 0; background: none; }
@@ -2271,12 +2272,23 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
       return raw === null || raw === undefined ? fallback : scopeFilter(name, JSON.parse(raw));
     }).catch(function(){ return fallback; });
   }
+  /* validators: fn(newValue, oldValue) returns an error text to refuse the write (used for identifiers that must stay unique) */
+  var validators = {};
+  function addValidator(name, fn){ (validators[name] = validators[name] || []).push(fn); }
+  function validate(name, full){
+    var l = validators[name]; if (!l) return '';
+    var old = peekJson(name); if (!Array.isArray(old)) old = [];
+    for (var i = 0; i < l.length; i++){ var m = ''; try{ m = l[i](full, old); }catch(e){ console.error('validator failed', name, e); } if (m) return m; }
+    return '';
+  }
   /* resolves true when the value was saved, false when the browser refused (the failure is reported to the user) */
   function set(name, value){
     var a = adapter();
     var raw, changes = null, full = value;
     try{
       full = prepareWrite(name, value);
+      var verr = validate(name, full);
+      if (verr){ notify('השמירה נחסמה', verr); emit('error', { name: name, error: new Error(verr) }); return Promise.resolve(false); }
       try{ changes = stamp(name, full, a); }catch(e){ console.error('metadata stamp failed', name, e); }
       raw = JSON.stringify(full);
     }catch(e){ return Promise.resolve(fail(name, e, value)); }
@@ -2469,7 +2481,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     adapterName: function(){ return adapter().name; },
     META_COLLECTIONS: META_COLLECTIONS,
     openDb: openDb, idbTx: idbTx, audit: audit, blobs: blobs,
-    setScope: setScope, getScope: getScope, scopedNames: SCOPED, ensureDefaultCenters: ensureDefaultCenters,
+    setScope: setScope, getScope: getScope, scopedNames: SCOPED, peekAll: peekJson, addValidator: addValidator, ensureDefaultCenters: ensureDefaultCenters,
     schemaVersion: schemaVersion, latestSchema: latestSchema,
     registerMigration: registerMigration, migrate: migrate,
     migrationState: function(){ return migrationState; },
@@ -3738,6 +3750,106 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     else if (t.closest('#rel-apply')) apply();
     else if (t.closest('#rel-export')) exportRel();
   });
+})();
+</script>
+<script>
+/* ================================================================
+   Unique identifiers (fix round): personal number of an employee and serial number of a position
+   are unique across the whole system (also across centers a user cannot see).
+   - lookups, an inline notice with a link to the existing record, a write guard in DataStore
+   - copies of an employee's name / number in linked records follow the employee
+   ================================================================ */
+(function(){
+  'use strict';
+  var el = function(id){ return document.getElementById(id); };
+  var esc = function(s){ return typeof escapeHtml === 'function' ? escapeHtml(s) : String(s); };
+  function norm(s){ return String(s == null ? '' : s).replace(/\s+/g, '').toLowerCase(); }
+  function allOf(name){ var a = DataStore.peekAll(name); return Array.isArray(a) ? a : (state[name] || []); }
+  function visible(name, id){ return (state[name] || []).some(function(r){ return r.id === id; }); }
+
+  function findEmployee(num, excludeId){
+    var n = norm(num); if (!n) return null;
+    var r = allOf('employees').find(function(e){ return e.id !== excludeId && norm(e.personalNumber) === n; });
+    return r ? { rec: r, visible: visible('employees', r.id) } : null;
+  }
+  function findPosition(serial, excludeId){
+    var n = norm(serial); if (!n) return null;
+    var r = allOf('positions').find(function(p){ return p.id !== excludeId && norm(p.serialNumber) === n; });
+    return r ? { rec: r, visible: visible('positions', r.id) } : null;
+  }
+  function occupantName(p){
+    var ca = p.currentAppointment || {}, e = ca.linkedEmployeeId ? allOf('employees').find(function(x){ return x.id === ca.linkedEmployeeId; }) : null;
+    return e ? e.name : (ca.fullName || '');
+  }
+  function open(kind, id, label){ return '<button type="button" class="ghost" data-dup-open="' + kind + '" data-id="' + esc(id) + '">פתח את ' + label + ' הקיים</button>'; }
+  function noticeEmployee(hit, num){
+    var e = hit.rec;
+    return '<div class="dup-err" role="alert"><b>מספר אישי כבר קיים.</b> המספר "' + esc(num || e.personalNumber) + '" שייך ל<b>' + esc(e.name) + '</b>' + (e.role ? ' (' + esc(e.role) + ')' : '') + '. ' + (hit.visible ? open('emp', e.id, 'העובד') : 'הרשומה במרכז אחר ואינה גלויה לך.') + '</div>';
+  }
+  function noticePosition(hit, serial){
+    var p = hit.rec, occ = occupantName(p);
+    return '<div class="dup-err" role="alert"><b>מספר תקן כבר קיים.</b> התקן "' + esc(serial || p.serialNumber) + '" (' + esc(p.jobText || '—') + ') ' + (occ ? 'מאויש על ידי ' + esc(occ) : 'פנוי') + '. ' + (hit.visible ? open('pos', p.id, 'התקן') : 'הרשומה במרכז אחר ואינה גלויה לך.') + '</div>';
+  }
+  function show(boxId, html, inputId){
+    var b = el(boxId); if (!b) { alert(html.replace(/<[^>]+>/g, '')); return; }
+    b.innerHTML = html;
+    if (html){ b.scrollIntoView({ block: 'center' }); var i = el(inputId); if (i) i.focus(); }
+  }
+  window.hubIds = { norm: norm, findEmployee: findEmployee, findPosition: findPosition, noticeEmployee: noticeEmployee, noticePosition: noticePosition, show: show, occupantName: occupantName, allOf: allOf };
+
+  /* live notice while typing */
+  document.addEventListener('input', function(e){
+    var t = e.target;
+    if (t.id === 'f-personalNumber'){
+      var form = document.querySelector('#modalBody [onclick^="saveEmployee"]'), m = form ? /saveEmployee\('?([^')]*)'?\)/.exec(form.getAttribute('onclick')) : null;
+      var hit = findEmployee(t.value, m && m[1] ? m[1] : null);
+      var b = el('dup-pn'); if (b) b.innerHTML = hit ? noticeEmployee(hit, t.value) : '';
+    } else if (t.id === 'pos-serialNumber'){
+      var f2 = document.querySelector('#modalBody [onclick^="savePosition"]'), m2 = f2 ? /savePosition\('?([^')]*)'?\)/.exec(f2.getAttribute('onclick')) : null;
+      var hit2 = findPosition(t.value, m2 && m2[1] ? m2[1] : null);
+      var b2 = el('dup-sn'); if (b2) b2.innerHTML = hit2 ? noticePosition(hit2, t.value) : '';
+    }
+  });
+  document.addEventListener('click', function(e){
+    var b = e.target.closest ? e.target.closest('[data-dup-open]') : null; if (!b) return;
+    var id = b.getAttribute('data-id');
+    closeModal();
+    if (b.getAttribute('data-dup-open') === 'emp') openEmployeeProfile(id); else openPositionForm(id);
+  });
+
+  /* write guard: a save that would introduce a new duplicate is refused (old data is left alone) */
+  function dupCounts(arr, field){
+    var m = {};
+    (arr || []).forEach(function(r){ var k = norm(r && r[field]); if (k) m[k] = (m[k] || 0) + 1; });
+    return m;
+  }
+  function guard(field, what){
+    return function(next, old){
+      var a = dupCounts(next, field), b = dupCounts(old, field);
+      for (var k in a){ if (a[k] > 1 && a[k] > (b[k] || 1)) return what + ' "' + k + '" כבר קיים במערכת. השמירה נחסמה כדי לא ליצור כפילות.'; }
+      return '';
+    };
+  }
+  if (window.DataStore && DataStore.addValidator){
+    DataStore.addValidator('employees', guard('personalNumber', 'מספר אישי'));
+    DataStore.addValidator('positions', guard('serialNumber', 'מספר תקן'));
+  }
+
+  /* linked records show the employee's current name and number */
+  window.hubSyncEmployeeCopies = async function(empId){
+    var e = empById(empId); if (!e) return;
+    var parts = (e.name || '').trim().split(/\s+/), last = parts.length > 1 ? parts.pop() : '', first = parts.join(' ');
+    var cv = false, inc = false, ps = false;
+    (state.convergence || []).forEach(function(c){ if (c.employeeId === empId && (c.firstName !== first || c.lastName !== last)){ c.firstName = first; c.lastName = last; cv = true; } });
+    (state.incentives || []).forEach(function(i){ if (i.employeeId === empId && i.snapName !== e.name){ i.snapName = e.name; inc = true; } });
+    (state.positions || []).forEach(function(p){
+      var ca = p.currentAppointment;
+      if (ca && ca.linkedEmployeeId === empId && (ca.fullName !== e.name || (ca.personalNumber || '') !== (e.personalNumber || ''))){ ca.fullName = e.name; ca.personalNumber = e.personalNumber || ''; ps = true; }
+    });
+    if (cv) await storeSet('convergence', state.convergence);
+    if (inc) await storeSet('incentives', state.incentives);
+    if (ps) await storeSet('positions', state.positions);
+  };
 })();
 </script>
 <script>
@@ -5019,7 +5131,7 @@ function employeeFormHtml(existing, presetManagerId){
     </div>
     <div class="locked-note">התאריך הקובע לפי סוג השירות: חובה — סיום חובה, אזרח — סיום חוזה, קבע — שחרור בפועל. שחרור בפועל גובר תמיד. התאריך הקובע מתעדכן בתקן המקושר ובהתכנסות.</div>
     <div class="grid2">
-      <div class="field"><label>מספר אישי</label><input type="text" id="f-personalNumber" value="${escapeHtml(e.personalNumber)}"></div>
+      <div class="field"><label>מספר אישי</label><input type="text" id="f-personalNumber" value="${escapeHtml(e.personalNumber)}"><div id="dup-pn"></div></div>
       <div class="field"><label>דרגה</label><input type="text" id="f-grade" value="${escapeHtml(e.grade)}"></div>
     </div>
     <div class="field"><label class="checkbox-row"><input type="checkbox" id="f-active" ${e.active===false?'':'checked'}> עובד פעיל</label></div>
@@ -5174,8 +5286,8 @@ async function saveEmployee(existingId){
     if (wouldRemoveLastActiveSuper(existingId)){ alert('לא ניתן להגדיר כלא פעיל את העובד של משתמש העל האחרון'); return; }
   }
   if (data.personalNumber){
-    const dup = state.employees.find(x=>x.id !== existingId && (x.personalNumber || '').trim() === data.personalNumber);
-    if (dup){ alert(`מספר אישי זה כבר קיים אצל ${dup.name}`); return; }
+    const dupHit = hubIds.findEmployee(data.personalNumber, existingId);
+    if (dupHit){ hubIds.show('dup-pn', hubIds.noticeEmployee(dupHit, data.personalNumber), 'f-personalNumber'); return; }
   }
   const prevName = existingId ? (empById(existingId)||{}).name : null;
   let employeeId = existingId;
@@ -5233,6 +5345,7 @@ async function saveEmployee(existingId){
 
   await storeSet('employees', state.employees);
   if (window.hubOrgAfterEmployeeSave) await hubOrgAfterEmployeeSave(employeeId, prevUnitId);
+  if (window.hubSyncEmployeeCopies) await hubSyncEmployeeCopies(employeeId);
   closeModal();
   renderEmployees(); renderOrgChart(); renderWhoAmI(); renderMeetingFilter(); renderMeetingsList(); renderTasks();
   renderPositionFilterOptions(); renderPositions();
@@ -6225,7 +6338,7 @@ function positionFormHtml(existing){
 
     <div class="form-section-title">פרטי התקן</div>
     <div class="grid2">
-      <div class="field"><label>מספר תקן</label><input type="text" id="pos-serialNumber" value="${escapeHtml(p.serialNumber)}"></div>
+      <div class="field"><label>מספר תקן</label><input type="text" id="pos-serialNumber" value="${escapeHtml(p.serialNumber)}"><div id="dup-sn"></div></div>
       <div class="field"><label>מקצוע</label><input type="text" id="pos-profession" value="${escapeHtml(p.profession)}"></div>
     </div>
     <div class="field"><label>מלל משרה</label><input type="text" id="pos-jobText" value="${escapeHtml(p.jobText)}"></div>
@@ -6322,6 +6435,8 @@ async function savePosition(existingId){
   const serialNumber = document.getElementById('pos-serialNumber').value.trim();
   const jobText = document.getElementById('pos-jobText').value.trim();
   if (!serialNumber || !jobText){ alert('נא להזין לפחות מספר תקן ומלל משרה'); return; }
+  const dupPos = hubIds.findPosition(serialNumber, existingId);
+  if (dupPos){ hubIds.show('dup-sn', hubIds.noticePosition(dupPos, serialNumber), 'pos-serialNumber'); return; }
   const linkedEmployeeId = document.getElementById('pos-cur-linkedEmployeeId').value || null;
   const data = {
     serialNumber,
@@ -6336,8 +6451,8 @@ async function savePosition(existingId){
     temporality: document.getElementById('pos-temporality').value.trim(),
     exemplary: document.getElementById('pos-exemplary').checked,
     currentAppointment: {
-      fullName: document.getElementById('pos-cur-fullName').value.trim(),
-      personalNumber: document.getElementById('pos-cur-personalNumber').value.trim(),
+      fullName: linkedEmployeeId && empById(linkedEmployeeId) ? empById(linkedEmployeeId).name : document.getElementById('pos-cur-fullName').value.trim(),
+      personalNumber: linkedEmployeeId && empById(linkedEmployeeId) ? (empById(linkedEmployeeId).personalNumber || '') : document.getElementById('pos-cur-personalNumber').value.trim(),
       releaseDate: (linkedEmployeeId && effectiveReleaseDate(empById(linkedEmployeeId)).date) || document.getElementById('pos-cur-releaseDate').value,
       linkedEmployeeId
     },
