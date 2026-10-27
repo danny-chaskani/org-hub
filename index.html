@@ -1315,11 +1315,13 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
         <button class="primary" id="addPositionBtn">+ תקן חדש</button>
         <button class="ghost" onclick="triggerExcelImport('positions')">ייבוא מאקסל</button>
         <button class="ghost" onclick="exportPositions()">ייצוא לאקסל</button>
+        <button class="ghost" id="flexListBtn" type="button">עובדים בגמישות</button>
         <button class="ghost" id="posPermissionsBtn" style="display:none;" onclick="openPositionsPermissionsModal()">ניהול הרשאות</button>
         <button class="ghost" id="posHistoryBtn" style="display:none;" onclick="openHistoryModal('positions')">היסטוריית שינויים</button>
       </div>
     </div>
     <div class="locked-note" style="margin-bottom:14px;">כל מנהל בכיר במרכז (לפי שדה "יחידת רישומת") חשוף לתקני מרכזו בלבד. כל עובד חשוף גם לתקן שלו האישי, גם אם אינו מנהל מרכז. העובד הבכיר ביותר בארגון חשוף לכל התקנים ויכול להעניק הרשאות צפייה נוספות.</div>
+    <div class="card" id="flexCard" hidden></div>
     <div class="card">
       <div class="post-filters">
         <select id="filterPosUnit"><option value="">כל יחידות הרישומת</option></select>
@@ -3745,6 +3747,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     });
     if (empCh) await storeSet('employees', state.employees);
     if (posCh) await storeSet('positions', state.positions);
+    if (n && window.hubFlex) await hubFlex.sync();
     if (n && typeof refreshAllViews === 'function') refreshAllViews();
     open();
     el('rel-msg').textContent = n + ' שורות הוחלו.';
@@ -3883,7 +3886,8 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
       + '<div id="pp-chosen" style="margin-bottom:8px;"></div>'
       + '<input type="text" id="pp-search" autocomplete="off" placeholder="חיפוש לפי מספר תקן או מלל משרה">'
       + '<div id="pp-results"></div><div id="pp-warn"></div>'
-      + '<div class="locked-note">🔗 בחירה כאן מעדכנת את "מינוי נוכחי" בניהול תקנים, ולהפך. מספר שלא קיים אפשר ליצור כתקן חדש ישירות מכאן.</div></div>';
+      + '<div class="locked-note">🔗 בחירה כאן מעדכנת את "מינוי נוכחי" בניהול תקנים, ולהפך. מספר שלא קיים אפשר ליצור כתקן חדש ישירות מכאן.</div>'
+      + (window.hubFlexFormHtml ? hubFlexFormHtml(emp) : '') + '</div>';
   };
   function setHidden(){ el('f-positionId').value = pp.posId || ''; el('f-newPositionSerial').value = pp.newSerial || ''; }
   function renderChosen(){
@@ -3954,7 +3958,12 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     else if (act === 'create'){ pp.newSerial = el('pp-search').value.trim(); pp.posId = ''; pp.confirmed = false; el('pp-search').value = ''; el('pp-results').innerHTML = ''; }
     else if (act === 'clear'){ pp.posId = ''; pp.newSerial = ''; pp.confirmed = false; }
     setHidden(); renderChosen(); renderWarn();
+    document.dispatchEvent(new Event('pp-change'));
   });
+  window.hubPosPickerApi = {
+    clear: function(){ pp.posId = ''; pp.newSerial = ''; pp.confirmed = false; if (el('f-positionId')){ setHidden(); renderChosen(); renderWarn(); } },
+    selected: function(){ return !!(pp.posId || pp.newSerial); }
+  };
 
   /* ---------- identifier lookups for imports ---------- */
   window.hubFindEmployeeForImport = function(row){
@@ -4289,6 +4298,150 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
 })();
 </script>
 <script>
+/* ================================================================
+   Flex ("גמישות"): an employee who does not sit on a numbered position, until an end date.
+   - employee fields: flex, flexEndDate (required), flexRemindDays (default 7), flexResponsibleId (default: the system user)
+   - an automatic task "to place X on a position" is kept in step with the employee (sync is idempotent)
+   - no task when the effective release date is on or before the flex end date
+   - placement on a numbered position ends the flex and closes the task
+   - calendar-ready: hubFlex.calendarEvents(from, to) returns the end dates for the calendar of round 3
+   ================================================================ */
+(function(){
+  'use strict';
+  var el = function(id){ return document.getElementById(id); };
+  var esc = function(s){ return typeof escapeHtml === 'function' ? escapeHtml(s) : String(s); };
+  var DEFAULT_REMIND = 7;
+  function today(){ return new Date().toISOString().slice(0, 10); }
+  function addDays(iso, n){ var d = new Date(iso + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }
+  function isFlex(e){ return !!(e && e.flex && e.active !== false); }
+  function systemEmployeeId(){
+    var u = (state.users || []).find(function(x){ return x.isSuper && x.active !== false && empById(x.employeeId); });
+    return u ? u.employeeId : null;
+  }
+  function responsibleOf(e){ return (e.flexResponsibleId && empById(e.flexResponsibleId) && e.flexResponsibleId) || systemEmployeeId(); }
+  function sig(e){ return JSON.stringify([e.flexEndDate || '', e.flexRemindDays == null ? DEFAULT_REMIND : e.flexRemindDays, responsibleOf(e) || '']); }
+  function skipTask(e){
+    var eff = effectiveReleaseDate(e).date;
+    return !e.flexEndDate || (eff && eff <= e.flexEndDate);
+  }
+  window.hubIsFlex = isFlex;
+  window.hubFlexLabel = function(e){ return isFlex(e) ? 'גמישות' : ''; };
+
+  /* ---------- form ---------- */
+  window.hubFlexFormHtml = function(emp){
+    var e = emp || {}, on = !!e.flex;
+    var users = (state.users || []).filter(function(u){ return u.active !== false && empById(u.employeeId); });
+    var opts = '<option value="">משתמש המערכת (ברירת מחדל)</option>' + users.map(function(u){ var x = empById(u.employeeId); return '<option value="' + esc(x.id) + '"' + (e.flexResponsibleId === x.id ? ' selected' : '') + '>' + esc(x.name) + '</option>'; }).join('');
+    return '<div style="margin-top:12px;"><label class="checkbox-row"><input type="checkbox" id="f-flex"' + (on ? ' checked' : '') + '> גמישות: עובד שאינו יושב על תקן ממוספר</label>'
+      + '<div id="flex-box"' + (on ? '' : ' hidden') + ' style="margin-top:8px;">'
+      + '<div class="grid2"><div class="field"><label>תאריך סיום גמישות *</label><input type="date" id="f-flexEnd" value="' + esc(e.flexEndDate || '') + '"></div>'
+      + '<div class="field"><label>תזכורת (ימים לפני הסיום)</label><input type="number" min="0" id="f-flexRemind" value="' + esc(e.flexRemindDays == null ? DEFAULT_REMIND : e.flexRemindDays) + '"></div></div>'
+      + '<div class="field"><label>אחראי למשימת השיבוץ</label><select id="f-flexResp">' + opts + '</select></div>'
+      + '<div class="locked-note">בתאריך הסיום תיווצר משימה "לשבץ את העובד על תקן" עם תזכורת לפני. אם תאריך השחרור הקובע של העובד קודם לתאריך הסיום או שווה לו, לא תיווצר משימה. שיבוץ לתקן ממוספר מסיים את הגמישות וסוגר את המשימה.</div>'
+      + '<div id="flex-warn"></div></div></div>';
+  };
+  document.addEventListener('change', function(e){
+    if (e.target.id === 'f-flex'){
+      var box = el('flex-box'); if (box) box.hidden = !e.target.checked;
+      if (e.target.checked && window.hubPosPickerApi) hubPosPickerApi.clear();
+    }
+  });
+  document.addEventListener('pp-change', function(){
+    var f = el('f-flex');
+    if (f && f.checked && window.hubPosPickerApi && hubPosPickerApi.selected()){ f.checked = false; el('flex-box').hidden = true; }
+  });
+  /* null = form has no flex block; otherwise {error} or the field values */
+  window.hubFlexFormRead = function(){
+    var f = el('f-flex'); if (!f) return null;
+    if (!f.checked) return { flex: false };
+    var end = el('f-flexEnd').value;
+    if (!end){ el('flex-warn').innerHTML = '<div class="dup-err" role="alert">תאריך סיום גמישות הוא שדה חובה.</div>'; el('f-flexEnd').focus(); return { error: true }; }
+    var n = parseInt(el('f-flexRemind').value, 10);
+    return { flex: true, flexEndDate: end, flexRemindDays: isNaN(n) || n < 0 ? DEFAULT_REMIND : n, flexResponsibleId: el('f-flexResp').value || '' };
+  };
+
+  /* ---------- the automatic task ---------- */
+  function taskKey(e){ return 'flex:' + e.id; }
+  function openTask(e){ return state.tasks.find(function(t){ return t.autoKey === taskKey(e) && t.status !== 'done'; }) || null; }
+  async function syncAll(){
+    var empCh = false, taskCh = false, now = today();
+    state.employees.forEach(function(e){
+      var t = openTask(e);
+      if (e.flex && getPositionByEmployeeId(e.id)){                          /* placed: the flex ends */
+        e.flex = false; e.flexEndedAt = now; empCh = true;
+        if (t){ t.status = 'done'; t.autoClosed = 'העובד שובץ לתקן'; taskCh = true; }
+        return;
+      }
+      var wanted = isFlex(e) && !skipTask(e) && responsibleOf(e);
+      if (!wanted){ if (t){ state.tasks = state.tasks.filter(function(x){ return x !== t; }); taskCh = true; } return; }
+      var s = sig(e), resp = responsibleOf(e);
+      if (!t){
+        state.tasks.push({ id: uid('t'), status: 'none', priority: 'high', assignedBy: resp, assignedTo: [resp], aboutEmployeeIds: [e.id],
+          title: 'לשבץ את ' + e.name + ' על תקן', description: 'הגמישות של ' + e.name + ' מסתיימת ב-' + e.flexEndDate + '. יש לשבץ אותו על תקן ממוספר.',
+          dueDate: e.flexEndDate, remindAt: addDays(e.flexEndDate, -(e.flexRemindDays == null ? DEFAULT_REMIND : e.flexRemindDays)),
+          autoKey: taskKey(e), autoKind: 'flex-end', flexSig: s });
+        taskCh = true;
+      } else if (t.flexSig !== s){
+        t.dueDate = e.flexEndDate; t.remindAt = addDays(e.flexEndDate, -(e.flexRemindDays == null ? DEFAULT_REMIND : e.flexRemindDays));
+        t.assignedTo = [resp]; t.title = 'לשבץ את ' + e.name + ' על תקן'; t.flexSig = s; taskCh = true;
+      }
+    });
+    if (empCh) await storeSet('employees', state.employees);
+    if (taskCh) await storeSet('tasks', state.tasks);
+    if ((empCh || taskCh) && typeof renderTasks === 'function'){ try{ renderTasks(); renderEmployees(); }catch(e){} }
+    return { employees: empCh, tasks: taskCh };
+  }
+  /* reminders: a notification to the users that hold the task, once per reminder date */
+  async function runReminders(){
+    if (!window.hubNotify) return 0;
+    var now = today(), n = 0;
+    for (var i = 0; i < state.tasks.length; i++){
+      var t = state.tasks[i];
+      if (t.autoKind !== 'flex-end' || t.status === 'done' || !t.remindAt || t.remindAt > now) continue;
+      for (var j = 0; j < (t.assignedTo || []).length; j++){
+        var users = (state.users || []).filter(function(u){ return u.employeeId === t.assignedTo[j] && u.active !== false; });
+        for (var k = 0; k < users.length; k++){
+          var late = t.dueDate && t.dueDate < now;
+          var r = await hubNotify.add({ recipientId: users[k].id, kind: 'reminder', title: t.title, body: late ? 'הגמישות הסתיימה ב-' + t.dueDate + ' והעובד עדיין לא משובץ.' : 'הגמישות מסתיימת ב-' + t.dueDate + '.', dedupeKey: 'flexrem:' + t.id + ':' + t.remindAt + (late ? ':late' : '') });
+          if (r) n++;
+        }
+      }
+    }
+    return n;
+  }
+  function calendarEvents(from, to){
+    return state.employees.filter(isFlex).filter(function(e){ return e.flexEndDate && (!from || e.flexEndDate >= from) && (!to || e.flexEndDate <= to); })
+      .map(function(e){ var t = openTask(e); return { type: 'flex-end', date: e.flexEndDate, remindAt: t ? t.remindAt : null, employeeId: e.id, title: 'סיום גמישות: ' + e.name, taskId: t ? t.id : null }; });
+  }
+  window.hubFlex = { sync: syncAll, runReminders: runReminders, calendarEvents: calendarEvents, isFlex: isFlex, systemEmployeeId: systemEmployeeId };
+
+  /* ---------- conflict rule ---------- */
+  if (window.hubConflictRules){
+    hubConflictRules.add('flex-expired', 'גמישות שהסתיימה והעובד לא משובץ', function(){
+      var now = today();
+      return hubIds.allOf('employees').filter(function(e){ return e.flex && e.active !== false && e.flexEndDate && e.flexEndDate < now; })
+        .map(function(e){ return { key: e.id, text: e.name + ': הגמישות הסתיימה ב-' + e.flexEndDate + ' והעובד עדיין לא משובץ לתקן' }; });
+    });
+  }
+
+  /* ---------- list in the positions page ---------- */
+  function listHtml(){
+    var list = state.employees.filter(isFlex).sort(function(a, b){ return (a.flexEndDate || '').localeCompare(b.flexEndDate || ''); }), now = today();
+    var body = list.map(function(e){
+      var t = openTask(e), left = e.flexEndDate ? Math.round((new Date(e.flexEndDate) - new Date(now)) / 86400000) : null;
+      return '<tr><td>' + esc(e.name) + '</td><td>' + esc([e.department, e.industry, e.mador].filter(Boolean).join(' / ') || '—') + '</td><td>' + esc(e.flexEndDate || '—') + '</td><td>' + (left == null ? '—' : left < 0 ? '<span class="danger-txt">עבר לפני ' + (-left) + ' ימים</span>' : left + ' ימים') + '</td><td>' + esc(effectiveReleaseDate(e).date || '—') + '</td><td>' + (t ? esc(t.remindAt || '') : '<span class="locked-note" style="display:inline">אין משימה</span>') + '</td></tr>';
+    }).join('') || '<tr><td colspan="6">אין עובדים בגמישות.</td></tr>';
+    return '<div class="table-scroll"><table><thead><tr><th>עובד</th><th>יחידה</th><th>סיום גמישות</th><th>נותר</th><th>שחרור קובע</th><th>תזכורת</th></tr></thead><tbody>' + body + '</tbody></table></div>';
+  }
+  document.addEventListener('click', function(e){
+    var t = e.target.closest ? e.target : null; if (!t) return;
+    if (t.closest('#flexListBtn')){
+      var c = el('flexCard'); c.hidden = !c.hidden; if (!c.hidden) c.innerHTML = '<div class="form-section-title">עובדים בגמישות</div>' + listHtml();
+    }
+  });
+})();
+</script>
+<script>
 /* ---------------- storage helpers ---------------- */
 function hasArtifactStorage(){ return typeof window !== 'undefined' && window.storage && typeof window.storage.get === 'function'; }
 async function storeSet(key, value){
@@ -4562,6 +4715,7 @@ async function completeLogin(user){
   try{ sessionStorage.setItem('hub:session', user.id); }catch(e){}
   if (window.hubApplyScope) await hubApplyScope(user);
   hideAuth();
+  if (window.hubFlex) setTimeout(()=>{ hubFlex.sync().then(()=>hubFlex.runReminders()).then(()=>{ if (window.hubNotify) hubNotify.refresh(); }).catch(()=>{}); }, 1200);
   if (user.isSuper && window.hubConflicts) setTimeout(()=>{ hubConflicts.runAndNotify().then(()=>{ if (window.hubNotify) hubNotify.refresh(); }).catch(()=>{}); }, 1500);
   if (!appBooted){ appBooted = true; bootApp(); } else { refreshAllViews(); }
   applyAccessControl();
@@ -5377,7 +5531,7 @@ function renderEmployees(){
       <td><span class="badge dept">${escapeHtml(e.department||'—')}</span></td>
       <td>${escapeHtml(e.mador||'—')}</td>
       <td>${mgr ? escapeHtml(mgr.name) : '—'}</td>
-      <td>${pos ? `${escapeHtml(pos.serialNumber)} — ${escapeHtml(pos.jobText)}` : '<span class="vacant-txt">ללא תקן</span>'}</td>
+      <td>${pos ? `${escapeHtml(pos.serialNumber)} — ${escapeHtml(pos.jobText)}` : (e.flex ? `<span class="tag">גמישות עד ${escapeHtml(e.flexEndDate||'?')}</span>` : '<span class="vacant-txt">ללא תקן</span>')}</td>
       <td>${e.active===false ? '<span class="tag">לא פעיל</span>' : '<span class="req-status approved">פעיל</span>'}</td>
       <td>${escapeHtml(e.email||'—')}</td>
       <td>${escapeHtml(e.phone||'—')}</td>
@@ -5464,7 +5618,7 @@ function bulkExportSelectedEmployees(){
     const pos = getPositionByEmployeeId(e.id);
     return {
       'שם': e.name, 'תפקיד': e.role, 'מרכז': e.department, 'מדור': e.mador, 'מנהל ישיר': mgr?mgr.name:'',
-      'תקן נוכחי': pos ? `${pos.serialNumber} — ${pos.jobText}` : '', 'אימייל': e.email, 'טלפון': e.phone, 'תאריך התחלה': e.startDate
+      'תקן נוכחי': pos ? `${pos.serialNumber} — ${pos.jobText}` : (e.flex ? 'גמישות' : ''), 'גמישות עד': e.flex ? (e.flexEndDate || '') : '', 'אימייל': e.email, 'טלפון': e.phone, 'תאריך התחלה': e.startDate
     };
   });
   exportToExcel('עובדים_נבחרים', rows);
@@ -5713,6 +5867,9 @@ async function saveEmployee(existingId){
     if (wouldRemoveLastActiveSuper(existingId)){ alert('לא ניתן להגדיר כלא פעיל את העובד של משתמש העל האחרון'); return; }
   }
   if (!hubPosPickerCheck()) return;
+  const flexData = hubFlexFormRead();
+  if (flexData && flexData.error) return;
+  if (flexData) Object.assign(data, flexData);
   if (data.personalNumber){
     const dupHit = hubIds.findEmployee(data.personalNumber, existingId);
     if (dupHit){ hubIds.show('dup-pn', hubIds.noticeEmployee(dupHit, data.personalNumber), 'f-personalNumber'); return; }
@@ -5731,7 +5888,8 @@ async function saveEmployee(existingId){
   let selectedPositionId = document.getElementById('f-positionId').value || null;
   const newPositionSerial = document.getElementById('f-newPositionSerial').value.trim();
   let positionsChanged = false;
-  if (newPositionSerial){
+  if (data.flex) selectedPositionId = null;
+  if (newPositionSerial && !data.flex){
     let existingPos = state.positions.find(p=>p.serialNumber===newPositionSerial);
     if (existingPos){
       selectedPositionId = existingPos.id;
@@ -5775,6 +5933,7 @@ async function saveEmployee(existingId){
   await storeSet('employees', state.employees);
   if (window.hubOrgAfterEmployeeSave) await hubOrgAfterEmployeeSave(employeeId, prevUnitId);
   if (window.hubSyncEmployeeCopies) await hubSyncEmployeeCopies(employeeId);
+  if (window.hubFlex) await hubFlex.sync();
   closeModal();
   renderEmployees(); renderOrgChart(); renderWhoAmI(); renderMeetingFilter(); renderMeetingsList(); renderTasks();
   renderPositionFilterOptions(); renderPositions();
@@ -5884,7 +6043,7 @@ function openEmployeeProfile(id){
       <div><div class="lbl3">רמת הרשאה</div>${escapeHtml(e.rank||'—')}</div>
       <div><div class="lbl3">זוטר/מובהק</div>${escapeHtml(e.level||'—')}</div>
       <div><div class="lbl3">סוג שירות</div>${escapeHtml(e.serviceType||'—')}</div>
-      <div><div class="lbl3">תקן נוכחי</div>${pos?`${escapeHtml(pos.serialNumber)} — ${escapeHtml(pos.jobText)}`:'<span class="vacant-txt">ללא תקן</span>'}</div>
+      <div><div class="lbl3">תקן נוכחי</div>${pos?`${escapeHtml(pos.serialNumber)} — ${escapeHtml(pos.jobText)}`:(e.flex?`גמישות עד ${escapeHtml(e.flexEndDate||'?')}`:'<span class="vacant-txt">ללא תקן</span>')}</div>
       <div><div class="lbl3">תאריך התחלה</div>${escapeHtml(e.startDate||'—')}</div>
       <div><div class="lbl3">תאריך גיוס</div>${escapeHtml(e.enlistmentDate||'—')}</div>
       <div><div class="lbl3">סיום חובה</div>${escapeHtml(e.compulsoryReleaseDate||'—')}</div>
@@ -6175,6 +6334,7 @@ function taskFormHtml(existing){
       </div>
       <div class="field"><label>תאריך יעד</label><input type="date" id="t-dueDate" value="${escapeHtml(t.dueDate)}"></div>
     </div>
+    <div class="field"><label>תזכורת בתאריך (אופציונלי)</label><input type="date" id="t-remindAt" value="${escapeHtml(t.remindAt)}"></div>
     <div class="field">
       <label>משויכת גם לאנשים נוספים / בנוגע לעובדים (אופציונלי)</label>
       ${employeeCheckboxList('t-about', t.aboutEmployeeIds||[])}
@@ -6201,6 +6361,7 @@ async function saveTask(existingId){
     assignedTo,
     priority: document.getElementById('t-priority').value,
     dueDate: document.getElementById('t-dueDate').value,
+    remindAt: document.getElementById('t-remindAt').value,
     aboutEmployeeIds: readCheckedIds('t-about')
   };
   if (existingId){
@@ -6911,6 +7072,7 @@ async function savePosition(existingId){
     });
   }
   await storeSet('positions', state.positions);
+  if (window.hubFlex) await hubFlex.sync();
   closeModal();
   renderPositionFilterOptions();
   renderPositions();
@@ -7493,6 +7655,7 @@ const IMPORT_CONFIGS = {
       });
       await storeSet('employees', state.employees);
       const sr = await hubResolveImportedSerials();
+      if (window.hubFlex) await hubFlex.sync();
       closeModal();
       renderEmployees(); renderOrgChart(); renderWhoAmI(); renderMeetingFilter(); renderMeetingsList(); renderTasks(); renderAttendance(); renderMgrInfo(); renderPositions();
       alert(`ייבוא הושלם: ${counts.created} נוספו, ${counts.updated} עודכנו, ${counts.kept} נותרו ללא שינוי` + (counts.skipped ? `, ${counts.skipped} שורות עם בעיה דולגו` : '') + (sr.linked ? `. ${sr.linked} עובדים שויכו לתקן לפי המספר שבקובץ` : '') + (sr.pending ? `. ${sr.pending} מספרי תקן מהקובץ לא שויכו (תקן לא קיים או מאויש), והם יופיעו בסתירות` : ''));
