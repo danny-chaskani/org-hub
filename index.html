@@ -1208,6 +1208,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
 <header>
   <div class="brand"><button type="button" class="icon-btn nav-toggle" id="navToggle" aria-label="פתיחה וסגירה של תפריט הניווט" aria-controls="mainNav" aria-expanded="true"></button><span class="dot"></span><h1>מרכז ניהול ארגוני</h1></div>
   <div class="whoami">
+    <button type="button" class="ghost" id="conflictsBtn" hidden>סתירות</button>
     <button type="button" class="icon-btn bell-btn" id="notifBell" aria-label="התראות"><span class="notif-badge" id="notifBadge" hidden></span></button>
     <button type="button" class="icon-btn theme-toggle" id="themeToggle" aria-label="החלפה בין מצב בהיר למצב כהה"></button>
     <span id="whoamiLabel"></span>
@@ -4302,31 +4303,74 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     if (ap){ var v = ap.getAttribute('data-dp-apply'); applyGroup(v.charAt(0), Number(v.slice(1))); return; }
     if (t.closest('[data-ul-apply]')){ applyLinks(); return; }
     if (t.closest('[data-dp-export]')){ exportReport(); return; }
-    if (t.closest('#conflict-report')){ openConflicts(); return; }
+    if (t.closest('#conflict-report')){ window.hubConflicts.open(); return; }
   });
 
   /* ---------- conflict rules ---------- */
   var RULES = [];
-  function rule(id, title, evaluate){ RULES.push({ id: id, title: title, evaluate: evaluate }); }
+  function rule(id, title, evaluate, opts){ RULES.push({ id: id, title: title, evaluate: evaluate, entities: (opts && opts.entities) || [], fixes: (opts && opts.fixes) || null }); }
+  function empRec(id){ return state.employees.find(function(e){ return e.id === id; }) || null; }
+  function posRec(id){ return state.positions.find(function(p){ return p.id === id; }) || null; }
+  var HIDDEN_NOTE = ' חלק מהרשומות במרכז אחר ואינן גלויות לך, ולכן לא עודכנו.';
   rule('dup-personal', 'מספר אישי כפול', function(){
-    return groups(hubIds.allOf('employees'), 'personalNumber').map(function(g){ return { key: g.key, text: 'המספר האישי "' + g.recs[0].personalNumber + '" מופיע אצל ' + g.recs.length + ' עובדים: ' + g.recs.map(function(r){ return r.name; }).join(', ') }; });
-  });
+    return groups(hubIds.allOf('employees'), 'personalNumber').map(function(g){ return { key: g.key, text: 'המספר האישי "' + g.recs[0].personalNumber + '" מופיע אצל ' + g.recs.length + ' עובדים: ' + g.recs.map(function(r){ return r.name; }).join(', '), refs: g.recs.map(function(r){ return { type: 'employee', id: r.id }; }), basis: g.key + '|' + g.recs.map(function(r){ return r.id + ':' + r.name; }).sort().join(',') }; });
+  }, { entities: ['employees'], fixes: function(f){
+    var out = f.refs.map(function(ref){
+      var keep = hubIds.allOf('employees').find(function(e){ return e.id === ref.id; });
+      return { label: 'השאר את המספר האישי אצל ' + (keep ? keep.name : '?') + ' ונקה אצל האחרים', run: async function(){
+        var n = 0, hid = 0;
+        for (var i = 0; i < f.refs.length; i++){ if (f.refs[i].id === ref.id) continue; var e = empRec(f.refs[i].id); if (!e){ hid++; continue; } e.personalNumber = ''; n++; }
+        if (n){ await storeSet('employees', state.employees); for (var j = 0; j < f.refs.length; j++) await hubSyncEmployeeCopies(f.refs[j].id); }
+        return 'נוקה המספר האישי אצל ' + n + ' עובדים.' + (hid ? HIDDEN_NOTE : '');
+      } };
+    });
+    out.push({ label: 'פתח את דוח הכפילויות והכרע ידנית', run: async function(){ openReport(); return 'הדוח נפתח.'; } });
+    return out;
+  } });
   rule('dup-serial', 'מספר תקן כפול', function(){
-    return groups(hubIds.allOf('positions'), 'serialNumber').map(function(g){ return { key: g.key, text: 'מספר התקן "' + g.recs[0].serialNumber + '" מופיע ב-' + g.recs.length + ' תקנים' }; });
-  });
+    return groups(hubIds.allOf('positions'), 'serialNumber').map(function(g){ return { key: g.key, text: 'מספר התקן "' + g.recs[0].serialNumber + '" מופיע ב-' + g.recs.length + ' תקנים', refs: g.recs.map(function(r){ return { type: 'position', id: r.id }; }), basis: g.key + '|' + g.recs.map(function(r){ return r.id + ':' + (r.jobText || ''); }).sort().join(',') }; });
+  }, { entities: ['positions'], fixes: function(f){
+    var out = f.refs.map(function(ref){
+      var keep = hubIds.allOf('positions').find(function(p){ return p.id === ref.id; });
+      return { label: 'השאר את מספר התקן ב"' + (keep ? (keep.jobText || keep.serialNumber) : '?') + '" (' + (keep ? (hubIds.occupantName(keep) || 'פנוי') : '') + ') ונקה אצל האחרים', run: async function(){
+        var n = 0, hid = 0;
+        for (var i = 0; i < f.refs.length; i++){ if (f.refs[i].id === ref.id) continue; var p = posRec(f.refs[i].id); if (!p){ hid++; continue; } p.serialNumber = ''; n++; }
+        if (n) await storeSet('positions', state.positions);
+        return 'נוקה מספר התקן ב-' + n + ' תקנים (הם נשארים בלי מספר עד שתקבע להם מספר).' + (hid ? HIDDEN_NOTE : '');
+      } };
+    });
+    out.push({ label: 'פתח את דוח הכפילויות והכרע ידנית', run: async function(){ openReport(); return 'הדוח נפתח.'; } });
+    return out;
+  } });
   rule('emp-pos-missing', 'מספר תקן בכרטיס עובד שלא קיים בניהול תקנים', function(){
     var out = [];
     hubIds.allOf('employees').forEach(function(e){
       if (!e.positionSerial) return;
       var hit = hubIds.findPosition(e.positionSerial, null);
-      if (!hit) out.push({ key: e.id, text: e.name + ': מספר התקן "' + e.positionSerial + '" בכרטיס העובד אינו קיים בניהול תקנים' });
+      if (!hit) out.push({ key: e.id, text: e.name + ': מספר התקן "' + e.positionSerial + '" בכרטיס העובד אינו קיים בניהול תקנים', refs: [{ type: 'employee', id: e.id }], basis: e.id + '|' + e.positionSerial + '|missing' });
       else {
         var ca = hit.rec.currentAppointment || {};
-        if (ca.linkedEmployeeId && ca.linkedEmployeeId !== e.id) out.push({ key: e.id, text: e.name + ': התקן "' + e.positionSerial + '" כבר מאויש על ידי עובד אחר' });
+        if (ca.linkedEmployeeId && ca.linkedEmployeeId !== e.id) out.push({ key: e.id, text: e.name + ': התקן "' + e.positionSerial + '" כבר מאויש על ידי עובד אחר', refs: [{ type: 'employee', id: e.id }, { type: 'position', id: hit.rec.id }], basis: e.id + '|' + e.positionSerial + '|' + ca.linkedEmployeeId });
       }
     });
     return out;
-  });
+  }, { entities: ['employees', 'positions'], fixes: function(f){
+    var empId = f.refs[0].id, e0 = hubIds.allOf('employees').find(function(e){ return e.id === empId; }), out = [];
+    if (e0 && !hubIds.findPosition(e0.positionSerial, null)) out.push({ label: 'צור תקן חדש במספר "' + e0.positionSerial + '" ושייך אליו את ' + e0.name, run: async function(){
+      var e = empRec(empId); if (!e) return 'העובד במרכז אחר ואינו גלוי לך.';
+      if (hubIds.findPosition(e.positionSerial, null)) return 'תקן במספר הזה כבר קיים.';
+      state.positions.push({ id: uid('pos'), serialNumber: e.positionSerial, jobText: e.role || '', occupationText: '', profession: e.professionText || '', grade: '', seniorityLevel: '', registrationUnit: e.department || '', counterStatus: '', freezeStatus: '', currentAppointment: { fullName: e.name, personalNumber: e.personalNumber || '', releaseDate: '', linkedEmployeeId: e.id }, futureAppointment: { fullName: '', personalNumber: '', staffingDate: '' }, linkedConvergenceId: null, regulationNotes: '', generalNotes: 'נוצר מכלל הסתירות' });
+      e.positionSerial = '';
+      await storeSet('positions', state.positions); await storeSet('employees', state.employees);
+      return 'נוצר תקן חדש והעובד שויך אליו.';
+    } });
+    out.push({ label: 'נקה את מספר התקן מכרטיס העובד', run: async function(){
+      var e = empRec(empId); if (!e) return 'העובד במרכז אחר ואינו גלוי לך.';
+      e.positionSerial = ''; await storeSet('employees', state.employees); return 'מספר התקן נוקה מהכרטיס.';
+    } });
+    var pref = f.refs[1]; if (pref) out.push({ label: 'פתח את התקן הקיים', run: async function(){ if (!posRec(pref.id)) return 'התקן במרכז אחר ואינו גלוי לך.'; openPositionForm(pref.id); return ''; } });
+    return out;
+  } });
   window.hubConflictRules = { add: rule, list: function(){ return RULES; } };
   function evaluate(){
     var out = [];
@@ -4591,8 +4635,14 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     hubConflictRules.add('flex-expired', 'גמישות שהסתיימה והעובד לא משובץ', function(){
       var now = today();
       return hubIds.allOf('employees').filter(function(e){ return e.flex && e.active !== false && e.flexEndDate && e.flexEndDate < now; })
-        .map(function(e){ return { key: e.id, text: e.name + ': הגמישות הסתיימה ב-' + e.flexEndDate + ' והעובד עדיין לא משובץ לתקן' }; });
-    });
+        .map(function(e){ return { key: e.id, text: e.name + ': הגמישות הסתיימה ב-' + e.flexEndDate + ' והעובד עדיין לא משובץ לתקן', refs: [{ type: 'employee', id: e.id }], basis: e.id + '|' + e.flexEndDate }; });
+    }, { entities: ['employees'], fixes: function(f){
+      var id = f.refs[0].id, rec = function(){ return state.employees.find(function(x){ return x.id === id; }) || null; };
+      return [
+        { label: 'סיים את הגמישות (העובד אינו בגמישות)', run: async function(){ var e = rec(); if (!e) return 'העובד במרכז אחר ואינו גלוי לך.'; e.flex = false; e.flexEndedAt = today(); await storeSet('employees', state.employees); await syncAll(); return 'הגמישות הסתיימה והמשימה האוטומטית נסגרה.'; } },
+        { label: 'הארך את הגמישות עד תאריך', prompt: { label: 'תאריך סיום חדש' }, run: async function(v){ var e = rec(); if (!e) return 'העובד במרכז אחר ואינו גלוי לך.'; if (v <= today()) return 'התאריך חייב להיות עתידי.'; e.flexEndDate = v; await storeSet('employees', state.employees); await syncAll(); return 'הגמישות הוארכה עד ' + v + '.'; } }
+      ];
+    } });
   }
 
   /* ---------- list in the positions page ---------- */
@@ -6380,6 +6430,320 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
 })();
 </script>
 <script>
+/* ================================================================
+   Conflict engine (round 4, stage 15). Every rule registered with hubConflictRules runs through it.
+   - a rule returns findings { key, text, refs, basis }; the engine keeps them in "conflictFindings" with a stable fingerprint (rule + key)
+   - who is told: the users subscribed to the rule (permissions tab); nobody subscribed means the system user. A subscriber without
+     full data access gets a general description only
+   - on every finding the responsible person can: update everywhere (the rule offers a fix per source of truth), remind me later,
+     add to the tasks to check, or approve an exception (note and approver name required)
+   - an exception stops the alerts until the data that created the conflict changes (basis hash); then the finding is open again
+     with the previous note beside it. A finding that disappears is marked resolved
+   - runs at sign-in, after a change of the entities a rule declares, and after imports (they change those entities). The very first scan
+     only fills the list and sends one summary, so the system user is not flooded
+   ================================================================ */
+(function(){
+  'use strict';
+  var el = function(id){ return document.getElementById(id); };
+  var esc = function(s){ return typeof escapeHtml === 'function' ? escapeHtml(s) : String(s); };
+  var KEY_F = 'conflictFindings', KEY_X = 'conflictExceptions', KEY_S = 'conflictSubs';
+  var ST = { open: 'פתוח', snoozed: 'נדחה להמשך', task: 'במשימה לבדיקה', excepted: 'חריג מאושר', resolved: 'נפתר' };
+  var ST_CLS = { open: 'rejected', snoozed: 'pending', task: 'pending', excepted: 'approved', resolved: 'approved' };
+  function all(name){ var a = DataStore.peekAll(name); return Array.isArray(a) ? a : []; }
+  function rules(){ return window.hubConflictRules ? hubConflictRules.list() : []; }
+  function ruleById(id){ return rules().find(function(r){ return r.id === id; }) || null; }
+  function newId(p){ return p + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+  function hash(s){ var h = 5381; s = String(s); for (var i = 0; i < s.length; i++) h = ((h << 5) + h) ^ s.charCodeAt(i); return (h >>> 0).toString(36); }
+  function today(){ return new Date().toISOString().slice(0, 10); }
+  function addDays(iso, n){ var d = new Date(iso + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }
+  function meUser(){ return (state.users || []).find(function(u){ return u.id === state.authUserId; }) || null; }
+  function fmtD(s){ try{ return new Date(s).toLocaleDateString('he-IL'); }catch(e){ return s || ''; } }
+  function logEvent(action, details){ try{ return DataStore.audit.logEvent(action, details); }catch(e){ return null; } }
+
+  /* ---------- subscriptions ---------- */
+  function explicitFor(ruleId){ return all(KEY_S).filter(function(s){ return s.ruleId === ruleId; }); }
+  function isSubscribed(user, ruleId){
+    if (!user || user.active === false) return false;
+    var ex = explicitFor(ruleId);
+    if (ex.length) return ex.some(function(s){ return s.userId === user.id && s.on; });
+    return !!user.isSuper;                                         /* the default: the system user */
+  }
+  function subscribers(ruleId){ return (state.users || []).filter(function(u){ return isSubscribed(u, ruleId); }); }
+  function isSubscriber(user){ return rules().some(function(r){ return isSubscribed(user, r.id); }); }
+  function canSeeDetail(user){ return !!user && (user.isSuper || (user.employeeId && hasFullDataAccess(user.employeeId))); }
+  function canAct(user, f){ return !!user && (user.isSuper || isSubscribed(user, f.ruleId)); }
+  async function setSub(userId, ruleId, on){
+    var list = all(KEY_S).slice();
+    if (!explicitFor(ruleId).length){                              /* first explicit choice for this rule: keep today's defaults (the system users) */
+      (state.users || []).forEach(function(u){ if (u.isSuper && u.active !== false) list.push({ id: newId('cs'), userId: u.id, ruleId: ruleId, on: true }); });
+    }
+    var s = list.find(function(x){ return x.userId === userId && x.ruleId === ruleId; });
+    if (s) s.on = on; else list.push({ id: newId('cs'), userId: userId, ruleId: ruleId, on: on });
+    await DataStore.set(KEY_S, list);
+  }
+
+  /* ---------- evaluation and reconciliation ---------- */
+  function evaluate(){
+    var out = [];
+    rules().forEach(function(r){
+      var found = []; try{ found = r.evaluate() || []; }catch(e){ console.error('conflict rule failed', r.id, e); }
+      found.forEach(function(x){ out.push({ ruleId: r.id, title: r.title, key: String(x.key), text: x.text, refs: x.refs || [], basis: x.basis || x.text }); });
+    });
+    return out;
+  }
+  var running = false, again = false;
+  async function run(){
+    if (!state.authUserId) return { created: 0 };
+    if (running){ again = true; return { created: 0 }; }
+    running = true;
+    var created = 0;
+    try{
+      do {
+        again = false;
+        var found = evaluate(), existing = DataStore.peekAll(KEY_F), firstRun = existing === null;
+        var list = (Array.isArray(existing) ? existing : []).map(function(f){ return Object.assign({}, f); }), exc = all(KEX()).slice();
+        var now = new Date().toISOString(), tdy = today(), seen = {}, alerts = [], dirty = firstRun, excDirty = false;
+        var reopen = function(f, why){ f.status = 'open'; f.openedAt = now; f.reason = why || ''; delete f.snoozeUntil; alerts.push(f); dirty = true; };
+        found.forEach(function(x){
+          var fp = x.ruleId + ':' + x.key, bh = hash(x.basis), f = list.find(function(y){ return y.fingerprint === fp; });
+          var ex = exc.find(function(e){ return e.fingerprint === fp; });
+          seen[fp] = 1;
+          if (!f){
+            f = { id: newId('cf'), ruleId: x.ruleId, fingerprint: fp, status: 'open', text: x.text, refs: x.refs, basisHash: bh, firstSeenAt: now, lastSeenAt: now, openedAt: now };
+            list.push(f); dirty = true;
+            if (ex && ex.basisHash === bh){ f.status = 'excepted'; f.exceptionId = ex.id; }
+            else {
+              if (ex){ f.previousException = { note: ex.note, approvedByName: ex.approvedByName, approvedAt: ex.approvedAt }; exc = exc.filter(function(e){ return e !== ex; }); excDirty = true; }
+              alerts.push(f);
+            }
+            return;
+          }
+          if (f.text !== x.text || f.basisHash !== bh){ f.text = x.text; f.refs = x.refs; dirty = true; }
+          f.lastSeenAt = now;
+          if (ex && ex.basisHash === bh){ if (f.status !== 'excepted'){ f.status = 'excepted'; f.exceptionId = ex.id; dirty = true; } }
+          else if (ex){                                              /* the data behind the exception changed: it expires */
+            f.previousException = { note: ex.note, approvedByName: ex.approvedByName, approvedAt: ex.approvedAt };
+            exc = exc.filter(function(e){ return e !== ex; }); excDirty = true; f.basisHash = bh; reopen(f, 'הנתונים שבבסיס החריג השתנו');
+          }
+          else if (f.status === 'excepted'){ f.basisHash = bh; reopen(f, 'החריג בוטל'); }
+          else if (f.status === 'snoozed' && f.snoozeUntil && f.snoozeUntil <= tdy){ f.basisHash = bh; reopen(f, 'הגיע מועד התזכורת'); }
+          else if (f.status === 'task'){
+            var t = (state.tasks || []).find(function(y){ return y.id === f.taskId; });
+            if (!t || t.status === 'done'){ f.basisHash = bh; reopen(f, 'משימת הבדיקה נסגרה והסתירה עדיין קיימת'); }
+          }
+          else if (f.status === 'resolved'){ f.basisHash = bh; reopen(f, 'הסתירה חזרה'); }
+          else if (f.basisHash !== bh){ f.basisHash = bh; }
+        });
+        list.forEach(function(f){ if (!seen[f.fingerprint] && f.status !== 'resolved'){ f.status = 'resolved'; f.resolvedAt = now; dirty = true; } });
+        if (dirty) await DataStore.set(KEY_F, list);
+        if (excDirty) await DataStore.set(KEX(), exc);
+        if (window.hubNotify){
+          if (firstRun){
+            if (found.length) await hubNotify.forSuperUsers({ kind: 'conflict', title: 'סריקת הסתירות הראשונה', body: 'נמצאו ' + found.length + ' סתירות פתוחות. הן לא נשלחו כהתראות נפרדות. אפשר לעבור עליהן במסך "סתירות".', payload: { open: 'conflict' }, dedupeKey: 'conflict:first-scan' });
+          } else {
+            for (var i = 0; i < alerts.length; i++) created += await notify(alerts[i]);
+          }
+        }
+      } while (again);
+    } finally { running = false; }
+    refreshButton();
+    return { created: created };
+  }
+  function KEX(){ return KEY_X; }
+  async function notify(f){
+    var r = ruleById(f.ruleId), n = 0, subs = subscribers(f.ruleId);
+    for (var i = 0; i < subs.length; i++){
+      var u = subs[i], detail = canSeeDetail(u);
+      var body = detail ? f.text : 'נמצאה סתירה מסוג "' + (r ? r.title : f.ruleId) + '". פרטי הרשומות מוצגים למי שיש לו גישה מלאה לנתונים.';
+      if (detail && f.reason) body += ' (' + f.reason + ')';
+      if (detail && f.previousException) body += ' · חריג קודם: "' + f.previousException.note + '" (' + f.previousException.approvedByName + ')';
+      var x = await hubNotify.add({ recipientId: u.id, kind: 'conflict', ruleId: f.ruleId, title: r ? r.title : f.ruleId, body: body, payload: { open: 'conflict', findingId: f.id }, dedupeKey: 'conflict:' + f.fingerprint + ':' + f.openedAt });
+      if (x) n++;
+    }
+    return n;
+  }
+  var timer = null;
+  function schedule(){ clearTimeout(timer); timer = setTimeout(function(){ run().then(function(){ if (window.hubNotify) hubNotify.refresh(); }).catch(function(e){ console.error('conflict run failed', e); }); }, 1500); }
+  if (window.DataStore) DataStore.on('change', function(ev){
+    if (!ev || !state.authUserId) return;
+    if (rules().some(function(r){ return (r.entities || []).indexOf(ev.name) > -1; })) schedule();
+  });
+
+  /* ---------- header button ---------- */
+  function visibleFindings(user, status){
+    return all(KEY_F).filter(function(f){ return (!status || f.status === status) && canAct(user, f); });
+  }
+  function refreshButton(){
+    var b = el('conflictsBtn'); if (!b) return;
+    var u = meUser(); if (!u || !isSubscriber(u)){ b.hidden = true; return; }
+    var n = visibleFindings(u, 'open').length;
+    b.hidden = false; b.textContent = n ? 'סתירות (' + n + ')' : 'סתירות';
+  }
+
+  /* ---------- the screen ---------- */
+  var filter = { status: 'open', rule: '' }, fixes = [];
+  function findingRow(f, focus){
+    var r = ruleById(f.ruleId), u = meUser();
+    var info = '';
+    if (f.status === 'snoozed') info = '<div class="locked-note" style="display:block;">תזכורת בתאריך ' + esc(fmtD(f.snoozeUntil)) + '</div>';
+    if (f.status === 'task'){ var t = (state.tasks || []).find(function(y){ return y.id === f.taskId; }); info = '<div class="locked-note" style="display:block;">משימה: ' + (t ? esc(t.title) + ' · ' + (t.status === 'done' ? 'הושלמה' : 'פתוחה') : 'נמחקה') + '</div>'; }
+    if (f.status === 'excepted'){ var ex = all(KEY_X).find(function(e){ return e.id === f.exceptionId || e.fingerprint === f.fingerprint; }); if (ex) info = '<div class="locked-note" style="display:block;">חריג מאושר ע"י <b>' + esc(ex.approvedByName) + '</b> ב-' + esc(fmtD(ex.approvedAt)) + ': ' + esc(ex.note) + '</div>'; }
+    if (f.previousException && f.status === 'open') info += '<div class="dup-err">החריג הקודם פג כי הנתונים השתנו. הערה קודמת: "' + esc(f.previousException.note) + '" (' + esc(f.previousException.approvedByName) + ', ' + esc(fmtD(f.previousException.approvedAt)) + ')</div>';
+    if (f.reason && f.status === 'open') info += '<div class="locked-note" style="display:block;">' + esc(f.reason) + '</div>';
+    var act = '';
+    if (canAct(u, f)){
+      if (f.status === 'open') act = '<button class="primary" type="button" data-cf="fix" data-id="' + esc(f.id) + '">עדכן בכל המקומות</button> <button class="ghost" type="button" data-cf="snooze" data-id="' + esc(f.id) + '">תזכיר לי מאוחר יותר</button> <button class="ghost" type="button" data-cf="task" data-id="' + esc(f.id) + '">הוסף למשימות לבדיקה</button> <button class="ghost" type="button" data-cf="except" data-id="' + esc(f.id) + '">חריג מאושר</button>';
+      else if (f.status === 'snoozed') act = '<button class="ghost" type="button" data-cf="reopen" data-id="' + esc(f.id) + '">החזר לפתוח</button>';
+      else if (f.status === 'excepted') act = '<button class="ghost" type="button" data-cf="unexcept" data-id="' + esc(f.id) + '">בטל חריג</button>';
+    }
+    return '<div class="request-item' + (focus === f.id ? ' dup-focus' : '') + '" data-cf-row="' + esc(f.id) + '"><div class="rh"><div><div class="r-title">' + esc(r ? r.title : f.ruleId) + '</div><div class="r-meta"><span>נמצאה ב-' + esc(fmtD(f.firstSeenAt)) + '</span></div></div><span class="req-status ' + ST_CLS[f.status] + '">' + esc(ST[f.status]) + '</span></div>'
+      + '<div class="r-note">' + esc(canSeeDetail(u) ? f.text : 'סתירה מסוג "' + (r ? r.title : f.ruleId) + '". פרטי הרשומות מוצגים למי שיש לו גישה מלאה לנתונים.') + '</div>' + info + (act ? '<div class="r-actions">' + act + '</div>' : '') + '</div>';
+  }
+  function openScreen(focusId){
+    var u = meUser(); if (!u) return;
+    if (!isSubscriber(u) && !u.isSuper){ alert('אין לך מנוי להתראות סתירה'); return; }
+    var f0 = focusId ? all(KEY_F).find(function(f){ return f.id === focusId; }) : null;
+    if (f0 && filter.status !== f0.status) filter.status = f0.status;
+    var list = visibleFindings(u).filter(function(f){ return (!filter.status || f.status === filter.status) && (!filter.rule || f.ruleId === filter.rule); })
+      .sort(function(a, b){ return (b.openedAt || b.firstSeenAt) < (a.openedAt || a.firstSeenAt) ? -1 : 1; });
+    var counts = {}; visibleFindings(u).forEach(function(f){ counts[f.status] = (counts[f.status] || 0) + 1; });
+    openModal('<h3>סתירות</h3><div class="locked-note">הכללים נבדקים בכל כניסה ובכל שינוי בנתונים שלהם. לכל סתירה אפשר לעדכן את המקורות, לדחות את התזכורת, להוסיף משימה לבדיקה או לאשר חריג (עם הערה ושמך). חריג תקף עד שהנתונים שיצרו את הסתירה משתנים.</div>'
+      + '<div class="notif-toolbar"><div class="task-filters" style="margin:0;">' + Object.keys(ST).map(function(k){ return '<button class="ghost' + (filter.status === k ? ' active' : '') + '" type="button" data-cf="status" data-v="' + k + '">' + ST[k] + ' (' + (counts[k] || 0) + ')</button>'; }).join('') + '</div>'
+      + '<select id="cf-rule"><option value="">כל הכללים</option>' + rules().filter(function(r){ return u.isSuper || isSubscribed(u, r.id); }).map(function(r){ return '<option value="' + esc(r.id) + '"' + (filter.rule === r.id ? ' selected' : '') + '>' + esc(r.title) + '</option>'; }).join('') + '</select></div>'
+      + (list.map(function(f){ return findingRow(f, focusId); }).join('') || '<div class="empty-state">אין ממצאים במצב הזה.</div>')
+      + '<div class="modal-actions"><button class="ghost" type="button" id="dup-report">דוח כפילויות וקישורים</button><button class="ghost" onclick="closeModal()" type="button">סגור</button></div>', true);
+    if (focusId){ var row = document.querySelector('[data-cf-row="' + focusId + '"]'); if (row) row.scrollIntoView({ block: 'center' }); }
+  }
+  function findingById(id){ return all(KEY_F).find(function(f){ return f.id === id; }) || null; }
+  async function saveFinding(f){ var list = all(KEY_F).map(function(x){ return x.id === f.id ? f : x; }); return DataStore.set(KEY_F, list); }
+
+  function openFix(id){
+    var f = findingById(id); if (!f) return; var r = ruleById(f.ruleId);
+    fixes = r && r.fixes ? r.fixes(f) : [];
+    openModal('<h3>עדכון בכל המקומות</h3><div class="locked-note" style="display:block;">' + esc(f.text) + '</div>'
+      + (fixes.length ? '<div class="form-section-title">בחר את מקור האמת. הפעולה מעדכנת את כל הרשומות המעורבות</div>' + fixes.map(function(x, i){
+        return '<div class="card" style="padding:10px;margin-bottom:8px;"><div>' + esc(x.label) + '</div>' + (x.prompt ? '<div class="field"><label>' + esc(x.prompt.label) + '</label><input type="date" data-cf-prompt="' + i + '"></div>' : '') + '<button class="primary" type="button" data-cf="runfix" data-id="' + esc(id) + '" data-i="' + i + '">בצע</button></div>';
+      }).join('') : '<div class="empty-state">לכלל הזה אין פעולת תיקון אוטומטית. טפל ברשומות ידנית.</div>')
+      + '<div id="cf-msg" class="locked-note" style="display:block;"></div><div class="modal-actions"><button class="ghost" type="button" data-cf="back">חזרה לרשימה</button></div>');
+  }
+  /* runs one of the rule's fixes, logs it and re-checks; resolves with the message to show */
+  async function applyFix(id, i, val){
+    var f = findingById(id), u = meUser(), fx = hubConflicts.fixesFor(id)[i]; if (!f || !fx || !canAct(u, f)) return 'אין הרשאה או שהפעולה לא קיימת';
+    if (fx.prompt && !val) return 'נא לבחור תאריך';
+    var msg = ''; try{ msg = await fx.run(val); }catch(e){ msg = 'הפעולה נכשלה: ' + (e && e.message); }
+    logEvent('conflict-fix', { label: 'עדכון בכל המקומות: ' + fx.label + ' · ' + (msg || ''), findingId: id, ruleId: f.ruleId });
+    if (typeof refreshAllViews === 'function') refreshAllViews();
+    await run();
+    if (window.hubNotify) hubNotify.refresh();
+    var still = findingById(id);
+    return (msg || 'בוצע.') + (still && still.status !== 'resolved' ? ' הסתירה עדיין קיימת.' : ' הסתירה נפתרה.');
+  }
+  async function runFix(id, i){
+    var fx = fixes[i]; if (!fx) return;
+    var val = fx.prompt ? (document.querySelector('[data-cf-prompt="' + i + '"]') || {}).value : undefined;
+    var m = await applyFix(id, i, val);
+    if (el('cf-msg')) el('cf-msg').textContent = m;
+  }
+  function openSnooze(id){
+    var f = findingById(id); if (!f) return;
+    openModal('<h3>תזכיר לי מאוחר יותר</h3><div class="locked-note" style="display:block;">' + esc(f.text) + '</div><div class="field"><label>מתי להזכיר</label><select id="cf-when"><option value="1">מחר</option><option value="7" selected>בעוד שבוע</option><option value="30">בעוד חודש</option><option value="">תאריך מותאם</option></select></div><div class="field"><label>תאריך מותאם</label><input type="date" id="cf-date"></div>'
+      + '<div class="modal-actions"><button class="primary" type="button" data-cf="dosnooze" data-id="' + esc(id) + '">הזכר לי</button><button class="ghost" type="button" data-cf="back">ביטול</button></div>');
+  }
+  async function snooze(id, until){
+    var f = findingById(id), u = meUser(); if (!f || !canAct(u, f)) return 'אין הרשאה';
+    if (!until || until <= today()) return 'נא לבחור תאריך עתידי';
+    f.status = 'snoozed'; f.snoozeUntil = until; f.snoozedBy = u.id;
+    if (!(await saveFinding(f))) return 'השמירה נכשלה';
+    logEvent('conflict-snooze', { label: 'תזכורת מאוחרת לסתירה עד ' + until + ': ' + f.text, findingId: id, ruleId: f.ruleId });
+    return '';
+  }
+  async function toTask(id){
+    var f = findingById(id), u = meUser(), r = f && ruleById(f.ruleId); if (!f || !canAct(u, f)) return 'אין הרשאה';
+    var emp = u.employeeId;
+    var t = { id: uid('t'), status: 'none', priority: 'med', assignedBy: emp, assignedTo: [emp], aboutEmployeeIds: [], title: 'לבדוק סתירה: ' + (r ? r.title : f.ruleId), description: f.text, dueDate: addDays(today(), 7), source: 'conflict:' + f.id, conflictFindingId: f.id };
+    state.tasks.push(t); if (!(await storeSet('tasks', state.tasks))) return 'יצירת המשימה נכשלה';
+    f.status = 'task'; f.taskId = t.id;
+    if (!(await saveFinding(f))) return 'השמירה נכשלה';
+    logEvent('conflict-task', { label: 'נוספה משימה לבדיקת סתירה: ' + f.text, findingId: id, ruleId: f.ruleId, taskId: t.id });
+    if (typeof renderTasks === 'function') renderTasks();
+    return '';
+  }
+  function openExcept(id){
+    var f = findingById(id); if (!f) return; var u = meUser(), emp = empById(u.employeeId);
+    openModal('<h3>חריג מאושר</h3><div class="locked-note" style="display:block;">' + esc(f.text) + '</div>'
+      + '<div class="field"><label>הערה: למה זה תקין *</label><textarea id="cf-note"></textarea></div><div class="field"><label>מאשר</label><input type="text" id="cf-approver" value="' + esc(emp ? emp.name : u.username) + '" disabled></div>'
+      + '<div class="locked-note">הסתירה לא תתריע שוב, אלא אם הנתונים שיצרו אותה ישתנו. אז היא תחזור כפתוחה עם ההערה הזו לצידה.</div>'
+      + '<div class="modal-actions"><button class="primary" type="button" data-cf="doexcept" data-id="' + esc(id) + '">אשר חריג</button><button class="ghost" type="button" data-cf="back">ביטול</button></div>');
+  }
+  async function except(id, note){
+    var f = findingById(id), u = meUser(); if (!f || !canAct(u, f)) return 'אין הרשאה';
+    note = (note || '').trim(); if (!note) return 'נדרשת הערה';
+    var emp = empById(u.employeeId), ex = { id: newId('cx'), fingerprint: f.fingerprint, ruleId: f.ruleId, entityRefs: f.refs, basisHash: f.basisHash, note: note, approvedBy: u.id, approvedByName: emp ? emp.name : u.username, approvedAt: new Date().toISOString() };
+    if (!(await DataStore.set(KEY_X, all(KEY_X).filter(function(e){ return e.fingerprint !== f.fingerprint; }).concat([ex])))) return 'השמירה נכשלה';
+    f.status = 'excepted'; f.exceptionId = ex.id; delete f.previousException;
+    await saveFinding(f);
+    logEvent('conflict-except', { label: 'חריג מאושר: ' + f.text, findingId: id, ruleId: f.ruleId, note: note, approver: ex.approvedByName });
+    return '';
+  }
+  async function unexcept(id){
+    var f = findingById(id), u = meUser(); if (!f || !canAct(u, f)) return;
+    await DataStore.set(KEY_X, all(KEY_X).filter(function(e){ return e.fingerprint !== f.fingerprint; }));
+    f.status = 'open'; f.openedAt = new Date().toISOString(); f.reason = 'החריג בוטל'; delete f.exceptionId;
+    await saveFinding(f);
+    logEvent('conflict-unexcept', { label: 'חריג בוטל: ' + f.text, findingId: id, ruleId: f.ruleId });
+  }
+  async function reopenFinding(id){
+    var f = findingById(id), u = meUser(); if (!f || !canAct(u, f)) return;
+    f.status = 'open'; f.openedAt = new Date().toISOString(); f.reason = 'הוחזר לפתוח'; delete f.snoozeUntil; await saveFinding(f);
+  }
+
+  document.addEventListener('click', async function(e){
+    var b = e.target.closest ? e.target.closest('[data-cf]') : null; if (!b) return;
+    var act = b.getAttribute('data-cf'), id = b.getAttribute('data-id'), err = '';
+    if (act === 'status'){ filter.status = b.getAttribute('data-v'); openScreen(); return; }
+    if (act === 'back'){ openScreen(); return; }
+    if (act === 'fix'){ openFix(id); return; }
+    if (act === 'runfix'){ await runFix(id, Number(b.getAttribute('data-i'))); return; }
+    if (act === 'snooze'){ openSnooze(id); return; }
+    if (act === 'dosnooze'){ var w = el('cf-when').value; err = await snooze(id, w ? addDays(today(), Number(w)) : el('cf-date').value); }
+    else if (act === 'task') err = await toTask(id);
+    else if (act === 'except'){ openExcept(id); return; }
+    else if (act === 'doexcept') err = await except(id, el('cf-note').value);
+    else if (act === 'unexcept') await unexcept(id);
+    else if (act === 'reopen') await reopenFinding(id);
+    if (err){ alert(err); return; }
+    refreshButton(); openScreen();
+  });
+  document.addEventListener('change', function(e){ if (e.target.id === 'cf-rule'){ filter.rule = e.target.value; openScreen(); } });
+  document.addEventListener('click', function(e){ var b = e.target.closest ? e.target.closest('#conflictsBtn') : null; if (b) openScreen(); });
+  window.hubNotifyHandlers = window.hubNotifyHandlers || {};
+  window.hubNotifyHandlers['conflict'] = function(p){ closeModal(); openScreen(p && p.findingId); };
+
+  /* ---------- subscriptions card (permissions tab) ---------- */
+  function subsCard(){
+    if (!isSuperUser()) return '';
+    var users = (state.users || []).filter(function(u){ return u.active !== false; }), rs = rules();
+    return '<div class="card"><div class="panel-head" style="margin-bottom:10px;"><div><h3 style="margin:0 0 6px;">התראות סתירה: מי מקבל מה</h3><span class="locked-note" style="display:inline">סמן לכל משתמש לאילו כללי סתירה הוא מנוי. ברירת המחדל כשלא נבחר אף אחד: משתמש המערכת. משתמש בלי גישה מלאה לנתונים מקבל תיאור כללי בלבד.</span></div><button class="ghost" type="button" data-cf="open">מסך הסתירות</button></div>'
+      + '<div class="table-scroll"><table id="cfSubsTable"><thead><tr><th>משתמש</th>' + rs.map(function(r){ return '<th>' + esc(r.title) + '</th>'; }).join('') + '</tr></thead><tbody>'
+      + users.map(function(u){ return '<tr><td>' + esc(u.username) + (u.isSuper ? ' <span class="tag">משתמש על</span>' : '') + '</td>' + rs.map(function(r){ return '<td><input type="checkbox" data-cf-sub="' + esc(u.id) + '|' + esc(r.id) + '"' + (isSubscribed(u, r.id) ? ' checked' : '') + '></td>'; }).join('') + '</tr>'; }).join('')
+      + '</tbody></table></div></div>';
+  }
+  window.hubPermExtras = window.hubPermExtras || [];
+  window.hubPermExtras.push(subsCard);
+  document.addEventListener('change', async function(e){
+    var cb = e.target.closest ? e.target.closest('[data-cf-sub]') : null; if (!cb || !isSuperUser()) return;
+    var p = cb.getAttribute('data-cf-sub').split('|');
+    await setSub(p[0], p[1], cb.checked);
+    logEvent('conflict-sub', { label: 'מנוי להתראות סתירה: ' + ((state.users.find(function(u){ return u.id === p[0]; }) || {}).username || '') + ' · ' + ((ruleById(p[1]) || {}).title || p[1]) + (cb.checked ? ' נוסף' : ' הוסר') });
+    if (typeof renderPermissionsPage === 'function') renderPermissionsPage();
+    refreshButton();
+  });
+
+  window.hubConflicts = { evaluate: evaluate, run: run, runAndNotify: run, open: openScreen, isSubscriber: isSubscriber, isSubscribed: isSubscribed, subscribers: subscribers, setSub: setSub, findings: function(){ return all(KEY_F); }, exceptions: function(){ return all(KEY_X); },
+    applyFix: applyFix, act: { snooze: snooze, task: toTask, except: except, unexcept: unexcept, reopen: reopenFinding }, fixesFor: function(id){ var f = findingById(id), r = f && ruleById(f.ruleId); return r && r.fixes ? r.fixes(f) : []; }, refreshButton: refreshButton };
+})();
+</script>
+<script>
 /* ---------------- storage helpers ---------------- */
 function hasArtifactStorage(){ return typeof window !== 'undefined' && window.storage && typeof window.storage.get === 'function'; }
 async function storeSet(key, value){
@@ -6659,13 +7023,15 @@ async function completeLogin(user){
   if (window.hubOrgSnapshotClosed) setTimeout(()=>{ hubOrgSnapshotClosed().catch(()=>{}); }, 900);
   if (window.hubFlex) setTimeout(()=>{ hubFlex.sync().then(()=>window.hubCalRules ? hubCalRules.sync() : null).then(()=>hubFlex.runReminders()).then(()=>{ if (window.hubNotify) hubNotify.refresh(); }).catch(()=>{}); }, 1200);
   if (window.hubAbroad) setTimeout(()=>{ hubAbroad.followTasks().catch(()=>{}); }, 1800);
-  if (user.isSuper && window.hubConflicts) setTimeout(()=>{ hubConflicts.runAndNotify().then(()=>{ if (window.hubNotify) hubNotify.refresh(); }).catch(()=>{}); }, 1500);
+  if (window.hubConflicts){ hubConflicts.refreshButton(); setTimeout(()=>{ hubConflicts.run().then(()=>{ if (window.hubNotify) hubNotify.refresh(); }).catch(()=>{}); }, 1500); }
   if (!appBooted){ appBooted = true; bootApp(); } else { refreshAllViews(); }
   applyAccessControl();
 }
 
 function logout(){
   if (window.hubClearScope) hubClearScope();
+  state.authUserId = null;
+  if (window.hubConflicts) hubConflicts.refreshButton();
   state.authUserId = null;
   state.currentUserId = null;
   authPendingUser = null;
