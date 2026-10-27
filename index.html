@@ -4442,6 +4442,116 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
 })();
 </script>
 <script>
+/* ================================================================
+   Employees import and the org hierarchy (round 3):
+   center / branch / mador / team columns are matched by name to existing units.
+   Units that do not exist are listed for approval and are never created on their own.
+   An employee that is not matched stays without a unit and appears in the classification report.
+   ================================================================ */
+(function(){
+  'use strict';
+  var esc = function(s){ return typeof escapeHtml === 'function' ? escapeHtml(s) : String(s); };
+  var KIND = { branch: 'ענף', mador: 'מדור', team: 'צוות' };
+  function nn(s){ return String(s == null ? '' : s).replace(/\s+/g, ' ').trim().toLowerCase(); }
+  function kids(list, pid){ return list.filter(function(u){ return u.parentId === pid && u.kind !== 'center'; }); }
+  function find(list, pid, kind, name){ return kids(list, pid).find(function(u){ return u.kind === kind && nn(u.name) === nn(name); }) || null; }
+  function centerFor(list, row, existing){
+    var dep = nn(row.department);
+    var c = dep ? list.find(function(u){ return u.kind === 'center' && nn(u.name) === dep; }) : null;
+    if (c) return c.id;
+    if (existing && existing.centerId) return existing.centerId;
+    return hubOrg.mainId();
+  }
+  /* plan for one row: { unitId } when fully matched, { missing: [{kind,name}], parentId } when the chain needs new units, { skip: reason } otherwise */
+  function planRow(list, row, existing){
+    var ind = (row.industry || '').trim(), mad = (row.mador || '').trim(), tm = (row.team || '').trim();
+    if (!ind && !mad && !tm) return null;
+    var cid = centerFor(list, row, existing), parent = cid, missing = [];
+    function step(kind, name){
+      if (!name) return;
+      if (missing.length){ missing.push({ kind: kind, name: name }); return; }
+      var f = find(list, parent, kind, name);
+      if (f) parent = f.id; else missing.push({ kind: kind, name: name });
+    }
+    step('branch', ind);
+    if (mad){ step('mador', mad); step('team', tm); }
+    else if (tm){
+      /* a lone team name may be a team or a mador: the report decides, unless exactly one unit with that name exists here */
+      var asTeam = missing.length ? null : find(list, parent, 'team', tm), asMador = missing.length ? null : find(list, parent, 'mador', tm);
+      if (asTeam && !asMador) parent = asTeam.id;
+      else if (asMador && !asTeam) parent = asMador.id;
+      else return { skip: 'צוות או מדור? הוסב לדוח הסיווג', centerId: cid };
+    }
+    if (missing.length) return { missing: missing, parentId: parent, centerId: cid };
+    return parent === cid ? null : { unitId: parent, centerId: cid };
+  }
+  function keyOf(p){ return p.centerId + '\u0001' + p.parentId + '\u0001' + p.missing.map(function(m){ return m.kind + ':' + m.name; }).join('>'); }
+
+  async function analyze(batch){
+    await hubOrg.refresh();
+    var list = await hubOrg.units(), plans = {}, missing = {}, matched = 0, skipped = 0;
+    var entries = batch.autoRows.concat(batch.conflicts);
+    entries.forEach(function(en){
+      var p = planRow(list, en.row, en.existing);
+      if (!p) return;
+      plans[en.row.__rowNo] = p;
+      if (p.unitId) matched++;
+      else if (p.skip) skipped++;
+      else { var k = keyOf(p); (missing[k] = missing[k] || { key: k, plan: p, rows: [] }).rows.push(en.row); }
+    });
+    return { plans: plans, missing: Object.keys(missing).map(function(k){ return missing[k]; }), matched: matched, skipped: skipped, list: list, approved: {} };
+  }
+  function previewHtml(u){
+    if (!u || (!u.matched && !u.missing.length && !u.skipped)) return '';
+    var h = '<div class="form-section-title">יחידות ארגוניות מהקובץ</div><div class="locked-note">' + u.matched + ' שורות הותאמו ליחידות קיימות לפי שם.' + (u.skipped ? ' ' + u.skipped + ' שורות עם שם בודד של צוות או מדור יועברו לדוח הסיווג.' : '') + ' עובד שלא הותאם ייובא בלי יחידה ויופיע בדוח הסיווג.</div>';
+    if (u.missing.length){
+      h += '<div class="locked-note"><b>יחידות שלא נמצאו.</b> סמן אילו ליצור. שום יחידה לא נוצרת בלי אישור.</div><div class="table-scroll"><table><thead><tr><th></th><th>מרכז</th><th>יחידות חדשות</th><th>שורות</th></tr></thead><tbody>'
+        + u.missing.map(function(m, i){
+          var c = u.list.find(function(x){ return x.id === m.plan.centerId; });
+          return '<tr><td><input type="checkbox" data-iu-ck="' + i + '"></td><td>' + esc(c ? c.name : '—') + '</td><td>' + m.plan.missing.map(function(x){ return esc(KIND[x.kind]) + ': ' + esc(x.name); }).join(' › ') + '</td><td>' + m.rows.length + '</td></tr>';
+        }).join('') + '</tbody></table></div>';
+    }
+    return h;
+  }
+  function collect(u){
+    if (!u) return;
+    u.approved = {};
+    u.missing.forEach(function(m, i){ var ck = document.querySelector('[data-iu-ck="' + i + '"]'); if (ck && ck.checked) u.approved[m.key] = true; });
+  }
+  /* after the employees were stored: create approved units and attach employees */
+  async function attach(u, touched){
+    if (!u) return { attached: 0, created: 0, pending: 0 };
+    var list = await hubOrg.units(), created = 0, attached = 0, pending = 0;
+    var ensure = function(parent, kind, name){
+      var f = find(list, parent, kind, name);
+      if (!f){ f = { id: hubOrg.newId(), kind: kind, name: name, parentId: parent, active: true, sortOrder: kids(list, parent).length }; list.push(f); created++; }
+      return f.id;
+    };
+    var targets = {};
+    for (var i = 0; i < touched.length; i++){
+      var t = touched[i], p = u.plans[t.rowNo]; if (!p || p.skip) { if (p && p.skip) pending++; continue; }
+      var target = p.unitId;
+      if (!target){
+        var k = keyOf(p);
+        if (!u.approved[k]){ pending++; continue; }
+        if (!targets[k]){ var par = p.parentId; p.missing.forEach(function(m){ par = ensure(par, m.kind, m.name); }); targets[k] = par; }
+        target = targets[k];
+      }
+      var e = empById(t.empId); if (!e) continue;
+      var prev = e.orgUnitId || null;
+      e.orgUnitId = target; t.prev = prev; t.target = target; attached++;
+    }
+    if (created) await DataStore.set('orgUnits', list);
+    if (attached){
+      await storeSet('employees', state.employees);
+      for (var j = 0; j < touched.length; j++){ if (touched[j].target) await hubOrgAfterEmployeeSave(touched[j].empId, touched[j].prev); }
+    }
+    return { attached: attached, created: created, pending: pending };
+  }
+  window.hubImportUnits = { analyze: analyze, previewHtml: previewHtml, collect: collect, attach: attach, planRow: planRow };
+})();
+</script>
+<script>
 /* ---------------- storage helpers ---------------- */
 function hasArtifactStorage(){ return typeof window !== 'undefined' && window.storage && typeof window.storage.get === 'function'; }
 async function storeSet(key, value){
@@ -7601,7 +7711,7 @@ const IMPORT_CONFIGS = {
       if (key==='active') return existing.active===false ? 'לא' : 'כן';
       return existing[key] || '';
     },
-    beginImport: () => ({ pendingManagerNames: {} }),
+    beginImport: () => ({ pendingManagerNames: {}, touched: [] }),
     createRecord: (ctx, row) => {
       const emp = {
         id: uid('e'), name:row.name, role:row.role, department:row.department, managerId:null,
@@ -7612,6 +7722,7 @@ const IMPORT_CONFIGS = {
         studies:row.studies, city:row.city, street:row.street, notes:row.notes, active: row.active !== 'לא'
       };
       state.employees.push(emp);
+      ctx.touched.push({empId: emp.id, rowNo: row.__rowNo});
       if (row.managerName) ctx.pendingManagerNames[emp.id] = row.managerName;
       return emp;
     },
@@ -7645,6 +7756,7 @@ const IMPORT_CONFIGS = {
       if (row.notes) existing.notes = row.notes;
       if (row.active === 'לא') existing.active = false;
       if (row.active === 'כן') existing.active = true;
+      ctx.touched.push({empId: existing.id, rowNo: row.__rowNo});
       if (row.managerName) ctx.pendingManagerNames[existing.id] = row.managerName;
       return existing;
     },
@@ -7655,10 +7767,11 @@ const IMPORT_CONFIGS = {
       });
       await storeSet('employees', state.employees);
       const sr = await hubResolveImportedSerials();
+      const ur = await hubImportUnits.attach(pendingImportBatch && pendingImportBatch.units, ctx.touched);
       if (window.hubFlex) await hubFlex.sync();
       closeModal();
       renderEmployees(); renderOrgChart(); renderWhoAmI(); renderMeetingFilter(); renderMeetingsList(); renderTasks(); renderAttendance(); renderMgrInfo(); renderPositions();
-      alert(`ייבוא הושלם: ${counts.created} נוספו, ${counts.updated} עודכנו, ${counts.kept} נותרו ללא שינוי` + (counts.skipped ? `, ${counts.skipped} שורות עם בעיה דולגו` : '') + (sr.linked ? `. ${sr.linked} עובדים שויכו לתקן לפי המספר שבקובץ` : '') + (sr.pending ? `. ${sr.pending} מספרי תקן מהקובץ לא שויכו (תקן לא קיים או מאויש), והם יופיעו בסתירות` : ''));
+      alert(`ייבוא הושלם: ${counts.created} נוספו, ${counts.updated} עודכנו, ${counts.kept} נותרו ללא שינוי` + (counts.skipped ? `, ${counts.skipped} שורות עם בעיה דולגו` : '') + (sr.linked ? `. ${sr.linked} עובדים שויכו לתקן לפי המספר שבקובץ` : '') + (ur.attached ? `. ${ur.attached} עובדים שויכו ליחידה` + (ur.created ? ` (${ur.created} יחידות חדשות נוצרו באישורך)` : '') : '') + (ur.pending ? `. ${ur.pending} עובדים נשארו בלי יחידה ויופיעו בדוח הסיווג` : '') + (sr.pending ? `. ${sr.pending} מספרי תקן מהקובץ לא שויכו (תקן לא קיים או מאויש), והם יופיעו בסתירות` : ''));
     }
   },
   positions: {
@@ -8013,6 +8126,10 @@ function continueImportAnalysis(configKey, mappedRows){
     else { autoRows.push({row, existing, decision:'merge'}); }
   });
   pendingImportBatch = {configKey, autoRows, conflicts, problems, warnings};
+  if (configKey === 'employees' && window.hubImportUnits){
+    hubImportUnits.analyze(pendingImportBatch).then(u=>{ if (pendingImportBatch){ pendingImportBatch.units = u; openImportPreview(); } });
+    return;
+  }
   openImportPreview();
 }
 function openImportPreview(){
@@ -8029,6 +8146,7 @@ function openImportPreview(){
     <div class="card" style="padding:12px;text-align:center;margin-bottom:10px;${b.problems.length?'border-color:var(--danger);':''}"><div style="font-size:26px;font-weight:800;" id="imp-n-prob">${b.problems.length}</div>שורות עם בעיה (לא ייובאו)</div>
     ${b.problems.length ? `<div class="table-scroll"><table><thead><tr><th>שורה</th><th>רשומה</th><th>בעיה</th></tr></thead><tbody>${list(b.problems, 'danger-txt')}</tbody></table></div>` : ''}
     ${b.warnings.length ? `<div class="locked-note">${b.warnings.length} שורות עם הערה (ייובאו):</div><div class="table-scroll"><table><tbody>${list(b.warnings, '')}</tbody></table></div>` : ''}
+    ${b.units ? hubImportUnits.previewHtml(b.units) : ''}
     ${cfg.unique ? `<div class="locked-note">הרשומות מזוהות לפי ${b.configKey==='employees'?'מספר אישי':'מספר תקן'}: מזהה קיים מעדכן את הרשומה ולא יוצר כפילות.</div>` : ''}
     <div class="modal-actions">
       <button class="primary" id="imp-continue" onclick="proceedImportBatch()" ${created + updates === 0 ? 'disabled' : ''}>המשך לייבוא</button>
@@ -8039,6 +8157,7 @@ function openImportPreview(){
 }
 function proceedImportBatch(){
   if (!pendingImportBatch) return;
+  if (pendingImportBatch.units) hubImportUnits.collect(pendingImportBatch.units);
   if (!pendingImportBatch.conflicts.length){ applyImportBatch(); } else { openImportConflictsModal(); }
 }
 function exportImportProblems(){
