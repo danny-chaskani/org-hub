@@ -267,6 +267,7 @@ window.addEventListener('error', function(e){
   .tab-btn:focus-visible{ outline-offset: -2px; }
     .tab-btn[data-tab="dashboard"]{ --ico: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3.5' y='3.5' width='7' height='7' rx='1.5'/%3E%3Crect x='13.5' y='3.5' width='7' height='7' rx='1.5'/%3E%3Crect x='3.5' y='13.5' width='7' height='7' rx='1.5'/%3E%3Crect x='13.5' y='13.5' width='7' height='7' rx='1.5'/%3E%3C/svg%3E"); }
   .tab-btn[data-tab="calendar"]{ --ico: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3.5' y='5' width='17' height='15' rx='2'/%3E%3Cpath d='M3.5 10h17M8 3v4M16 3v4M8 14h2M14 14h2'/%3E%3C/svg%3E"); }
+  .tab-btn[data-tab="events"]{ --ico: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 21V4M5 5h11l-2 3.5 2 3.5H5'/%3E%3C/svg%3E"); }
   .tab-btn[data-tab="roles"]{ --ico: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3.5' y='7.5' width='17' height='12' rx='2'/%3E%3Cpath d='M9 7.5v-2a1.5 1.5 0 0 1 1.5-1.5h3a1.5 1.5 0 0 1 1.5 1.5v2M3.5 13h17'/%3E%3C/svg%3E"); }
   .tab-btn[data-tab="orgchart"]{ --ico: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='9' y='3.5' width='6' height='5' rx='1'/%3E%3Crect x='3' y='15.5' width='6' height='5' rx='1'/%3E%3Crect x='15' y='15.5' width='6' height='5' rx='1'/%3E%3Cpath d='M12 8.5v3.5M6 15.5V12h12v3.5'/%3E%3C/svg%3E"); }
   .tab-btn[data-tab="meetings"]{ --ico: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3.5' y='5' width='17' height='15' rx='2'/%3E%3Cpath d='M3.5 10h17M8 3v4M16 3v4'/%3E%3C/svg%3E"); }
@@ -854,10 +855,10 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
   .pp-create{ margin-top:8px; font-size:13px; }
   .dup-err{ margin-top:8px; padding:10px 12px; border-radius:var(--r-md,10px); background:var(--danger-soft); color:var(--danger-text); font-size:13px; display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
   /* calendar */
-  :root{ --cal-task:#2E7D6B; --cal-rem:#B26A00; --cal-comp:#6B5BD2; --cal-rel:#C2410C; --cal-ent:#0E7490; --cal-flex:#B83280; --cal-occ:#475569; }
-  :root[data-theme="dark"]{ --cal-task:#5FD0A8; --cal-rem:#F2B84B; --cal-comp:#A99BFF; --cal-rel:#FF9A62; --cal-ent:#5FD3E6; --cal-flex:#F08AC8; --cal-occ:#A9B8CC; }
-  @media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){ --cal-task:#5FD0A8; --cal-rem:#F2B84B; --cal-comp:#A99BFF; --cal-rel:#FF9A62; --cal-ent:#5FD3E6; --cal-flex:#F08AC8; --cal-occ:#A9B8CC; } }
-  .cal-task{ --c:var(--cal-task); } .cal-rem{ --c:var(--cal-rem); } .cal-comp{ --c:var(--cal-comp); } .cal-rel{ --c:var(--cal-rel); } .cal-ent{ --c:var(--cal-ent); } .cal-flex{ --c:var(--cal-flex); } .cal-occ{ --c:var(--cal-occ); }
+  :root{ --cal-task:#2E7D6B; --cal-rem:#B26A00; --cal-comp:#6B5BD2; --cal-rel:#C2410C; --cal-ent:#0E7490; --cal-flex:#B83280; --cal-occ:#475569; --cal-evt:#7C3AED; }
+  :root[data-theme="dark"]{ --cal-task:#5FD0A8; --cal-rem:#F2B84B; --cal-comp:#A99BFF; --cal-rel:#FF9A62; --cal-ent:#5FD3E6; --cal-flex:#F08AC8; --cal-occ:#A9B8CC; --cal-evt:#C4B5FD; }
+  @media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){ --cal-task:#5FD0A8; --cal-rem:#F2B84B; --cal-comp:#A99BFF; --cal-rel:#FF9A62; --cal-ent:#5FD3E6; --cal-flex:#F08AC8; --cal-occ:#A9B8CC; --cal-evt:#C4B5FD; } }
+  .cal-task{ --c:var(--cal-task); } .cal-rem{ --c:var(--cal-rem); } .cal-comp{ --c:var(--cal-comp); } .cal-rel{ --c:var(--cal-rel); } .cal-ent{ --c:var(--cal-ent); } .cal-flex{ --c:var(--cal-flex); } .cal-occ{ --c:var(--cal-occ); } .cal-evt{ --c:var(--cal-evt); }
   .cal-toolbar{ display:flex; flex-wrap:wrap; gap:10px; align-items:center; justify-content:space-between; }
   .cal-toolbar h3{ margin:0; font-size:17px; }
   .cal-nav{ display:flex; gap:6px; } .cal-range{ display:flex; gap:8px; align-items:center; }
@@ -1222,6 +1223,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
   <button class="tab-btn" data-tab="orgchart">מבנה ארגוני</button>
   <button class="tab-btn" data-tab="meetings">סיכומי פגישות</button>
   <button class="tab-btn" data-tab="calendar">לוח שנה</button>
+  <button class="tab-btn" data-tab="events">אירועים</button>
   <button class="tab-btn" data-tab="tasks">משימות</button>
   <button class="tab-btn" data-tab="mgrinfo">מידע למנהלים</button>
   <div class="nav-group-title">תהליכי כוח אדם</div>
@@ -1318,6 +1320,15 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     <div id="rolesBootstrap"></div>
     <div class="card"><div class="grid2" id="rolesFilters"></div><div style="display:flex; gap:10px; align-items:center;"><button class="ghost" id="roles-clear" type="button">נקה סינון</button><span id="rolesCount" class="locked-note"></span></div></div>
     <div class="card"><div class="table-scroll"><table id="rolesTable"><thead><tr><th>תפקיד</th><th>יחידה</th><th>דרג</th><th>מאייש / מחליף</th><th>סטטוס איוש</th><th>תקן</th><th></th></tr></thead><tbody id="rolesBody"></tbody></table></div></div>
+  </section>
+
+  <!-- EVENTS -->
+  <section class="panel" id="panel-events">
+    <div class="panel-head">
+      <div><h2>אירועים</h2><p>אירוע עם בעלי עניין והרשאות, משימות לאירוע ויומן פעולות. האירועים מופיעים גם בלוח השנה, למורשים בלבד</p></div>
+      <button class="primary" id="evAddBtn" type="button" data-ev="new">+ אירוע חדש</button>
+    </div>
+    <div class="card" id="evList"></div>
   </section>
 
   <!-- MEETINGS -->
@@ -2185,15 +2196,20 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
   function baseEntry(action, entityType, entityId, label){
     return { at: new Date().toISOString(), actorId: actorId(), actorName: actorName(), action: action, entityType: entityType, entityId: entityId, label: label || '', source: auditState.source };
   }
+  function eventIdOf(name, rec, before){
+    if (name === 'events') return rec.id;
+    if (name === 'eventStakeholders' || name === 'tasks') return rec.eventId || (before && before.eventId) || undefined;
+    return undefined;
+  }
   function recordAudit(name, changes){
     if (!changes || AUDIT_SKIP.indexOf(name) > -1) return;
     var entries = [];
-    changes.created.forEach(function(rec){ var e = baseEntry('create', name, rec.id, labelOf(rec)); e.after = sanitize(rec); e.rev = rec.rev; entries.push(e); });
+    changes.created.forEach(function(rec){ var e = baseEntry('create', name, rec.id, labelOf(rec)); e.after = sanitize(rec); e.rev = rec.rev; var ev1 = eventIdOf(name, rec); if (ev1) e.eventId = ev1; entries.push(e); });
     changes.updated.forEach(function(u){
       var d = diffFields(name, u.before, u.after); if (!d.n) return;
-      var e = baseEntry('update', name, u.after.id, labelOf(u.after)); e.before = d.before; e.after = d.after; e.rev = u.after.rev; entries.push(e);
+      var e = baseEntry('update', name, u.after.id, labelOf(u.after)); e.before = d.before; e.after = d.after; e.rev = u.after.rev; var ev2 = eventIdOf(name, u.after, u.before); if (ev2) e.eventId = ev2; entries.push(e);
     });
-    changes.removed.forEach(function(rec){ var e = baseEntry('delete', name, rec.id, labelOf(rec)); e.before = sanitize(rec); e.rev = rec.rev; entries.push(e); });
+    changes.removed.forEach(function(rec){ var e = baseEntry('delete', name, rec.id, labelOf(rec)); e.before = sanitize(rec); e.rev = rec.rev; var ev3 = eventIdOf(name, rec); if (ev3) e.eventId = ev3; entries.push(e); });
     enqueueAudit(entries);
   }
   function matchEntry(e, o){
@@ -2201,6 +2217,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     if (o.actorId && e.actorId !== o.actorId) return false;
     if (o.action && e.action !== o.action) return false;
     if (o.source && e.source !== o.source) return false;
+    if (o.eventId && e.eventId !== o.eventId) return false;
     if (o.from && e.at < o.from) return false;
     if (o.to && e.at > o.to + 'T23:59:59.999Z') return false;
     if (o.text){
@@ -5009,11 +5026,13 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     { key: 'releases', label: 'שחרורים', cls: 'rel' },
     { key: 'entries', label: 'כניסות', cls: 'ent' },
     { key: 'flex', label: 'גמישות', cls: 'flex' },
-    { key: 'occupancy', label: 'איוש תפקידים', cls: 'occ' }
+    { key: 'occupancy', label: 'איוש תפקידים', cls: 'occ' },
+    { key: 'events', label: 'אירועים', cls: 'evt', gated: true }
   ];
+  function layerAllowed(k){ var l = LAYERS.find(function(x){ return x.key === k; }); return !l || !l.gated || !!(window.hubEvents && hubEvents.canSeeLayer()); }
   var VIEWS = [{ k: 'day', l: 'יום' }, { k: 'week', l: 'שבוע' }, { k: 'month', l: 'חודש' }, { k: 'year', l: 'שנה' }, { k: 'range', l: 'טווח' }];
   var DAYS = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
-  var cal = { view: 'month', date: iso(new Date()), layers: LAYERS.map(function(l){ return l.key; }), from: '', to: '' };
+  var cal = { view: 'month', date: iso(new Date()), layers: LAYERS.map(function(l){ return l.key; }), from: '', to: '', event: '' };
   var shown = [];                                          /* items of the current rendering, addressed by index from the DOM */
 
   /* ---------- dates (local time, YYYY-MM-DD) ---------- */
@@ -5037,7 +5056,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
         if (t.autoKind === 'flex-end') return;                              /* shown in the flex layer */
         if (!t.dueDate || !between(from, to, t.dueDate)) return;
         if (typeof taskVisibleToCurrentUser === 'function' && !taskVisibleToCurrentUser(t)) return;
-        out.push({ layer: 'tasks', date: t.dueDate, title: t.title, sub: (TASK_STATUS_LABELS[t.status || 'none'] || '') , ref: { type: 'task', id: t.id }, done: t.status === 'done', kind: 'due' });
+        out.push({ layer: 'tasks', date: t.dueDate, title: t.title, sub: (TASK_STATUS_LABELS[t.status || 'none'] || '') , ref: { type: 'task', id: t.id }, done: t.status === 'done', kind: 'due', eventId: t.eventId });
       });
       return out;
     },
@@ -5046,7 +5065,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
       state.tasks.forEach(function(t){
         if (t.autoKind === 'flex-end' || !t.remindAt || t.status === 'done' || !between(from, to, t.remindAt)) return;
         if (typeof taskVisibleToCurrentUser === 'function' && !taskVisibleToCurrentUser(t)) return;
-        out.push({ layer: 'reminders', date: t.remindAt, title: 'תזכורת: ' + t.title, sub: t.dueDate ? 'יעד ' + t.dueDate : '', ref: { type: 'task', id: t.id }, kind: 'remind' });
+        out.push({ layer: 'reminders', date: t.remindAt, title: 'תזכורת: ' + t.title, sub: t.dueDate ? 'יעד ' + t.dueDate : '', ref: { type: 'task', id: t.id }, kind: 'remind', eventId: t.eventId });
       });
       return out;
     },
@@ -5101,13 +5120,16 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
         if (o.fut && o.fut.from && between(from, to, o.fut.from)) out.push({ layer: 'occupancy', date: o.fut.from, title: 'כניסת מחליף/ה: ' + r.title + ' (' + o.fut.name + ')', sub: '', ref: ref, kind: 'enter' });
       });
       return out;
-    }
+    },
+    events: function(from, to){ return window.hubEvents ? hubEvents.calendarItems(from, to) : []; }
   };
   function itemsBetween(from, to){
     var byDay = {};
     cal.layers.forEach(function(k){
-      if (!providers[k]) return;
+      if (!providers[k] || !layerAllowed(k)) return;
+      if (cal.event && ['events', 'tasks', 'reminders'].indexOf(k) < 0) return;
       var list = []; try{ list = providers[k](from, to) || []; }catch(e){ console.error('calendar provider failed', k, e); }
+      if (cal.event) list = list.filter(function(it){ return it.eventId === cal.event; });
       list.forEach(function(it){
         var last = it.end || it.date, d = it.date, g = 0;
         while (d <= last && g++ < 400){ if (d >= from && d <= to){ (byDay[d] = byDay[d] || []).push(it); } d = addDays(d, 1); }
@@ -5188,7 +5210,10 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     el('calViews').innerHTML = VIEWS.map(function(v){ return '<button type="button" class="ghost' + (cal.view === v.k ? ' active' : '') + '" data-cal-view="' + v.k + '">' + v.l + '</button>'; }).join('');
     el('calRange').hidden = cal.view !== 'range';
     el('calNav').hidden = cal.view === 'range';
-    el('calLayers').innerHTML = LAYERS.map(function(l){ return '<label class="cal-layer cal-' + l.cls + '"><input type="checkbox" data-cal-layer="' + l.key + '"' + (cal.layers.indexOf(l.key) >= 0 ? ' checked' : '') + '><span>' + l.label + '</span></label>'; }).join('');
+    var evOpts = window.hubEvents && layerAllowed('events') ? hubEvents.visibleEvents() : [];
+    if (cal.event && !evOpts.some(function(x){ return x.id === cal.event; })) cal.event = '';
+    el('calLayers').innerHTML = LAYERS.filter(function(l){ return layerAllowed(l.key); }).map(function(l){ return '<label class="cal-layer cal-' + l.cls + '"><input type="checkbox" data-cal-layer="' + l.key + '"' + (cal.layers.indexOf(l.key) >= 0 ? ' checked' : '') + '><span>' + l.label + '</span></label>'; }).join('')
+      + (evOpts.length ? '<label class="cal-layer"><span>סינון לפי אירוע</span> <select id="calEvent"><option value="">כל האירועים</option>' + evOpts.map(function(x){ return '<option value="' + esc(x.id) + '"' + (cal.event === x.id ? ' selected' : '') + '>' + esc(x.title) + '</option>'; }).join('') + '</select></label>' : '');
     var fn = { day: viewDay, week: viewWeek, month: viewMonth, year: viewYear, range: viewRange }[cal.view];
     box.className = 'cal-body cal-v-' + cal.view;
     box.innerHTML = fn();
@@ -5200,6 +5225,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     var uid = state.authUserId; if (!uid) return;
     var list = await prefs(), get = function(k){ var p = list.find(function(x){ return x.userId === uid && x.key === k; }); return p ? p.value : undefined; };
     var l = get('calendar.layers'); if (Array.isArray(l)) cal.layers = l.filter(function(k){ return providers[k]; });
+    if (Array.isArray(l) && !get('calendar.layersV') && cal.layers.indexOf('events') < 0) cal.layers.push('events');   /* the events layer arrived after these preferences were saved */
     var v = get('calendar.view'); if (v && VIEWS.some(function(x){ return x.k === v; })) cal.view = v;
   }
   async function savePref(key, value){
@@ -5217,6 +5243,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     else if (ref.type === 'convergence') openConvForm(ref.id);
     else if (ref.type === 'position') openPositionForm(ref.id);
     else if (ref.type === 'role') hubRoles.open(ref.id);
+    else if (ref.type === 'event') hubEvents.open(ref.id);
   }
   function offsetDays(unit, amount){ return unit === 'day' ? amount : unit === 'week' ? amount * 7 : unit === 'month' ? amount * 30 : amount; }
   function openItem(idx){
@@ -5278,7 +5305,8 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     if (t.getAttribute && t.getAttribute('data-cal-layer')){
       var k = t.getAttribute('data-cal-layer'), i = cal.layers.indexOf(k);
       if (t.checked && i < 0) cal.layers.push(k); else if (!t.checked && i >= 0) cal.layers.splice(i, 1);
-      savePref('calendar.layers', cal.layers.slice()); render();
+      savePref('calendar.layers', cal.layers.slice()); savePref('calendar.layersV', 2); render();
+    } else if (t.id === 'calEvent'){ cal.event = t.value; render();
     } else if (t.id === 'calFrom' || t.id === 'calTo'){ cal.from = el('calFrom').value; cal.to = el('calTo').value; render(); }
   });
   function init(){
@@ -6093,6 +6121,265 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
 })();
 </script>
 <script>
+/* ================================================================
+   Events (round 4, stage 14): an event with stakeholders (view / edit / manage), tasks that belong to it, and an activity log.
+   - collections "events" and "eventStakeholders"; a task of an event carries eventId
+   - who sees an event: the system user, its owner, its stakeholders, and users holding the resource "calendar:layer:events" (see all)
+   - the activity log is the audit log (entries carry eventId, written automatically for the event, its stakeholders and its tasks)
+   - the calendar gets an "events" layer, shown only to people who may see events, with a filter by event
+   ================================================================ */
+(function(){
+  'use strict';
+  var el = function(id){ return document.getElementById(id); };
+  var esc = function(s){ return typeof escapeHtml === 'function' ? escapeHtml(s) : String(s); };
+  var KEY_E = 'events', KEY_S = 'eventStakeholders', RES_LAYER = 'calendar:layer:events';
+  var LEVELS = { view: 'צפייה', edit: 'עריכה', manage: 'ניהול' }, RANK = { view: 1, edit: 2, manage: 3 };
+  var STATUS = { planned: 'מתוכנן', active: 'בביצוע', done: 'הסתיים', cancelled: 'בוטל' };
+  var TASK_ST = { none: 'ללא סטטוס', in_progress: 'בטיפול', done: 'הושלם' };
+  var FIELD = { title: 'כותרת', start: 'התחלה', end: 'סיום', status: 'סטטוס', description: 'תיאור', ownerId: 'אחראי', dueDate: 'תאריך יעד', level: 'רמת גישה', assignedTo: 'מוקצית ל', priority: 'עדיפות', eventId: 'אירוע' };
+  function all(name){ var a = DataStore.peekAll(name); return Array.isArray(a) ? a : []; }
+  function me(){ return state.currentUserId; }
+  function newId(p){ return p + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+  function fmtD(s){ try{ return s ? new Date(s + 'T00:00:00').toLocaleDateString('he-IL') : '—'; }catch(e){ return s || '—'; } }
+  function empN(id){ var e = empById(id); return e ? e.name : '—'; }
+  function userOf(empId){ return (state.users || []).find(function(u){ return u.employeeId === empId && u.active !== false; }) || null; }
+
+  /* ---------- access ---------- */
+  function seesAll(emp){ return !!emp && (empIsSuper(emp) || canAccess(RES_LAYER, emp)); }
+  /* 'manage' | 'edit' | 'view' | null */
+  function levelOf(ev, emp){
+    if (!ev || !emp) return null;
+    if (empIsSuper(emp) || ev.ownerId === emp) return 'manage';
+    var s = all(KEY_S).find(function(x){ return x.eventId === ev.id && x.employeeId === emp; });
+    if (s) return s.level;
+    return seesAll(emp) ? 'view' : null;
+  }
+  function visibleEvents(){ var m = me(); return all(KEY_E).filter(function(ev){ return !!levelOf(ev, m); }); }
+  function isInvolved(emp){ return all(KEY_E).some(function(ev){ return ev.ownerId === emp; }) || all(KEY_S).some(function(s){ return s.employeeId === emp; }); }
+  function canSeeLayer(){ var m = me(); return !!m && (seesAll(m) || isInvolved(m)); }
+  function canCreate(){ return !!me() && canAccess('tab:events', me()); }
+  /* null = the task has no (existing) event, so the ordinary task rules apply */
+  function canSeeTask(t){
+    var ev = all(KEY_E).find(function(x){ return x.id === t.eventId; }); if (!ev) return null;
+    var m = me(); return (t.assignedTo || []).indexOf(m) > -1 || t.assignedBy === m || !!levelOf(ev, m);
+  }
+
+  /* ---------- list ---------- */
+  function render(){
+    var box = el('evList'); if (!box) return;
+    var add = el('evAddBtn'); if (add) add.style.display = canCreate() ? '' : 'none';
+    var list = visibleEvents().sort(function(a, b){ return (b.start || '') < (a.start || '') ? -1 : 1; });
+    if (!list.length){ box.innerHTML = '<div class="empty-state"><div class="big">🎪</div>' + (canCreate() ? 'עדיין אין אירועים. צור את האירוע הראשון.' : 'אין אירועים שאתה בעל עניין בהם.') + '</div>'; return; }
+    var tasks = state.tasks || [];
+    box.innerHTML = '<div class="table-scroll"><table id="evTable"><thead><tr><th>אירוע</th><th>תאריכים</th><th>אחראי</th><th>סטטוס</th><th>הרשאה שלי</th><th>משימות פתוחות</th><th></th></tr></thead><tbody>'
+      + list.map(function(ev){
+        var open = tasks.filter(function(t){ return t.eventId === ev.id && t.status !== 'done'; }).length, lv = levelOf(ev, me());
+        return '<tr><td><b>' + esc(ev.title) + '</b></td><td>' + esc(fmtD(ev.start)) + (ev.end && ev.end !== ev.start ? ' – ' + esc(fmtD(ev.end)) : '') + '</td><td>' + esc(empN(ev.ownerId)) + '</td><td><span class="tag">' + esc(STATUS[ev.status] || ev.status) + '</span></td><td>' + esc(LEVELS[lv] || '') + '</td><td>' + open + '</td><td><button class="primary" type="button" data-ev="open" data-id="' + esc(ev.id) + '">פתח</button></td></tr>';
+      }).join('') + '</tbody></table></div>';
+  }
+
+  /* ---------- create ---------- */
+  function newModal(){
+    if (!canCreate()){ alert('אין לך הרשאה ליצור אירועים'); return; }
+    openModal('<h3>אירוע חדש</h3>'
+      + '<div class="field"><label>שם האירוע *</label><input type="text" id="ev-title"></div>'
+      + '<div class="grid2"><div class="field"><label>התחלה *</label><input type="date" id="ev-start"></div><div class="field"><label>סיום</label><input type="date" id="ev-end"></div></div>'
+      + '<div class="field"><label>תיאור</label><textarea id="ev-desc"></textarea></div>'
+      + '<div class="locked-note">אתה תהיה האחראי על האירוע. אחרי היצירה אפשר להוסיף בעלי עניין עם רמות גישה (צפייה, עריכה, ניהול) ולפתוח משימות לאירוע.</div>'
+      + '<div class="modal-actions"><button class="primary" type="button" data-ev="create">צור אירוע</button><button class="ghost" onclick="closeModal()" type="button">ביטול</button></div>');
+  }
+  async function create(){
+    var title = el('ev-title').value.trim(), start = el('ev-start').value, end = el('ev-end').value;
+    if (!title){ alert('נא להזין שם לאירוע'); return; }
+    if (!start){ alert('נא להזין תאריך התחלה'); return; }
+    if (end && end < start){ alert('תאריך הסיום קודם להתחלה'); return; }
+    var sc = DataStore.getScope(), ev = { id: newId('ev'), title: title, start: start, end: end || start, status: 'planned', description: el('ev-desc').value.trim(), ownerId: me(), centerId: sc && sc.kind === 'center' ? sc.centerId : (window.hubOrg ? hubOrg.mainId() : null), createdAt: new Date().toISOString() };
+    if (!(await DataStore.set(KEY_E, all(KEY_E).concat([ev])))) return;
+    closeModal(); render(); openDetail(ev.id);
+  }
+
+  /* ---------- detail ---------- */
+  var openId = null;
+  function fmtVal(type, k, v){
+    if (v === undefined || v === null || v === '') return '—';
+    if (k === 'ownerId') return empN(v);
+    if (k === 'assignedTo') return (v || []).map(empN).join(', ');
+    if (k === 'level') return LEVELS[v] || v;
+    if (k === 'status') return (type === 'tasks' ? TASK_ST[v] : STATUS[v]) || v;
+    if (k === 'start' || k === 'end' || k === 'dueDate') return fmtD(v);
+    var s = typeof v === 'string' ? v : JSON.stringify(v); return s.length > 60 ? s.slice(0, 57) + '…' : s;
+  }
+  function logLine(e){
+    var who = e.actorName || '—', a = e.after || {}, b = e.before || {};
+    if (e.entityType === 'events'){
+      if (e.action === 'create') return 'נוצר האירוע "' + (e.label || '') + '"';
+      if (e.action === 'delete') return 'האירוע נמחק';
+      return 'עודכנו פרטי האירוע: ' + Object.keys(a).map(function(k){ return (FIELD[k] || k) + ': ' + fmtVal('events', k, b[k]) + ' ← ' + fmtVal('events', k, a[k]); }).join('; ');
+    }
+    if (e.entityType === 'eventStakeholders'){
+      if (e.action === 'create') return 'נוסף בעל עניין: ' + (a.name || e.label) + ' (' + (LEVELS[a.level] || '') + ')';
+      if (e.action === 'delete') return 'הוסר בעל עניין: ' + (b.name || e.label);
+      return 'עודכנה רמת הגישה של ' + e.label + ': ' + fmtVal('', 'level', b.level) + ' ← ' + fmtVal('', 'level', a.level);
+    }
+    if (e.entityType === 'tasks'){
+      if (e.action === 'create') return 'נוצרה משימה: ' + (e.label || '') + (a.assignedTo ? ' (' + fmtVal('tasks', 'assignedTo', a.assignedTo) + ')' : '');
+      if (e.action === 'delete') return 'נמחקה משימה: ' + (e.label || '');
+      return 'משימה "' + (e.label || '') + '": ' + Object.keys(a).filter(function(k){ return k !== 'comments'; }).map(function(k){ return (FIELD[k] || k) + ': ' + fmtVal('tasks', k, b[k]) + ' ← ' + fmtVal('tasks', k, a[k]); }).join('; ') + (a.comments ? ' · נוספה תגובה' : '');
+    }
+    return e.label || '';
+  }
+  async function logHtml(id){
+    await DataStore.audit.flush();
+    var rows = await DataStore.audit.query({ eventId: id, limit: 200 });
+    return '<div class="table-scroll"><table><thead><tr><th>זמן</th><th>משתמש</th><th>מה נעשה</th></tr></thead><tbody>'
+      + (rows.map(function(e){ return '<tr><td style="white-space:nowrap;">' + esc(new Date(e.at).toLocaleString('he-IL')) + '</td><td>' + esc(e.actorName || '—') + '</td><td>' + esc(logLine(e)) + '</td></tr>'; }).join('') || '<tr><td colspan="3">עדיין אין פעולות ביומן.</td></tr>') + '</tbody></table></div>';
+  }
+  async function openDetail(id){
+    var ev = all(KEY_E).find(function(x){ return x.id === id; }); if (!ev) return;
+    var lv = levelOf(ev, me()); if (!lv){ alert('אין לך הרשאה לאירוע הזה'); return; }
+    openId = id;
+    var canEdit = RANK[lv] >= 2, canManage = lv === 'manage', st = all(KEY_S).filter(function(s){ return s.eventId === id; });
+    var tasks = (state.tasks || []).filter(function(t){ return t.eventId === id; }).sort(function(a, b){ return (a.dueDate || '9') < (b.dueDate || '9') ? -1 : 1; });
+    var dis = canEdit ? '' : ' disabled';
+    var act = state.employees.filter(isActiveEmp);
+    var h = '<h3>' + esc(ev.title) + ' <span class="tag">' + esc(STATUS[ev.status]) + '</span> <span class="tag">ההרשאה שלי: ' + esc(LEVELS[lv]) + '</span></h3>'
+      + '<div class="form-section-title">פרטים</div>'
+      + '<div class="field"><label>שם</label><input type="text" id="ev-title"' + dis + ' value="' + esc(ev.title) + '"></div>'
+      + '<div class="grid2"><div class="field"><label>התחלה</label><input type="date" id="ev-start"' + dis + ' value="' + esc(ev.start) + '"></div><div class="field"><label>סיום</label><input type="date" id="ev-end"' + dis + ' value="' + esc(ev.end || '') + '"></div></div>'
+      + '<div class="grid2"><div class="field"><label>סטטוס</label><select id="ev-status"' + dis + '>' + Object.keys(STATUS).map(function(k){ return '<option value="' + k + '"' + (ev.status === k ? ' selected' : '') + '>' + STATUS[k] + '</option>'; }).join('') + '</select></div>'
+      + '<div class="field"><label>אחראי על האירוע</label><select id="ev-owner"' + (canManage ? '' : ' disabled') + '>' + act.map(function(e){ return '<option value="' + esc(e.id) + '"' + (ev.ownerId === e.id ? ' selected' : '') + '>' + esc(e.name) + '</option>'; }).join('') + '</select></div></div>'
+      + '<div class="field"><label>תיאור</label><textarea id="ev-desc"' + dis + '>' + esc(ev.description || '') + '</textarea></div>'
+      + (canEdit ? '<div class="modal-actions" style="justify-content:flex-start;"><button class="primary" type="button" data-ev="save" data-id="' + esc(id) + '">שמור פרטים</button></div>' : '')
+      + '<div class="form-section-title">בעלי עניין</div>'
+      + '<div class="table-scroll"><table id="evStakeTable"><thead><tr><th>עובד</th><th>רמת גישה</th><th></th></tr></thead><tbody>'
+      + '<tr><td>' + esc(empN(ev.ownerId)) + ' <span class="tag">אחראי</span></td><td>ניהול</td><td></td></tr>'
+      + st.map(function(s){ return '<tr><td>' + esc(empN(s.employeeId)) + '</td><td>' + (canManage ? '<select data-ev-level="' + esc(s.id) + '">' + Object.keys(LEVELS).map(function(k){ return '<option value="' + k + '"' + (s.level === k ? ' selected' : '') + '>' + LEVELS[k] + '</option>'; }).join('') + '</select>' : esc(LEVELS[s.level])) + '</td><td>' + (canManage ? '<button class="icon-btn danger-txt" type="button" data-ev="unstake" data-id="' + esc(s.id) + '" title="הסר">✕</button>' : '') + '</td></tr>'; }).join('')
+      + '</tbody></table></div>'
+      + (canManage ? '<div class="grid2" style="margin-top:8px;"><div class="field"><label>הוסף בעל עניין</label><select id="ev-st-emp"><option value="">— בחר עובד —</option>' + act.filter(function(e){ return e.id !== ev.ownerId && !st.some(function(s){ return s.employeeId === e.id; }); }).map(function(e){ return '<option value="' + esc(e.id) + '">' + esc(e.name) + '</option>'; }).join('') + '</select></div>'
+        + '<div class="field"><label>רמת גישה</label><select id="ev-st-level">' + Object.keys(LEVELS).map(function(k){ return '<option value="' + k + '">' + LEVELS[k] + '</option>'; }).join('') + '</select></div></div><button class="ghost" type="button" data-ev="stake" data-id="' + esc(id) + '">הוסף</button>' : '')
+      + '<div class="form-section-title">משימות לאירוע</div>'
+      + '<div class="table-scroll"><table id="evTaskTable"><thead><tr><th>משימה</th><th>מוקצית ל</th><th>יעד</th><th>סטטוס</th><th></th></tr></thead><tbody>'
+      + (tasks.map(function(t){ var mineT = (t.assignedTo || []).indexOf(me()) > -1; return '<tr><td>' + esc(t.title) + '</td><td>' + esc((t.assignedTo || []).map(empN).join(', ')) + '</td><td>' + esc(fmtD(t.dueDate)) + '</td><td>' + ((canEdit || mineT) ? '<select data-ev-tstatus="' + esc(t.id) + '">' + Object.keys(TASK_ST).map(function(k){ return '<option value="' + k + '"' + ((t.status || 'none') === k ? ' selected' : '') + '>' + TASK_ST[k] + '</option>'; }).join('') + '</select>' : esc(TASK_ST[t.status || 'none'])) + '</td><td>' + (canEdit ? '<button class="icon-btn danger-txt" type="button" data-ev="deltask" data-id="' + esc(t.id) + '" title="מחק">🗑️</button>' : '') + '</td></tr>'; }).join('') || '<tr><td colspan="5">אין משימות לאירוע.</td></tr>')
+      + '</tbody></table></div>'
+      + (canEdit ? '<div class="grid2" style="margin-top:8px;"><div class="field"><label>משימה חדשה</label><input type="text" id="ev-t-title"></div><div class="field"><label>תאריך יעד</label><input type="date" id="ev-t-due"></div></div>'
+        + '<div class="field"><label>מוקצית ל</label><select id="ev-t-emp"><option value="">— בחר עובד —</option>' + act.map(function(e){ return '<option value="' + esc(e.id) + '">' + esc(e.name) + '</option>'; }).join('') + '</select></div><button class="ghost" type="button" data-ev="addtask" data-id="' + esc(id) + '">הוסף משימה</button>' : '')
+      + '<div class="form-section-title">יומן פעולות</div><div id="evLog">' + await logHtml(id) + '</div>'
+      + '<div class="modal-actions">' + (canManage ? '<button class="ghost danger-txt" type="button" data-ev="delete" data-id="' + esc(id) + '">מחק אירוע</button>' : '') + '<button class="ghost" onclick="closeModal()" type="button">סגור</button></div>';
+    openModal(h, true);
+  }
+  async function saveEvents(list){ return DataStore.set(KEY_E, list); }
+  async function saveDetails(id){
+    var list = all(KEY_E).slice(), i = list.findIndex(function(x){ return x.id === id; }); if (i < 0) return;
+    var lv = levelOf(list[i], me()); if (RANK[lv || 'x'] < 2){ alert('אין לך הרשאת עריכה'); return; }
+    var title = el('ev-title').value.trim(), start = el('ev-start').value, end = el('ev-end').value;
+    if (!title || !start){ alert('שם ותאריך התחלה הם שדות חובה'); return; }
+    if (end && end < start){ alert('תאריך הסיום קודם להתחלה'); return; }
+    var next = Object.assign({}, list[i], { title: title, start: start, end: end || start, status: el('ev-status').value, description: el('ev-desc').value.trim() });
+    if (lv === 'manage' && el('ev-owner').value) next.ownerId = el('ev-owner').value;
+    list[i] = next;
+    if (await saveEvents(list)){ render(); openDetail(id); }
+  }
+  async function addStake(id){
+    var emp = el('ev-st-emp').value, level = el('ev-st-level').value; if (!emp) return;
+    var ev = all(KEY_E).find(function(x){ return x.id === id; }); if (levelOf(ev, me()) !== 'manage'){ alert('רק מנהל האירוע יכול להוסיף בעלי עניין'); return; }
+    var s = { id: newId('es'), eventId: id, employeeId: emp, level: level, name: empN(emp) };
+    if (!(await DataStore.set(KEY_S, all(KEY_S).concat([s])))) return;
+    var u = userOf(emp); if (u && window.hubNotify) await hubNotify.add({ recipientId: u.id, kind: 'event', title: 'צורפת לאירוע "' + ev.title + '"', body: 'רמת הגישה שלך: ' + LEVELS[level], payload: { open: 'event', eventId: id } });
+    openDetail(id);
+  }
+  async function setLevel(sid, level){
+    var list = all(KEY_S).slice(), s = list.find(function(x){ return x.id === sid; }); if (!s) return;
+    var ev = all(KEY_E).find(function(x){ return x.id === s.eventId; }); if (levelOf(ev, me()) !== 'manage') return;
+    s.level = level; await DataStore.set(KEY_S, list); openDetail(s.eventId);
+  }
+  async function unstake(sid){
+    var s = all(KEY_S).find(function(x){ return x.id === sid; }); if (!s) return;
+    var ev = all(KEY_E).find(function(x){ return x.id === s.eventId; }); if (levelOf(ev, me()) !== 'manage') return;
+    await DataStore.set(KEY_S, all(KEY_S).filter(function(x){ return x.id !== sid; })); openDetail(s.eventId);
+  }
+  async function addTask(id){
+    var ev = all(KEY_E).find(function(x){ return x.id === id; }); if (RANK[levelOf(ev, me()) || 'x'] < 2){ alert('אין לך הרשאת עריכה'); return; }
+    var title = el('ev-t-title').value.trim(), emp = el('ev-t-emp').value, due = el('ev-t-due').value;
+    if (!title){ alert('נא להזין שם למשימה'); return; } if (!emp){ alert('נא לבחור למי להקצות'); return; }
+    var t = { id: uid('t'), status: 'none', priority: 'med', assignedBy: me(), assignedTo: [emp], aboutEmployeeIds: [], title: title, description: 'משימה באירוע "' + ev.title + '"', dueDate: due, eventId: id };
+    state.tasks.push(t);
+    if (!(await storeSet('tasks', state.tasks))) return;
+    var u = userOf(emp); if (u && emp !== me() && window.hubNotify) await hubNotify.add({ recipientId: u.id, kind: 'task', title: 'הוקצתה לך משימה באירוע "' + ev.title + '"', body: title + (due ? ' · יעד ' + fmtD(due) : ''), payload: { open: 'event', eventId: id } });
+    if (typeof renderTasks === 'function') renderTasks();
+    render(); openDetail(id);
+  }
+  async function setTask(tid, status){
+    var t = state.tasks.find(function(x){ return x.id === tid; }); if (!t) return;
+    t.status = status; await storeSet('tasks', state.tasks); if (typeof renderTasks === 'function') renderTasks(); render(); openDetail(t.eventId);
+  }
+  async function delTask(tid){
+    var t = state.tasks.find(function(x){ return x.id === tid; }); if (!t) return;
+    if (!confirm('למחוק את המשימה?')) return;
+    state.tasks = state.tasks.filter(function(x){ return x.id !== tid; }); await storeSet('tasks', state.tasks); if (typeof renderTasks === 'function') renderTasks(); render(); openDetail(t.eventId);
+  }
+  async function delEvent(id){
+    var ev = all(KEY_E).find(function(x){ return x.id === id; }); if (levelOf(ev, me()) !== 'manage') return;
+    if (!confirm('למחוק את האירוע "' + ev.title + '"? בעלי העניין יוסרו, והמשימות של האירוע יישארו אצל המוקצים להן בלי קשר לאירוע. יומן הפעולות נשמר.')) return;
+    var changed = false; state.tasks.forEach(function(t){ if (t.eventId === id){ delete t.eventId; changed = true; } });
+    if (changed) await storeSet('tasks', state.tasks);
+    await DataStore.set(KEY_S, all(KEY_S).filter(function(x){ return x.eventId !== id; }));
+    await DataStore.set(KEY_E, all(KEY_E).filter(function(x){ return x.id !== id; }));
+    closeModal(); render();
+  }
+
+  /* ---------- calendar ---------- */
+  function calendarItems(from, to){
+    var out = [];
+    visibleEvents().forEach(function(ev){
+      if (ev.status === 'cancelled') return;
+      var s = ev.start, e = ev.end || ev.start; if (!s || e < from || s > to) return;
+      out.push({ layer: 'events', date: s < from ? from : s, end: e > to ? to : e, title: ev.title, sub: (STATUS[ev.status] || '') + ' · ' + empN(ev.ownerId), ref: { type: 'event', id: ev.id }, eventId: ev.id, kind: 'event' });
+    });
+    return out;
+  }
+
+  /* ---------- permissions card ---------- */
+  function permCard(){
+    if (!isSuperUser()) return '';
+    var gs = state.grants.filter(function(g){ return g.resource === RES_LAYER; });
+    return '<div class="card"><div class="panel-head" style="margin-bottom:10px;"><div><h3 style="margin:0 0 6px;">אירועים: צפייה בכל האירועים ובשכבה בלוח השנה</h3><span class="locked-note" style="display:inline">בעלי עניין רואים את האירוע שלהם בלבד. מי שמוענקת לו הרשאה כאן רואה את כל האירועים ואת שכבת האירועים בלוח השנה. יצירת אירועים דורשת גישה ללשונית "אירועים".</span></div><button class="primary" type="button" data-ev="grant">הענק / נהל גישה</button></div>'
+      + '<div class="p-tags">' + (gs.map(function(g){ return '<span class="tag">' + grantLabel(g) + '</span>'; }).join(' ') || '<span class="widget-empty">משתמשי על בלבד</span>') + '</div></div>';
+  }
+  window.hubPermExtras = window.hubPermExtras || [];
+  window.hubPermExtras.push(permCard);
+
+  /* ---------- events ---------- */
+  document.addEventListener('click', function(e){
+    var b = e.target.closest ? e.target.closest('[data-ev]') : null; if (!b) return;
+    var act = b.getAttribute('data-ev'), id = b.getAttribute('data-id');
+    if (act === 'open') openDetail(id);
+    else if (act === 'new') newModal();
+    else if (act === 'create') create();
+    else if (act === 'save') saveDetails(id);
+    else if (act === 'stake') addStake(id);
+    else if (act === 'unstake') unstake(id);
+    else if (act === 'addtask') addTask(id);
+    else if (act === 'deltask') delTask(id);
+    else if (act === 'delete') delEvent(id);
+    else if (act === 'grant') openGrantModal([{ key: RES_LAYER, label: 'אירועים: כל האירועים ושכבת האירועים בלוח השנה' }], RES_LAYER, 'הרשאה לצפייה בכל האירועים');
+  });
+  document.addEventListener('change', function(e){
+    var l = e.target.getAttribute && e.target.getAttribute('data-ev-level'); if (l){ setLevel(l, e.target.value); return; }
+    var t = e.target.getAttribute && e.target.getAttribute('data-ev-tstatus'); if (t){ setTask(t, e.target.value); }
+  });
+  function init(){
+    var add = el('evAddBtn'); if (add) add.setAttribute('data-ev', 'new');
+    var tab = document.querySelector('.tab-btn[data-tab="events"]'); if (tab) tab.addEventListener('click', render);
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
+  if (window.DataStore) DataStore.on('change', function(ev){ if (ev && /^(events|eventStakeholders)$/.test(ev.name || '') && el('panel-events') && el('panel-events').classList.contains('active')) render(); });
+  window.hubNotifyHandlers = window.hubNotifyHandlers || {};
+  window.hubNotifyHandlers['event'] = function(p){ closeModal(); if (p && p.eventId) openDetail(p.eventId); };
+
+  window.hubEvents = { render: render, open: openDetail, levelOf: levelOf, visibleEvents: visibleEvents, isInvolved: isInvolved, canSeeLayer: canSeeLayer, canSeeTask: canSeeTask, canCreate: canCreate, calendarItems: calendarItems, addStake: addStake, STATUS: STATUS, LEVELS: LEVELS };
+})();
+</script>
+<script>
 /* ---------------- storage helpers ---------------- */
 function hasArtifactStorage(){ return typeof window !== 'undefined' && window.storage && typeof window.storage.get === 'function'; }
 async function storeSet(key, value){
@@ -6571,10 +6858,10 @@ function wouldRemoveLastActiveSuper(empId){
   if (!isSup) return false;
   return state.users.filter(u=>u.isSuper && u.active!==false && u.employeeId!==empId && isActiveEmp(empById(u.employeeId))).length === 0;
 }
-const TAB_LABELS = {dashboard:'לוח בקרה', orgchart:'מבנה ארגוני', meetings:'סיכומי פגישות', tasks:'משימות', mgrinfo:'מידע למנהלים', postings:'שיבוצים', positions:'ניהול תקנים', convergence:'התכנסות', attendance:'נוכחות', incentives:'תמריצים', contacts:'דף קשר', employees:'עובדים', permissions:'הרשאות', users:'משתמשים'};
-const RESTRICTABLE_TABS = ['orgchart','meetings','tasks','mgrinfo','postings','positions','convergence','attendance','incentives','contacts','employees'];
+const TAB_LABELS = {dashboard:'לוח בקרה', orgchart:'מבנה ארגוני', meetings:'סיכומי פגישות', tasks:'משימות', mgrinfo:'מידע למנהלים', postings:'שיבוצים', positions:'ניהול תקנים', convergence:'התכנסות', attendance:'נוכחות', incentives:'תמריצים', events:'אירועים', contacts:'דף קשר', employees:'עובדים', permissions:'הרשאות', users:'משתמשים'};
+const RESTRICTABLE_TABS = ['orgchart','meetings','tasks','mgrinfo','postings','positions','convergence','attendance','incentives','events','contacts','employees'];
 // "תמריצים" (financial data) is restricted by default: open only if a super user explicitly opened it (restrictedTabs.incentives === false)
-function isTabRestricted(tab){ return tab === 'incentives' ? state.restrictedTabs.incentives !== false : !!state.restrictedTabs[tab]; }
+function isTabRestricted(tab){ return (tab === 'incentives' || tab === 'events') ? state.restrictedTabs[tab] !== false : !!state.restrictedTabs[tab]; }
 
 function hasRank(empId){ const e = empById(empId); return !!(e && RANKS.includes(e.rank)); }
 function hasFullDataAccess(empId){ return (isTopManagerUser(empId) && !isSelfViewOnly(empId)) || empIsSuper(empId); }
@@ -6609,6 +6896,7 @@ function hasTabAccess(tab){
   if (tab === 'dashboard') return true;
   if (tab === 'users') return isSuperUser();
   if (tab === 'permissions') return isSuperUser() || hasRank(me);
+  if (tab === 'events') return canAccess('tab:events', me) || (window.hubEvents && hubEvents.isInvolved(me)) || (window.hubEvents && hubEvents.canSeeLayer());
   return canAccess('tab:' + tab, me);
 }
 function applyAccessControl(){
@@ -6764,7 +7052,7 @@ function openTabGrantModal(tab){
 async function toggleTabRestricted(tab){
   if (!isSuperUser()){ alert('רק משתמשי על יכולים לשנות הגבלת גישה'); return; }
   if (!RESTRICTABLE_TABS.includes(tab)) return;
-  if (tab === 'incentives') state.restrictedTabs.incentives = isTabRestricted('incentives') ? false : true;
+  if (tab === 'incentives' || tab === 'events') state.restrictedTabs[tab] = isTabRestricted(tab) ? false : true;
   else if (state.restrictedTabs[tab]) delete state.restrictedTabs[tab]; else state.restrictedTabs[tab] = true;
   await storeSet('restrictedTabs', state.restrictedTabs);
   refreshAfterGrantChange();
@@ -7917,6 +8205,7 @@ function bindTasks(){
   });
 }
 function taskVisibleToCurrentUser(t){
+  if (t.eventId && window.hubEvents){ const r = hubEvents.canSeeTask(t); if (r !== null) return r; }
   if (!t.aboutEmployeeIds || !t.aboutEmployeeIds.length) return true;
   if ((t.assignedTo||[]).includes(state.currentUserId)) return true;
   if (t.assignedBy === state.currentUserId) return true;
