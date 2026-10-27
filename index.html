@@ -923,6 +923,8 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     /* tables become stacked rows (employees, positions, convergence, attendance, users) */
   /* tables → cards (employees, positions, convergence, attendance, users) */
   .card:has(> .table-scroll > #empTable), .card:has(> .table-scroll > #posTable), .card:has(> .table-scroll > #convTable), .card:has(> .table-scroll > #attTable), .card:has(> .table-scroll > #usersTable){ background: none; border: 0; box-shadow: none; padding: 0; backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .ot-row{ display:flex; flex-wrap:wrap; gap:6px; align-items:center; padding-block:8px; border-bottom:1px solid var(--border); }
+  .ot-actions{ margin-inline-start:auto; display:flex; gap:6px; flex-wrap:wrap; }
   .table-scroll:has(> #empTable, > #posTable, > #convTable, > #attTable, > #usersTable){ max-height: none; overflow: visible; border: 0; background: none; }
   #empTable, #posTable, #convTable, #attTable, #usersTable, #empTable tbody, #posTable tbody, #convTable tbody, #attTable tbody, #usersTable tbody, #empTable tr, #posTable tr, #convTable tr, #attTable tr, #usersTable tr{ display: block; width: 100%; }
   #empTable thead, #posTable thead, #convTable thead, #attTable thead, #usersTable thead{ display: none; }
@@ -1560,6 +1562,12 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
       <button class="primary" id="ctr-add" type="button">+ מרכז חדש</button>
     </div>
     <div class="card" id="centersCard"><div class="table-scroll"><table><thead><tr><th>שם</th><th>סוג</th><th>עובדים</th><th></th></tr></thead><tbody id="ctr-body"></tbody></table></div></div>
+
+    <div class="panel-head" style="margin-top:28px;">
+      <div><h2 style="font-size:18px;">מבנה ארגוני</h2><p>ענפים, מדורים וצוותים בכל מרכז. עובד משויך ליחידה אחת, ושדות ענף / מדור / צוות בכרטיס שלו מתמלאים ממנה.</p></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;"><button class="ghost" id="ot-class" type="button">דוח סיווג מדור / צוות</button><button class="ghost" id="ot-mgr" type="button">הצעת מנהלים</button></div>
+    </div>
+    <div class="card" id="orgTreeCard"><div class="field" style="max-width:280px;"><label>מרכז</label><select id="ot-center"></select></div><div id="ot-tree"></div></div>
 
     <div class="panel-head" style="margin-top:28px;">
       <div><h2 style="font-size:18px;">גיבוי ושחזור</h2><p>הורדת כל נתוני המערכת לקובץ אחד ושחזורם. הנתונים שמורים כרגע רק בדפדפן הזה, ולכן כדאי לגבות לפני שינוי גדול.</p></div>
@@ -2945,7 +2953,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
   'use strict';
   var el = function(id){ return document.getElementById(id); };
   var esc = function(s){ return typeof escapeHtml === 'function' ? escapeHtml(s) : String(s); };
-  var TYPE = { employees:'עובדים', meetings:'סיכומי פגישות', tasks:'משימות', postings:'שיבוצים', positions:'תקנים', convergence:'התכנסות', attendance:'נוכחות', attendanceRequests:'בקשות נוכחות', infoItems:'מידע למנהלים', contactRoles:'דף קשר', incentives:'תמריצים', users:'משתמשים', grants:'הרשאות', orgUnits:'מרכזים ויחידות', notifications:'התראות', system:'מערכת' };
+  var TYPE = { employees:'עובדים', meetings:'סיכומי פגישות', tasks:'משימות', postings:'שיבוצים', positions:'תקנים', convergence:'התכנסות', attendance:'נוכחות', attendanceRequests:'בקשות נוכחות', infoItems:'מידע למנהלים', contactRoles:'דף קשר', incentives:'תמריצים', users:'משתמשים', grants:'הרשאות', orgUnits:'מרכזים ויחידות', unitMemberships:'היסטוריית שיוך', notifications:'התראות', system:'מערכת' };
   var ACTION = { create:'נוצר', update:'עודכן', delete:'נמחק', 'backup-export':'ייצוא גיבוי', restore:'שחזור' };
   var SOURCE = { ui:'ממשק', 'import':'ייבוא', migration:'שדרוג נתונים' };
   var FIELD = { name:'שם', role:'תפקיד', department:'מרכז', industry:'ענף', mador:'מדור', team:'צוות', ramad:'רמ"ד', rank:'רמת הרשאה', level:'זוטר/מובהק', serviceType:'סוג שירות', managerId:'מנהל ישיר', email:'אימייל', phone:'טלפון', active:'פעיל', title:'כותרת', status:'סטטוס', priority:'עדיפות', dueDate:'תאריך יעד', description:'תיאור', assignedTo:'מוקצה ל', jobText:'מלל משרה', serialNumber:'מס\' תקן', counterStatus:'מונה', freezeStatus:'הקפאה', currentAppointment:'מינוי נוכחי', futureAppointment:'מינוי עתידי', firstName:'שם פרטי', lastName:'שם משפחה', releaseDate:'תאריך שחרור', entryDate:'כניסה', exitDate:'יציאה', starred:'רידוד', gross:'שווי ברוטו', code:'קוד', entered:'הוזן', notes:'הערות', content:'תוכן', topic:'נושא', file:'קובץ', comments:'תגובות', summary:'סיכום', date:'תאריך', requestedStatus:'סטטוס מבוקש', note:'הערה', roleTitle:'תפקיד', holderName:'שם התפקידן', responsibilities:'תחומי אחריות' };
@@ -3309,6 +3317,363 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     if (tabBtn) tabBtn.addEventListener('click', render);
   }
   window.hubCentersRender = render;
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
+})();
+</script>
+<script>
+/* ================================================================
+   Organisational hierarchy (stage 7): center > branch > mador > team.
+   - tree editor (users tab), employee unit picker, membership history
+   - legacy text fields (industry / mador / team) stay as a cache of the unit names
+   - classification report and manager report: nothing changes until a row is approved
+   ================================================================ */
+(function(){
+  'use strict';
+  var el = function(id){ return document.getElementById(id); };
+  var esc = function(s){ return typeof escapeHtml === 'function' ? escapeHtml(s) : String(s); };
+  var KIND = { center: 'מרכז', branch: 'ענף', mador: 'מדור', team: 'צוות' };
+  var RANK = { center: 0, branch: 1, mador: 2, team: 3 };
+  var CHILD_KINDS = { center: ['branch'], branch: ['mador', 'team'], mador: ['team'], team: [] };
+  var treeCenter = null;
+
+  function units(){ return hubOrg.units(); }
+  function byId(list, id){ return list.find(function(u){ return u.id === id; }) || null; }
+  function kids(list, pid){ return list.filter(function(u){ return u.parentId === pid && u.kind !== 'center'; }).sort(function(a, b){ return (a.sortOrder || 0) - (b.sortOrder || 0) || a.name.localeCompare(b.name, 'he'); }); }
+  function chainOf(list, id){ var out = [], cur = byId(list, id), g = 0; while (cur && g++ < 8){ out.unshift(cur); cur = cur.parentId ? byId(list, cur.parentId) : null; } return out; }
+  function legacyOf(list, id){
+    var r = { industry: '', mador: '', team: '' };
+    chainOf(list, id).forEach(function(u){ if (u.kind === 'branch') r.industry = u.name; else if (u.kind === 'mador') r.mador = u.name; else if (u.kind === 'team') r.team = u.name; });
+    return r;
+  }
+  function pathText(list, id){ return chainOf(list, id).map(function(u){ return u.name; }).join(' › '); }
+  function centerIdOfEmp(e){ return e.centerId || hubOrg.mainId(); }
+  function today(){ return new Date().toISOString().slice(0, 10); }
+  function newId(){ return hubOrg.newId(); }
+  function empName(id){ var e = (typeof empById === 'function') ? empById(id) : null; return e ? e.name : '—'; }
+
+  /* ---------- membership history and write-through ---------- */
+  async function recordMembership(empId, fromUnit, toUnit){
+    if ((fromUnit || null) === (toUnit || null)) return;
+    var list = await DataStore.get('unitMemberships', []); if (!Array.isArray(list)) list = [];
+    list.forEach(function(m){ if (m.employeeId === empId && !m.to) m.to = today(); });
+    if (toUnit) list.push({ id: newId(), employeeId: empId, orgUnitId: toUnit, from: today(), to: null });
+    await DataStore.set('unitMemberships', list);
+  }
+  /* the legacy text fields of the employee and of the records linked to them follow the unit */
+  async function writeThrough(list, e){
+    if (!e.orgUnitId) return;
+    var l = legacyOf(list, e.orgUnitId);
+    e.industry = l.industry; e.mador = l.mador; e.team = l.team;
+    var changed = false;
+    (state.convergence || []).forEach(function(c){ if (c.employeeId === e.id && (c.industry !== l.industry || c.mador !== l.mador)){ c.industry = l.industry; c.mador = l.mador; changed = true; } });
+    if (changed) await storeSet('convergence', state.convergence);
+    var changedI = false;
+    (state.incentives || []).forEach(function(i){ if (i.employeeId === e.id && (i.industry !== l.industry || i.mador !== l.mador)){ i.industry = l.industry; i.mador = l.mador; changedI = true; } });
+    if (changedI) await storeSet('incentives', state.incentives);
+  }
+  async function resyncSubtree(list, unitId){
+    var changed = false;
+    for (var i = 0; i < state.employees.length; i++){
+      var e = state.employees[i];
+      if (e.orgUnitId && chainOf(list, e.orgUnitId).some(function(u){ return u.id === unitId; })){ await writeThrough(list, e); changed = true; }
+    }
+    if (changed) await storeSet('employees', state.employees);
+  }
+  /* called by saveEmployee after the employee was stored */
+  window.hubOrgAfterEmployeeSave = async function(empId, prevUnitId){
+    var e = empById(empId); if (!e) return;
+    var list = await units();
+    if (e.orgUnitId) await writeThrough(list, e);
+    await recordMembership(empId, prevUnitId, e.orgUnitId || null);
+    if (e.orgUnitId) await storeSet('employees', state.employees);
+  };
+  window.hubOrgSnapshot = async function(empId){
+    var e = empById(empId); if (!e) return null;
+    var list = await units(), ch = e.orgUnitId ? chainOf(list, e.orgUnitId) : [], g = function(k){ var u = ch.find(function(x){ return x.kind === k; }); return u ? u.name : ''; };
+    var c = byId(list, centerIdOfEmp(e));
+    return { centerName: c ? c.name : (e.department || ''), industryName: g('branch') || e.industry || '', madorName: g('mador') || e.mador || '', teamName: g('team') || e.team || '', at: new Date().toISOString() };
+  };
+
+  /* ---------- employee form picker ---------- */
+  var pickCache = [];
+  function optionsFor(list, parentId, selected){
+    return '<option value="">— ללא —</option>' + kids(list, parentId).filter(function(u){ return u.active !== false || u.id === selected; }).map(function(u){ return '<option value="' + esc(u.id) + '"' + (u.id === selected ? ' selected' : '') + '>' + esc(u.name) + '</option>'; }).join('');
+  }
+  /* html for the form: filled in asynchronously by hubUnitPickerInit */
+  window.hubUnitPickerHtml = function(e){
+    return '<div class="field" id="up-wrap" data-unit="' + esc(e && e.orgUnitId || '') + '" data-center="' + esc(e && e.centerId || '') + '"><label>שיוך מהמבנה הארגוני</label>'
+      + '<div class="grid2"><select id="up-branch" aria-label="ענף"></select><select id="up-mador" aria-label="מדור"></select></div>'
+      + '<select id="up-team" aria-label="צוות" style="margin-top:8px;"></select>'
+      + '<div class="locked-note" id="up-note">בחירה כאן ממלאת את שדות ענף / מדור / צוות. בלי בחירה אפשר להקליד ידנית כמו עד היום.</div></div>';
+  };
+  function pickedUnit(){ return (el('up-team') && el('up-team').value) || (el('up-mador') && el('up-mador').value) || (el('up-branch') && el('up-branch').value) || ''; }
+  function fillText(){
+    var id = pickedUnit(), ind = el('f-industry'), mad = el('f-mador'), tm = el('f-team');
+    var lock = !!id;
+    [ind, mad, tm].forEach(function(i){ if (i){ i.readOnly = lock; } });
+    if (id){ var l = legacyOf(pickCache, id); ind.value = l.industry; mad.value = l.mador; tm.value = l.team; }
+  }
+  function currentCenter(){
+    var w = el('up-wrap'), dep = el('f-department') ? el('f-department').value.trim() : '';
+    var byName = pickCache.find(function(u){ return u.kind === 'center' && u.name === dep; });
+    return byName ? byName.id : (w && w.getAttribute('data-center')) || hubOrg.mainId();
+  }
+  async function rebuild(sel){
+    pickCache = await units();
+    var cid = currentCenter();
+    var ch = sel ? chainOf(pickCache, sel) : [];
+    var b = ch.find(function(u){ return u.kind === 'branch'; }), m = ch.find(function(u){ return u.kind === 'mador'; }), t = ch.find(function(u){ return u.kind === 'team'; });
+    if (b && b.parentId !== cid) { b = null; m = null; t = null; }
+    el('up-branch').innerHTML = optionsFor(pickCache, cid, b && b.id);
+    var bid = el('up-branch').value;
+    el('up-mador').innerHTML = optionsFor(pickCache.filter(function(u){ return u.kind !== 'team'; }), bid || cid, m && m.id);
+    var mid = el('up-mador').value;
+    el('up-team').innerHTML = optionsFor(pickCache, mid || bid || cid, t && t.id);
+    el('up-mador').disabled = !bid && !el('up-mador').options[1];
+    fillText();
+  }
+  window.hubUnitPickerInit = async function(){
+    var w = el('up-wrap'); if (!w) return;
+    await hubOrg.refresh();
+    var sel = w.getAttribute('data-unit');
+    await rebuild(sel);
+    ['up-branch', 'up-mador', 'up-team'].forEach(function(id, i){
+      el(id).addEventListener('change', async function(){
+        if (i === 0){ el('up-mador').innerHTML = optionsFor(pickCache.filter(function(u){ return u.kind !== 'team'; }), el('up-branch').value || currentCenter(), ''); }
+        if (i <= 1){ el('up-team').innerHTML = optionsFor(pickCache, el('up-mador').value || el('up-branch').value || currentCenter(), ''); }
+        fillText();
+      });
+    });
+    var dep = el('f-department'); if (dep) dep.addEventListener('input', function(){ rebuild(''); });
+  };
+  window.hubUnitPickerValue = function(){ return el('up-wrap') ? pickedUnit() : undefined; };
+
+  /* ---------- tree editor ---------- */
+  function empCount(id){ return state.employees.filter(function(e){ return e.orgUnitId === id; }).length; }
+  function nodeHtml(list, u, depth){
+    var k = kids(list, u.id), head = u.headEmployeeId ? empName(u.headEmployeeId) : '';
+    var h = '<li class="ot-node"><div class="ot-row" style="padding-inline-start:' + (depth * 18) + 'px;' + (u.active === false ? 'opacity:.55;' : '') + '"><span class="tag">' + KIND[u.kind] + '</span> <b>' + esc(u.name) + '</b>'
+      + (head ? ' <span class="locked-note" style="display:inline">ראש היחידה: ' + esc(head) + '</span>' : '') + ' <span class="locked-note" style="display:inline">' + empCount(u.id) + ' עובדים</span>'
+      + (u.active === false ? ' <span class="tag">מושבת</span>' : '')
+      + ' <span class="ot-actions">'
+      + CHILD_KINDS[u.kind].map(function(ck){ return '<button class="ghost" type="button" data-ot="add" data-kind="' + ck + '" data-id="' + esc(u.id) + '">+ ' + KIND[ck] + '</button>'; }).join(' ')
+      + (u.kind !== 'center' ? ' <button class="ghost" type="button" data-ot="rename" data-id="' + esc(u.id) + '">שנה שם</button> <button class="ghost" type="button" data-ot="head" data-id="' + esc(u.id) + '">ראש יחידה</button> <button class="ghost" type="button" data-ot="toggle" data-id="' + esc(u.id) + '">' + (u.active === false ? 'הפעל' : 'השבת') + '</button>' : '')
+      + '</span></div></li>';
+    return h + k.map(function(c){ return nodeHtml(list, c, depth + 1); }).join('');
+  }
+  async function renderTree(){
+    var box = el('ot-tree'); if (!box) return;
+    if (typeof isSuperUser === 'function' && !isSuperUser()){ box.innerHTML = ''; return; }
+    var list = await units(), centers = list.filter(function(u){ return u.kind === 'center' && u.active !== false; });
+    var sel = el('ot-center');
+    if (!treeCenter || !byId(list, treeCenter)) treeCenter = hubOrg.mainId() || (centers[0] && centers[0].id);
+    sel.innerHTML = centers.map(function(c){ return '<option value="' + esc(c.id) + '"' + (c.id === treeCenter ? ' selected' : '') + '>' + esc(c.name) + '</option>'; }).join('');
+    var root = byId(list, treeCenter);
+    box.innerHTML = root ? '<ul class="ot-list" style="list-style:none;margin:0;padding:0;">' + nodeHtml(list, root, 0) + '</ul>' : '<div class="empty-state">אין מרכז</div>';
+  }
+  function nameForm(title, value, attrs){
+    openModal('<h3>' + esc(title) + '</h3><div class="field"><label>שם</label><input type="text" id="ot-name" value="' + esc(value) + '"></div>'
+      + '<div class="modal-actions"><button class="primary" id="ot-save" type="button" ' + attrs + '>שמור</button><button class="ghost" onclick="closeModal()" type="button">ביטול</button></div>');
+    var i = el('ot-name'); if (i) i.focus();
+  }
+  function headForm(u, list){
+    var cid = chainOf(list, u.id)[0].id;
+    var opts = state.employees.filter(function(e){ return isActiveEmp(e) && centerIdOfEmp(e) === cid; }).sort(function(a, b){ return a.name.localeCompare(b.name, 'he'); })
+      .map(function(e){ return '<option value="' + esc(e.id) + '"' + (e.id === u.headEmployeeId ? ' selected' : '') + '>' + esc(e.name) + '</option>'; }).join('');
+    openModal('<h3>ראש היחידה — ' + esc(u.name) + '</h3><div class="field"><label>עובד</label><select id="ot-head"><option value="">— ללא —</option>' + opts + '</select></div>'
+      + '<div class="locked-note">ראש היחידה משמש להצעת מנהל ישיר לעובדי היחידה (בדוח "הצעת מנהלים"). שום מנהל לא משתנה בלי אישור.</div>'
+      + '<div class="modal-actions"><button class="primary" id="ot-head-save" type="button" data-id="' + esc(u.id) + '">שמור</button><button class="ghost" onclick="closeModal()" type="button">ביטול</button></div>');
+  }
+  async function addUnit(parentId, kind, name){
+    name = (name || '').trim(); if (!name) return 'נא להזין שם';
+    var list = await units();
+    if (list.some(function(u){ return u.parentId === parentId && u.kind === kind && u.name === name; })) return 'כבר קיים אצל אותה יחידה אב';
+    list.push({ id: newId(), kind: kind, name: name, parentId: parentId, active: true, sortOrder: kids(list, parentId).length });
+    return (await DataStore.set('orgUnits', list)) ? '' : 'השמירה נכשלה';
+  }
+  async function renameUnit(id, name){
+    name = (name || '').trim(); if (!name) return 'נא להזין שם';
+    var list = await units(), u = byId(list, id); if (!u) return 'היחידה לא נמצאה';
+    if (list.some(function(x){ return x.id !== id && x.parentId === u.parentId && x.kind === u.kind && x.name === name; })) return 'כבר קיים אצל אותה יחידה אב';
+    u.name = name;
+    if (!(await DataStore.set('orgUnits', list))) return 'השמירה נכשלה';
+    await resyncSubtree(list, id);
+    return '';
+  }
+  async function toggleUnit(id){
+    var list = await units(), u = byId(list, id); if (!u) return 'היחידה לא נמצאה';
+    if (u.active !== false){
+      if (empCount(id)) return 'ביחידה יש עובדים. העבר אותם קודם.';
+      if (kids(list, id).some(function(k){ return k.active !== false; })) return 'ליחידה יש יחידות פעילות מתחתיה.';
+    }
+    u.active = u.active === false;
+    return (await DataStore.set('orgUnits', list)) ? '' : 'השמירה נכשלה';
+  }
+  async function setHead(id, empId){
+    var list = await units(), u = byId(list, id); if (!u) return;
+    if (empId) u.headEmployeeId = empId; else delete u.headEmployeeId;
+    await DataStore.set('orgUnits', list);
+  }
+
+  /* ---------- classification report ---------- */
+  async function classRows(){
+    var main = hubOrg.mainId(), rows = {};
+    state.employees.forEach(function(e){
+      if (e.orgUnitId) return;
+      var ind = (e.industry || '').trim(), mad = (e.mador || '').trim(), tm = (e.team || '').trim();
+      if (!ind && !mad && !tm) return;
+      var cid = e.centerId || main, key = [cid, ind, mad, tm].join('\u0001');
+      (rows[key] = rows[key] || { key: key, centerId: cid, industry: ind, mador: mad, team: tm, emps: [] }).emps.push(e);
+    });
+    return Object.keys(rows).map(function(k){ return rows[k]; }).sort(function(a, b){ return (a.industry + a.mador + a.team).localeCompare(b.industry + b.mador + b.team, 'he'); });
+  }
+  function rowPlan(row, choice){
+    var parts = [];
+    if (row.industry) parts.push(['branch', row.industry]);
+    if (row.mador){ parts.push(['mador', row.mador]); if (row.team) parts.push(['team', row.team]); }
+    else if (row.team) parts.push([choice === 'mador' ? 'mador' : 'team', row.team]);
+    return parts;
+  }
+  function needsChoice(row){ return !row.mador && !!row.team; }
+  async function applyRow(row, choice){
+    if (needsChoice(row) && choice !== 'team' && choice !== 'mador') return 0;
+    var list = await units(), parent = row.centerId;
+    rowPlan(row, choice).forEach(function(p){
+      var f = list.find(function(u){ return u.kind === p[0] && u.parentId === parent && u.name === p[1]; });
+      if (!f){ f = { id: newId(), kind: p[0], name: p[1], parentId: parent, active: true, sortOrder: kids(list, parent).length }; list.push(f); }
+      parent = f.id;
+    });
+    if (parent === row.centerId) return 0;
+    if (!(await DataStore.set('orgUnits', list))) return 0;
+    var n = 0;
+    for (var i = 0; i < row.emps.length; i++){
+      var e = empById(row.emps[i].id); if (!e || e.orgUnitId) continue;
+      e.orgUnitId = parent; await writeThrough(list, e); await recordMembership(e.id, null, parent); n++;
+    }
+    await storeSet('employees', state.employees);
+    return n;
+  }
+  var lastClass = [];
+  async function openClassReport(){
+    lastClass = await classRows();
+    var list = await units();
+    var body = lastClass.map(function(r, i){
+      var c = byId(list, r.centerId);
+      var cur = [r.industry, r.mador, r.team].map(function(x){ return x || '—'; }).join(' / ');
+      var choice = needsChoice(r)
+        ? '<select data-cls-choice="' + i + '"><option value="">בחר: האם זה…</option><option value="team">צוות</option><option value="mador">מדור</option></select>'
+        : '<span class="locked-note" style="display:inline">ברור</span>';
+      return '<tr><td><input type="checkbox" data-cls-ck="' + i + '"></td><td>' + esc(c ? c.name : '—') + '</td><td>' + esc(cur) + '</td><td>' + r.emps.length + '</td><td>' + choice + '</td><td data-cls-plan="' + i + '"></td></tr>';
+    }).join('') || '<tr><td colspan="6">כל העובדים כבר משויכים ליחידה (או שאין להם ענף/מדור/צוות).</td></tr>';
+    openModal('<h3>דוח סיווג: מדור או צוות</h3>'
+      + '<div class="locked-note">כל שורה היא שילוב של ענף / מדור / צוות שמופיע אצל עובדים שעדיין לא משויכים ליחידה. כשאין מדור והשדה "צוות" מלא, צריך להחליט אם הערך הוא צוות או מדור. שום דבר לא משתנה עד שמסמנים שורה ולוחצים "החל". השורות הברורות מוצגות עם התוצאה המתוכננת.</div>'
+      + '<div class="table-scroll"><table><thead><tr><th></th><th>מרכז</th><th>ענף / מדור / צוות כיום</th><th>עובדים</th><th>החלטה</th><th>תוצאה</th></tr></thead><tbody id="cls-body">' + body + '</tbody></table></div>'
+      + '<div id="cls-msg" class="locked-note"></div>'
+      + '<div class="modal-actions"><button class="primary" id="cls-apply" type="button">החל על המסומנות</button><button class="ghost" id="cls-export" type="button">ייצוא לאקסל</button><button class="ghost" onclick="closeModal()" type="button">סגור</button></div>', true);
+    updatePlans();
+  }
+  function updatePlans(){
+    lastClass.forEach(function(r, i){
+      var cell = document.querySelector('[data-cls-plan="' + i + '"]'); if (!cell) return;
+      var ch = document.querySelector('[data-cls-choice="' + i + '"]'), choice = ch ? ch.value : '';
+      cell.textContent = needsChoice(r) && !choice ? 'נדרשת החלטה' : rowPlan(r, choice).map(function(p){ return p[1]; }).join(' › ');
+    });
+  }
+  async function applyChecked(){
+    var done = 0, emps = 0, skipped = 0;
+    for (var i = 0; i < lastClass.length; i++){
+      var ck = document.querySelector('[data-cls-ck="' + i + '"]'); if (!ck || !ck.checked) continue;
+      var ch = document.querySelector('[data-cls-choice="' + i + '"]'), n = await applyRow(lastClass[i], ch ? ch.value : '');
+      if (n) { done++; emps += n; } else skipped++;
+    }
+    var msg = done + ' שורות הוחלו (' + emps + ' עובדים שויכו)' + (skipped ? '. ' + skipped + ' שורות דולגו (חסרה החלטה).' : '.');
+    await openClassReport();
+    el('cls-msg').textContent = msg;
+    if (typeof refreshAllViews === 'function') refreshAllViews();
+  }
+  function exportClass(){
+    var rows = lastClass.map(function(r){ return { 'מרכז': (byIdSync(r.centerId) || {}).name || '', 'ענף': r.industry, 'מדור': r.mador, 'צוות': r.team, 'מספר עובדים': r.emps.length, 'עובדים': r.emps.map(function(e){ return e.name; }).join(', '), 'דורש החלטה': needsChoice(r) ? 'כן' : 'לא' }; });
+    if (!rows.length){ alert('אין שורות לייצוא'); return; }
+    exportToExcel('דוח_סיווג_יחידות', rows);
+  }
+  var unitsSnap = [];
+  function byIdSync(id){ return unitsSnap.find(function(u){ return u.id === id; }); }
+
+  /* ---------- manager proposals ---------- */
+  function proposedManager(list, e){
+    var ch = chainOf(list, e.orgUnitId);
+    for (var i = ch.length - 1; i >= 0; i--){ var h = ch[i].headEmployeeId; if (h && h !== e.id) return h; }
+    return null;
+  }
+  function wouldCycle(empId, mgrId){
+    var cur = mgrId, g = 0;
+    while (cur && g++ < 50){ if (cur === empId) return true; var x = empById(cur); cur = x ? x.managerId : null; }
+    return false;
+  }
+  var lastMgr = [];
+  async function openMgrReport(){
+    var list = await units(); unitsSnap = list; lastMgr = []; var manual = 0;
+    state.employees.forEach(function(e){
+      if (!e.orgUnitId || !isActiveEmp(e)) return;
+      if (e.managerSource === 'manual'){ manual++; return; }
+      var p = proposedManager(list, e);
+      if (p && p !== (e.managerId || null) && !wouldCycle(e.id, p)) lastMgr.push({ emp: e, proposed: p });
+    });
+    var body = lastMgr.map(function(r, i){
+      return '<tr><td><input type="checkbox" data-mg-ck="' + i + '"></td><td>' + esc(r.emp.name) + '</td><td>' + esc(pathText(list, r.emp.orgUnitId)) + '</td><td>' + (r.emp.managerId ? esc(empName(r.emp.managerId)) : '—') + '</td><td>' + esc(empName(r.proposed)) + '</td></tr>';
+    }).join('') || '<tr><td colspan="5">אין הצעות. ודא שהוגדר ראש יחידה ושעובדים משויכים ליחידה.</td></tr>';
+    openModal('<h3>הצעת מנהלים לפי המבנה הארגוני</h3>'
+      + '<div class="locked-note">המנהל המוצע הוא ראש היחידה של העובד (או של היחידה שמעליה אם הוא עצמו ראש היחידה). מנהל שהוגדר ידנית (' + manual + ' עובדים) לא מוצג ולא ישתנה. שום דבר לא משתנה עד שמסמנים שורה ולוחצים "החל".</div>'
+      + '<div class="table-scroll"><table><thead><tr><th></th><th>עובד</th><th>יחידה</th><th>מנהל כיום</th><th>מנהל מוצע</th></tr></thead><tbody>' + body + '</tbody></table></div>'
+      + '<div id="mg-msg" class="locked-note"></div>'
+      + '<div class="modal-actions"><button class="primary" id="mg-apply" type="button">החל על המסומנות</button><button class="ghost" onclick="closeModal()" type="button">סגור</button></div>', true);
+  }
+  async function applyMgr(){
+    var n = 0;
+    lastMgr.forEach(function(r, i){
+      var ck = document.querySelector('[data-mg-ck="' + i + '"]'); if (!ck || !ck.checked) return;
+      var e = empById(r.emp.id); if (!e || wouldCycle(e.id, r.proposed)) return;
+      e.managerId = r.proposed; e.managerSource = 'derived'; n++;
+    });
+    if (n){ await storeSet('employees', state.employees); if (typeof refreshAllViews === 'function') refreshAllViews(); }
+    await openMgrReport();
+    el('mg-msg').textContent = n + ' מנהלים עודכנו.';
+  }
+
+  /* ---------- events ---------- */
+  document.addEventListener('change', function(e){
+    if (e.target.id === 'ot-center'){ treeCenter = e.target.value; renderTree(); }
+    if (e.target.getAttribute && e.target.getAttribute('data-cls-choice') !== null) updatePlans();
+  });
+  document.addEventListener('click', async function(e){
+    var t = e.target.closest ? e.target : null; if (!t) return;
+    var q = function(s){ return t.closest(s); };
+    if (q('#ot-class')){ openClassReport(); return; }
+    if (q('#ot-mgr')){ openMgrReport(); return; }
+    if (q('#cls-apply')){ applyChecked(); return; }
+    if (q('#cls-export')){ unitsSnap = await units(); exportClass(); return; }
+    if (q('#mg-apply')){ applyMgr(); return; }
+    var save = q('#ot-save');
+    if (save){
+      var mode = save.getAttribute('data-mode'), id = save.getAttribute('data-id'), name = el('ot-name').value;
+      var err = mode === 'add' ? await addUnit(id, save.getAttribute('data-kind'), name) : await renameUnit(id, name);
+      if (err){ alert(err); return; }
+      closeModal(); renderTree(); if (mode === 'rename' && typeof refreshAllViews === 'function') refreshAllViews(); return;
+    }
+    var hs = q('#ot-head-save');
+    if (hs){ await setHead(hs.getAttribute('data-id'), el('ot-head').value); closeModal(); renderTree(); return; }
+    var b = q('[data-ot]'); if (!b) return;
+    var act = b.getAttribute('data-ot'), uid = b.getAttribute('data-id'), list = await units(), u = byId(list, uid);
+    if (act === 'add') nameForm('חדש: ' + KIND[b.getAttribute('data-kind')], '', 'data-mode="add" data-kind="' + b.getAttribute('data-kind') + '" data-id="' + esc(uid) + '"');
+    else if (act === 'rename') nameForm('שינוי שם', u.name, 'data-mode="rename" data-id="' + esc(uid) + '"');
+    else if (act === 'head') headForm(u, list);
+    else if (act === 'toggle'){ var err2 = await toggleUnit(uid); if (err2) alert(err2); renderTree(); }
+  });
+  function init(){
+    var tabBtn = document.querySelector('.tab-btn[data-tab="users"]');
+    if (tabBtn) tabBtn.addEventListener('click', function(){ setTimeout(renderTree, 80); });
+  }
+  window.hubOrgTree = { render: renderTree, chainOf: chainOf, legacyOf: legacyOf, classRows: classRows, applyRow: applyRow, proposedManager: proposedManager };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 })();
 </script>
@@ -4596,6 +4961,7 @@ function employeeFormHtml(existing, presetManagerId){
       <div class="field"><label>תפקיד</label><input type="text" id="f-role" value="${escapeHtml(e.role)}"></div>
       <div class="field"><label>מרכז</label><input type="text" id="f-department" value="${escapeHtml(e.department)}"></div>
     </div>
+    ${window.hubUnitPickerHtml?hubUnitPickerHtml(e):''}
     <div class="grid2">
       <div class="field"><label>ענף</label><input type="text" id="f-industry" value="${escapeHtml(e.industry)}"></div>
       <div class="field"><label>מדור</label><input type="text" id="f-mador" value="${escapeHtml(e.mador)}"></div>
@@ -4690,8 +5056,8 @@ function employeeFormHtml(existing, presetManagerId){
   `;
 }
 
-function addEmployee(presetManagerId){ openModal(employeeFormHtml(null, presetManagerId)); }
-function editEmployee(id){ openModal(employeeFormHtml(empById(id))); }
+function addEmployee(presetManagerId){ openModal(employeeFormHtml(null, presetManagerId)); if (window.hubUnitPickerInit) hubUnitPickerInit(); }
+function editEmployee(id){ openModal(employeeFormHtml(empById(id))); if (window.hubUnitPickerInit) hubUnitPickerInit(); }
 
 async function saveEmployee(existingId){
   const name = document.getElementById('f-name').value.trim();
@@ -4729,6 +5095,10 @@ async function saveEmployee(existingId){
     notes: document.getElementById('f-notes').value.trim(),
     active: document.getElementById('f-active').checked
   };
+  const prevUnitId = existingId ? ((empById(existingId)||{}).orgUnitId || null) : null;
+  const pickedUnit = window.hubUnitPickerValue ? hubUnitPickerValue() : undefined;
+  if (pickedUnit) data.orgUnitId = pickedUnit; else if (pickedUnit === '' && prevUnitId) data.orgUnitId = null;
+  if (existingId && (empById(existingId).managerId || null) !== data.managerId) data.managerSource = 'manual';
   if (existingId && data.active === false && isActiveEmp(empById(existingId))){
     if (existingId === state.currentUserId){ alert('לא ניתן להגדיר את עצמך כלא פעיל'); return; }
     if (wouldRemoveLastActiveSuper(existingId)){ alert('לא ניתן להגדיר כלא פעיל את העובד של משתמש העל האחרון'); return; }
@@ -4787,6 +5157,7 @@ async function saveEmployee(existingId){
   if (positionsChanged) await storeSet('positions', state.positions);
 
   await storeSet('employees', state.employees);
+  if (window.hubOrgAfterEmployeeSave) await hubOrgAfterEmployeeSave(employeeId, prevUnitId);
   closeModal();
   renderEmployees(); renderOrgChart(); renderWhoAmI(); renderMeetingFilter(); renderMeetingsList(); renderTasks();
   renderPositionFilterOptions(); renderPositions();
