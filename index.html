@@ -923,6 +923,9 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     /* tables become stacked rows (employees, positions, convergence, attendance, users) */
   /* tables → cards (employees, positions, convergence, attendance, users) */
   .card:has(> .table-scroll > #empTable), .card:has(> .table-scroll > #posTable), .card:has(> .table-scroll > #convTable), .card:has(> .table-scroll > #attTable), .card:has(> .table-scroll > #usersTable){ background: none; border: 0; box-shadow: none; padding: 0; backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .ef-chip button{ background:none; border:0; color:inherit; cursor:pointer; font-size:15px; line-height:1; padding:0 2px; }
+  .ef-list summary{ cursor:pointer; padding:8px 10px; border:1px solid var(--border); border-radius:var(--r-md,10px); }
+  .ef-opts{ max-height:200px; overflow:auto; padding:6px 4px; border:1px solid var(--border); border-radius:var(--r-md,10px); margin-top:4px; }
   .pp-item{ display:block; width:100%; text-align:start; padding:8px 10px; margin-top:4px; border:1px solid var(--border); border-radius:var(--r-md,10px); background:transparent; color:inherit; cursor:pointer; font:inherit; }
   .pp-item:hover{ border-color:var(--text-dim); }
   .pp-create{ margin-top:8px; font-size:13px; }
@@ -1516,8 +1519,11 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
           <option value="inactive">עובדים לא פעילים</option>
           <option value="all">כל העובדים</option>
         </select>
+        <button class="ghost" id="empFilterToggle" type="button">סינון</button>
         <span id="empCountLabel" style="font-size:13px; color:var(--text-dim);"></span>
       </div>
+      <div id="empFilterChips" style="margin-top:8px; display:flex; flex-wrap:wrap; gap:6px; align-items:center;"></div>
+      <div id="empFilterPanel" hidden style="margin-top:12px;"><div class="grid2" id="empFilterGrid"></div></div>
     </div>
     <div id="empBulkToolbar" class="bulk-toolbar" style="display:none;">
       <span class="count" id="empBulkCount"></span>
@@ -4167,6 +4173,122 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
 })();
 </script>
 <script>
+/* ================================================================
+   Employees table filters (fix round): every column can be filtered and the filters combine.
+   text = search, list = multi-select, date = from / to range. Active filters show as removable chips.
+   The employees export uses the filtered list.
+   ================================================================ */
+(function(){
+  'use strict';
+  var el = function(id){ return document.getElementById(id); };
+  var esc = function(s){ return typeof escapeHtml === 'function' ? escapeHtml(s) : String(s); };
+  var NONE = '\u0001none';
+  var COLS = [
+    { key: 'name', label: 'שם', type: 'text', val: function(e){ return e.name || ''; } },
+    { key: 'role', label: 'תפקיד', type: 'text', val: function(e){ return e.role || ''; } },
+    { key: 'department', label: 'מרכז', type: 'list', val: function(e){ return e.department || ''; } },
+    { key: 'mador', label: 'מדור', type: 'list', val: function(e){ return e.mador || ''; } },
+    { key: 'manager', label: 'מנהל ישיר', type: 'list', val: function(e){ var m = e.managerId ? empById(e.managerId) : null; return m ? m.name : ''; } },
+    { key: 'position', label: 'תקן נוכחי', type: 'list', val: function(e){ return positionValue(e); } },
+    { key: 'email', label: 'אימייל', type: 'text', val: function(e){ return e.email || ''; } },
+    { key: 'phone', label: 'טלפון', type: 'text', val: function(e){ return e.phone || ''; } },
+    { key: 'startDate', label: 'תאריך התחלה', type: 'date', val: function(e){ return e.startDate || ''; } },
+    { key: 'enlistmentDate', label: 'תאריך גיוס', type: 'date', val: function(e){ return e.enlistmentDate || ''; } },
+    { key: 'release', label: 'שחרור קובע', type: 'date', val: function(e){ return effectiveReleaseDate(e).date || ''; } },
+    { key: 'unitIntakeDate', label: 'קליטה ליחידה', type: 'date', val: function(e){ return e.unitIntakeDate || ''; } }
+  ];
+  /* a hook for other features (flex) to add their own values to the position column */
+  function positionValue(e){
+    if (window.hubFlexLabel){ var f = hubFlexLabel(e); if (f) return f; }
+    var p = getPositionByEmployeeId(e.id);
+    return p ? p.serialNumber : '';
+  }
+  var F = {};                                             /* key -> string | Set | {from,to} */
+  function emptyLabel(c){ return c.key === 'position' ? 'ללא תקן' : c.key === 'manager' ? 'ללא מנהל' : '(ריק)'; }
+  function colByKey(k){ return COLS.find(function(c){ return c.key === k; }); }
+
+  function passes(e){
+    for (var i = 0; i < COLS.length; i++){
+      var c = COLS[i], f = F[c.key]; if (f === undefined) continue;
+      var v = c.val(e);
+      if (c.type === 'text'){ if (v.toLowerCase().indexOf(f.toLowerCase()) < 0) return false; }
+      else if (c.type === 'list'){ if (!f.has(v === '' ? NONE : v)) return false; }
+      else { if (!v) return false; if (f.from && v < f.from) return false; if (f.to && v > f.to) return false; }
+    }
+    if (F.__flex && !(window.hubIsFlex && hubIsFlex(e))) return false;
+    return true;
+  }
+  function isActive(){ return Object.keys(F).length > 0; }
+  function refresh(){ if (typeof clearEmployeeSelectionSilent === 'function') clearEmployeeSelectionSilent(); renderEmployees(); renderChips(); }
+
+  function listOptions(c){
+    var seen = {}, out = [];
+    state.employees.forEach(function(e){ var v = c.val(e), k = v === '' ? NONE : v; if (!seen[k]){ seen[k] = 1; out.push({ k: k, label: v === '' ? emptyLabel(c) : v }); } });
+    return out.sort(function(a, b){ return a.label.localeCompare(b.label, 'he', { numeric: true }); });
+  }
+  function buildPanel(){
+    var box = el('empFilterGrid'); if (!box) return;
+    box.innerHTML = COLS.map(function(c){
+      var f = F[c.key], inner = '';
+      if (c.type === 'text') inner = '<input type="text" data-ef="' + c.key + '" value="' + esc(f || '') + '" placeholder="חיפוש…">';
+      else if (c.type === 'date') inner = '<div class="grid2"><input type="date" data-ef-from="' + c.key + '" value="' + esc(f && f.from || '') + '" aria-label="מתאריך"><input type="date" data-ef-to="' + c.key + '" value="' + esc(f && f.to || '') + '" aria-label="עד תאריך"></div>';
+      else inner = '<details class="ef-list"><summary>' + (f ? f.size + ' נבחרו' : 'הכול') + '</summary><div class="ef-opts">'
+        + listOptions(c).map(function(o){ return '<label class="checkbox-row"><input type="checkbox" data-ef-opt="' + c.key + '" value="' + esc(o.k) + '"' + (f && f.has(o.k) ? ' checked' : '') + '> ' + esc(o.label) + '</label>'; }).join('') + '</div></details>';
+      return '<div class="field"><label>' + esc(c.label) + (c.type === 'date' ? ' (מ-עד)' : '') + '</label>' + inner + '</div>';
+    }).join('') + (window.hubFlexLabel ? '<div class="field"><label class="checkbox-row"><input type="checkbox" id="ef-flex"' + (F.__flex ? ' checked' : '') + '> עובדים בגמישות בלבד</label></div>' : '');
+  }
+  function chipText(c, f){
+    if (c.type === 'text') return c.label + ': ' + f;
+    if (c.type === 'date') return c.label + ': ' + (f.from || '…') + ' – ' + (f.to || '…');
+    var labels = listOptions(c).filter(function(o){ return f.has(o.k); }).map(function(o){ return o.label; });
+    return c.label + ': ' + (labels.length > 3 ? labels.slice(0, 3).join(', ') + ' +' + (labels.length - 3) : labels.join(', '));
+  }
+  function renderChips(){
+    var box = el('empFilterChips'); if (!box) return;
+    var chips = COLS.filter(function(c){ return F[c.key] !== undefined; }).map(function(c){
+      return '<span class="tag ef-chip">' + esc(chipText(c, F[c.key])) + ' <button type="button" data-ef-remove="' + c.key + '" aria-label="הסר סינון">×</button></span>';
+    });
+    if (F.__flex) chips.push('<span class="tag ef-chip">בגמישות <button type="button" data-ef-remove="__flex" aria-label="הסר סינון">×</button></span>');
+    box.innerHTML = chips.join(' ') + (chips.length ? ' <button type="button" class="ghost" id="ef-clear">נקה הכל</button>' : '');
+    var tg = el('empFilterToggle'); if (tg) tg.textContent = chips.length ? 'סינון (' + chips.length + ')' : 'סינון';
+  }
+  function setText(k, v){ if (v) F[k] = v; else delete F[k]; }
+  function setDate(k){
+    var from = document.querySelector('[data-ef-from="' + k + '"]').value, to = document.querySelector('[data-ef-to="' + k + '"]').value;
+    if (from || to) F[k] = { from: from, to: to }; else delete F[k];
+  }
+  function setList(k){
+    var checked = Array.prototype.map.call(document.querySelectorAll('[data-ef-opt="' + k + '"]:checked'), function(i){ return i.value; });
+    if (checked.length) F[k] = new Set(checked); else delete F[k];
+    var sm = document.querySelector('[data-ef-opt="' + k + '"]'); if (sm){ var s = sm.closest('details').querySelector('summary'); s.textContent = checked.length ? checked.length + ' נבחרו' : 'הכול'; }
+  }
+  document.addEventListener('input', function(e){
+    var t = e.target;
+    if (t.getAttribute && t.getAttribute('data-ef')){ setText(t.getAttribute('data-ef'), t.value.trim()); refresh(); }
+    else if (t.getAttribute && (t.getAttribute('data-ef-from') || t.getAttribute('data-ef-to'))){ setDate(t.getAttribute('data-ef-from') || t.getAttribute('data-ef-to')); refresh(); }
+  });
+  document.addEventListener('change', function(e){
+    var t = e.target;
+    if (t.getAttribute && t.getAttribute('data-ef-opt')){ setList(t.getAttribute('data-ef-opt')); refresh(); }
+    else if (t.id === 'ef-flex'){ if (t.checked) F.__flex = true; else delete F.__flex; refresh(); }
+  });
+  document.addEventListener('click', function(e){
+    var t = e.target.closest ? e.target : null; if (!t) return;
+    if (t.closest('#empFilterToggle')){ var p = el('empFilterPanel'); p.hidden = !p.hidden; if (!p.hidden) buildPanel(); return; }
+    if (t.closest('#ef-clear')){ F = {}; buildPanel(); refresh(); return; }
+    var rm = t.closest('[data-ef-remove]');
+    if (rm){ delete F[rm.getAttribute('data-ef-remove')]; buildPanel(); refresh(); }
+  });
+  window.hubEmpFilter = { test: passes, active: isActive, set: function(k, v){ F[k] = v; buildPanel(); refresh(); }, clear: function(){ F = {}; buildPanel(); refresh(); }, state: function(){ return F; }, rebuild: buildPanel, chips: renderChips };
+  function init(){
+    var tab = document.querySelector('.tab-btn[data-tab="employees"]');
+    if (tab) tab.addEventListener('click', function(){ if (el('empFilterPanel') && !el('empFilterPanel').hidden) buildPanel(); renderChips(); });
+    renderChips();
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
+})();
+</script>
+<script>
 /* ---------------- storage helpers ---------------- */
 function hasArtifactStorage(){ return typeof window !== 'undefined' && window.storage && typeof window.storage.get === 'function'; }
 async function storeSet(key, value){
@@ -5230,7 +5352,7 @@ let selectedEmployeeIds = new Set();
 
 function visibleEmployeesList(){
   const f = (document.getElementById('filterEmpActive') || {}).value || 'active';
-  return state.employees.filter(e => f==='all' ? true : f==='inactive' ? e.active===false : e.active!==false);
+  return state.employees.filter(e => (f==='all' ? true : f==='inactive' ? e.active===false : e.active!==false) && (!window.hubEmpFilter || hubEmpFilter.test(e)));
 }
 function renderEmployees(){
   const tbody = document.querySelector('#empTable tbody');
@@ -7828,7 +7950,7 @@ function exportToExcel(filename, rows){
 }
 
 function exportEmployees(){
-  const rows = state.employees.map(e=>{
+  const rows = visibleEmployeesList().map(e=>{
     const mgr = e.managerId ? empById(e.managerId) : null;
     const pos = getPositionByEmployeeId(e.id);
     return {
