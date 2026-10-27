@@ -1412,6 +1412,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
         <button class="primary" id="addPositionBtn">+ תקן חדש</button>
         <button class="ghost" onclick="triggerExcelImport('positions')">ייבוא מאקסל</button>
         <button class="ghost" onclick="exportPositions()">ייצוא לאקסל</button>
+        <button class="ghost" id="swapBtn" type="button" data-ct="manager">החלפת תקנים</button>
         <button class="ghost" id="flexListBtn" type="button">עובדים בגמישות</button>
         <button class="ghost" id="posPermissionsBtn" style="display:none;" onclick="openPositionsPermissionsModal()">ניהול הרשאות</button>
         <button class="ghost" id="posHistoryBtn" style="display:none;" onclick="openHistoryModal('positions')">היסטוריית שינויים</button>
@@ -2082,7 +2083,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
   }
 
   /* ---- record metadata (stage 2) ---- */
-  var META_COLLECTIONS = ['employees', 'meetings', 'tasks', 'postings', 'positions', 'convergence', 'attendance', 'attendanceRequests', 'infoItems', 'contactRoles', 'incentives', 'users', 'grants', 'notifications', 'orgUnits', 'roles', 'syncChanges', 'syncBatches', 'hqDomains', 'events', 'eventStakeholders', 'abroadForms', 'conflictFindings', 'conflictExceptions', 'conflictSubs', 'responsibilities'];
+  var META_COLLECTIONS = ['employees', 'meetings', 'tasks', 'postings', 'positions', 'convergence', 'attendance', 'attendanceRequests', 'infoItems', 'contactRoles', 'incentives', 'users', 'grants', 'notifications', 'orgUnits', 'roles', 'syncChanges', 'syncBatches', 'hqDomains', 'events', 'eventStakeholders', 'abroadForms', 'conflictFindings', 'conflictExceptions', 'conflictSubs', 'responsibilities', 'positionSwaps'];
   var META_FIELDS = ['rev', 'updatedAt', 'updatedBy'];
   var NOISE_FIELDS = { users: ['lastLoginAt'] };   /* changes that must not count as an edit */
   function hasMeta(name){ return META_COLLECTIONS.indexOf(name) > -1; }
@@ -2398,6 +2399,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
   /* validators: fn(newValue, oldValue) returns an error text to refuse the write (used for identifiers that must stay unique) */
   var validators = {};
   function addValidator(name, fn){ (validators[name] = validators[name] || []).push(fn); }
+  function validateWrite(name, full){ return validate(name, full); }
   function validate(name, full){
     var l = validators[name]; if (!l) return '';
     var old = peekJson(name); if (!Array.isArray(old)) old = [];
@@ -2612,7 +2614,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     adapterName: function(){ return adapter().name; },
     META_COLLECTIONS: META_COLLECTIONS,
     openDb: openDb, idbTx: idbTx, audit: audit, blobs: blobs,
-    setScope: setScope, getScope: getScope, setMain: setMain, setInterceptor: setInterceptor, setOverlay: setOverlay, wasPrivate: wasPrivate, visibleMain: function(name){ return scopeFilter(name, peekJson(name) || []); }, scopedNames: SCOPED, peekAll: peekJson, addValidator: addValidator, ensureDefaultCenters: ensureDefaultCenters,
+    setScope: setScope, getScope: getScope, setMain: setMain, validateWrite: validateWrite, setInterceptor: setInterceptor, setOverlay: setOverlay, wasPrivate: wasPrivate, visibleMain: function(name){ return scopeFilter(name, peekJson(name) || []); }, scopedNames: SCOPED, peekAll: peekJson, addValidator: addValidator, ensureDefaultCenters: ensureDefaultCenters,
     schemaVersion: schemaVersion, latestSchema: latestSchema,
     registerMigration: registerMigration, migrate: migrate,
     migrationState: function(){ return migrationState; },
@@ -3096,8 +3098,8 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
   'use strict';
   var el = function(id){ return document.getElementById(id); };
   var esc = function(s){ return typeof escapeHtml === 'function' ? escapeHtml(s) : String(s); };
-  var TYPE = { abroadForms:'טפסי חו"ל', responsibilities:'אחראים', syncChanges:'שינויי סנכרון', syncBatches:'קבוצות סנכרון', hqDomains:'תחומי אחריות מטה', employees:'עובדים', meetings:'סיכומי פגישות', tasks:'משימות', postings:'שיבוצים', positions:'תקנים', convergence:'התכנסות', attendance:'נוכחות', attendanceRequests:'בקשות נוכחות', infoItems:'מידע למנהלים', contactRoles:'דף קשר', incentives:'תמריצים', users:'משתמשים', grants:'הרשאות', orgUnits:'מרכזים ויחידות', unitMemberships:'היסטוריית שיוך', notifications:'התראות', system:'מערכת' };
-  var ACTION = { create:'נוצר', update:'עודכן', delete:'נמחק', 'backup-export':'ייצוא גיבוי', restore:'שחזור', 'sync-submit':'שליחת סנכרון', 'sync-approve':'אישור סנכרון', 'sync-reject':'דחיית סנכרון', 'sync-review':'סנכרון לבדיקה', 'sync-discard':'ביטול שינוי פרטי', 'sync-reopen':'החזרה לעריכה', 'sync-domains':'תחומי אחריות מטה' };
+  var TYPE = { abroadForms:'טפסי חו"ל', responsibilities:'אחראים', syncChanges:'שינויי סנכרון', syncBatches:'קבוצות סנכרון', hqDomains:'תחומי אחריות מטה', positionSwaps:'החלפות תקנים', employees:'עובדים', meetings:'סיכומי פגישות', tasks:'משימות', postings:'שיבוצים', positions:'תקנים', convergence:'התכנסות', attendance:'נוכחות', attendanceRequests:'בקשות נוכחות', infoItems:'מידע למנהלים', contactRoles:'דף קשר', incentives:'תמריצים', users:'משתמשים', grants:'הרשאות', orgUnits:'מרכזים ויחידות', unitMemberships:'היסטוריית שיוך', notifications:'התראות', system:'מערכת' };
+  var ACTION = { create:'נוצר', update:'עודכן', delete:'נמחק', 'backup-export':'ייצוא גיבוי', restore:'שחזור', 'sync-submit':'שליחת סנכרון', 'sync-approve':'אישור סנכרון', 'sync-reject':'דחיית סנכרון', 'sync-review':'סנכרון לבדיקה', 'sync-discard':'ביטול שינוי פרטי', 'sync-reopen':'החזרה לעריכה', 'sync-domains':'תחומי אחריות מטה', 'sync-derived':'עדכון נגזר מכרטיס העובד', 'swap-create':'החלפת תקנים', 'swap-reverse':'ביטול החלפה', 'swap-convert':'החלפה קבועה', 'swap-both':'הפשרה: שניהם פעילים' };
   var SOURCE = { ui:'ממשק', 'import':'ייבוא', migration:'שדרוג נתונים', sync:'סנכרון', rule:'כלל אוטומטי', derived:'נגזר מכרטיס העובד' };
   var FIELD = { name:'שם', role:'תפקיד', department:'מרכז', industry:'ענף', mador:'מדור', team:'צוות', ramad:'רמ"ד', rank:'רמת הרשאה', level:'זוטר/מובהק', serviceType:'סוג שירות', managerId:'מנהל ישיר', email:'אימייל', phone:'טלפון', active:'פעיל', title:'כותרת', status:'סטטוס', priority:'עדיפות', dueDate:'תאריך יעד', description:'תיאור', assignedTo:'מוקצה ל', jobText:'מלל משרה', serialNumber:'מס\' תקן', counterStatus:'מונה', freezeStatus:'הקפאה', currentAppointment:'מינוי נוכחי', futureAppointment:'מינוי עתידי', firstName:'שם פרטי', lastName:'שם משפחה', releaseDate:'תאריך שחרור', entryDate:'כניסה', exitDate:'יציאה', starred:'רידוד', gross:'שווי ברוטו', code:'קוד', entered:'הוזן', notes:'הערות', content:'תוכן', topic:'נושא', file:'קובץ', comments:'תגובות', summary:'סיכום', date:'תאריך', requestedStatus:'סטטוס מבוקש', note:'הערה', roleTitle:'תפקיד', holderName:'שם התפקידן', responsibilities:'תחומי אחריות' };
   var PAGE = 100, offset = 0, loaded = [];
@@ -4096,8 +4098,8 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     var list = state.positions.filter(function(p){ return norm(p.serialNumber).indexOf(q) >= 0 || norm(p.jobText).indexOf(q) >= 0; })
       .sort(function(a, b){ return (norm(a.serialNumber) === q ? 0 : 1) - (norm(b.serialNumber) === q ? 0 : 1) || String(a.serialNumber).localeCompare(String(b.serialNumber), 'he', { numeric: true }); }).slice(0, 8);
     var html = list.map(function(p){
-      var occ = hubIds.occupantName(p);
-      return '<button type="button" class="pp-item" data-pp="pick" data-id="' + esc(p.id) + '"><b>' + esc(p.serialNumber) + '</b> — ' + esc(p.jobText || '') + ' <span class="locked-note" style="display:inline">' + (occ ? 'מאויש: ' + esc(occ) : 'פנוי') + '</span></button>';
+      var occ = hubIds.occupantName(p), na = window.hubCounter ? hubCounter.assignable(p) : { ok: true };
+      return '<button type="button" class="pp-item" data-pp="pick" data-id="' + esc(p.id) + '"' + (na.ok ? '' : ' title="' + esc(na.reason) + '"') + '><b>' + esc(p.serialNumber) + '</b> — ' + esc(p.jobText || '') + ' <span class="locked-note" style="display:inline">' + (occ ? 'מאויש: ' + esc(occ) : 'פנוי') + (na.ok ? '' : ' · ' + esc(na.reason) + ', לא ניתן לשיבוץ') + '</span></button>';
     }).join('');
     var exact = hubIds.findPosition(raw, null);
     if (!exact){
@@ -4122,6 +4124,10 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     if (!el('pp-wrap')) return true;
     var p = pp.posId ? state.positions.find(function(x){ return x.id === pp.posId; }) : null;
     var occ = p && p.currentAppointment && p.currentAppointment.linkedEmployeeId;
+    if (p && window.hubCounter && occ !== pp.empId){
+      var na = hubCounter.assignable(p);
+      if (!na.ok){ el('pp-warn').innerHTML = '<div class="dup-err" role="alert">' + esc(hubCounter.blockMsg(p, na)) + '</div>'; el('pp-warn').scrollIntoView({ block: 'center' }); return false; }
+    }
     if (p && occ && occ !== pp.empId && !(el('pp-confirm') && el('pp-confirm').checked)){
       renderWarn(); el('pp-warn').scrollIntoView({ block: 'center' }); return false;
     }
@@ -4177,7 +4183,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
       if (posOf(e.id)){ e.positionSerial = ''; changed = true; return; }
       var hit = hubIds.findPosition(e.positionSerial, null), p = hit && hit.visible ? hit.rec : null;
       var occ = p && p.currentAppointment && p.currentAppointment.linkedEmployeeId;
-      if (p && !occ){
+      if (p && !occ && (!window.hubCounter || hubCounter.assignable(p).ok)){
         p.currentAppointment = p.currentAppointment || {};
         p.currentAppointment.linkedEmployeeId = e.id; p.currentAppointment.fullName = e.name; p.currentAppointment.personalNumber = e.personalNumber || '';
         e.positionSerial = ''; linked++; changed = true;
@@ -4193,7 +4199,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     state.positions.forEach(function(p){
       var ca = p.currentAppointment; if (!ca || ca.linkedEmployeeId || !ca.personalNumber) return;
       var e = state.employees.find(function(x){ return norm(x.personalNumber) === norm(ca.personalNumber); });
-      if (e && !posOf(e.id)){ ca.linkedEmployeeId = e.id; ca.fullName = e.name; n++; }
+      if (e && !posOf(e.id) && (!window.hubCounter || hubCounter.assignable(p).ok)){ ca.linkedEmployeeId = e.id; ca.fullName = e.name; n++; }
     });
     if (n) await storeSet('positions', state.positions);
     return n;
@@ -5625,6 +5631,8 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
   function mineFor(entity, centerId){ return all(KEY_C).filter(function(c){ return c.entityType === entity && c.centerId === centerId && OPEN.indexOf(c.status) > -1; }); }
   async function intercept(entity, value, scope){
     if (derivedDepth) return applyDerived(entity, value, scope);
+    var verr = DataStore.validateWrite(entity, value);
+    if (verr){ if (window.hubShowError) hubShowError('השמירה נחסמה', verr); return false; }
     var cid = scope.centerId, def = ENTITIES[entity], main = all(entity), mainMap = {}, mine = mineFor(entity, cid), byEnt = {}, refused = [];
     main.forEach(function(r){ mainMap[r.id] = r; });
     mine.forEach(function(c){ byEnt[c.entityId] = c; });
@@ -7210,6 +7218,333 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     convVisible: convVisible, posVisible: posVisible, incVisible: incVisible, attVisible: attVisible, taskVisible: taskVisible, eventInScope: eventInScope, refVisible: refVisible,
     chainOf: chainOf, headsOf: headsOf, headChanged: headChanged, invalidate: invalidate, rowsForReport: rowsForReport, openReport: openReport, compute: compute
   };
+})();
+</script>
+<script>
+/* ================================================================
+   Counter, freeze and position swaps (round 5, stage 19).
+   Built on the two fields that already exist in a position: counterStatus ("מונה 0" / "מונה 1") and freezeStatus ("מופשר" / "מוקפא").
+   - counter 1: an employee may be assigned. counter 0: no assignment, unless the position was RAISED by an active swap.
+   - a frozen position cannot be assigned either.
+   - a swap (collection positionSwaps) freezes a counter-1 position so that a counter-0 position can be raised; both are logged.
+   - unfreezing a position that froze another one for a swap always asks: cancel the swap (preselected), make it permanent, or keep both active
+     (the last one only for the owner of the positions domain).
+   - assignment is refused by a validator on the positions collection (new links only), so imports and every other path are covered as well.
+   - the M6b report lists the combinations of the old text fields that have no clear meaning; nothing changes without a decision per row.
+   ================================================================ */
+(function(){
+  'use strict';
+  var el = function(id){ return document.getElementById(id); };
+  var esc = function(s){ return typeof escapeHtml === 'function' ? escapeHtml(s) : String(s); };
+  var KEY = 'positionSwaps', KEY_H = 'm6bHandled';
+  var SW_STATUS = { active: 'פעילה', reversed: 'בוטלה', converted: 'הוחלפה לצמיתות' };
+  function newId(p){ return p + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+  function swaps(){ var a = DataStore.peekAll(KEY); return Array.isArray(a) ? a : []; }
+  function posById(id){ return (state.positions || []).find(function(p){ return p.id === id; }) || null; }
+  function counterOf(p){ var t = String((p && p.counterStatus) || ''); return t.indexOf('1') > -1 ? 1 : (t.indexOf('0') > -1 ? 0 : null); }
+  function frozenOf(p){ return String((p && p.freezeStatus) || '').indexOf('מוקפא') > -1; }
+  function raisingSwap(id){ return swaps().find(function(s){ return s.status === 'active' && s.raisedPositionId === id; }) || null; }
+  function freezingSwap(id){ return swaps().find(function(s){ return s.status === 'active' && !s.bothActive && s.frozenPositionId === id; }) || null; }
+  function inActiveSwap(id){ return swaps().some(function(s){ return s.status === 'active' && !s.bothActive && (s.frozenPositionId === id || s.raisedPositionId === id); }); }
+  function assignable(p){
+    if (!p) return { ok: true };
+    if (frozenOf(p)) return { ok: false, reason: 'התקן מוקפא' };
+    if (counterOf(p) === 0 && !raisingSwap(p.id)) return { ok: false, reason: 'התקן במונה 0 ולא הועלה' };
+    return { ok: true };
+  }
+  function occupantId(p){ return (p && p.currentAppointment && p.currentAppointment.linkedEmployeeId) || ''; }
+  function occupantLabel(p){ var id = occupantId(p), e = id ? empById(id) : null; return e ? e.name : ((p && p.currentAppointment && p.currentAppointment.fullName) || ''); }
+  function label(p){ return p ? ((p.serialNumber || '') + ' — ' + (p.jobText || '')) : '?'; }
+  function logEvent(action, details){ try{ return DataStore.audit.logEvent(action, details); }catch(e){ return null; } }
+  function blockMsg(p, a){
+    return 'אי אפשר לשבץ עובד לתקן "' + label(p) + '": ' + a.reason + '. ' + (counterOf(p) === 0 && !frozenOf(p) ? 'כדי לשבץ יש להעלות את התקן דרך "החלפת תקנים" (הקפאת תקן במונה 1).' : 'כדי לשבץ יש להפשיר את התקן.');
+  }
+
+  /* ---------- the block on assignment: any write that creates a NEW link to a position that cannot be assigned is refused ---------- */
+  if (window.DataStore && DataStore.addValidator){
+    DataStore.addValidator('positions', function(next, old){
+      var was = {}; (old || []).forEach(function(p){ was[p.id] = occupantId(p); });
+      for (var i = 0; i < next.length; i++){
+        var p = next[i], lid = occupantId(p); if (!lid || was[p.id] === lid) continue;
+        var a = assignable(p); if (!a.ok) return blockMsg(p, a);
+      }
+      return '';
+    });
+  }
+
+  /* ---------- who may swap ---------- */
+  function me(){ return typeof currentUser === 'function' ? currentUser() : null; }
+  function canSwap(){
+    var u = me(); if (!u || u.active === false) return false;
+    if (u.scope && u.scope.kind === 'center') return false;               /* freezing / raising a position is a decision above the center */
+    return !!(u.isSuper || u.isHr || (window.hubSync && hubSync.canDecide(u, 'positions')));
+  }
+  function canApproveBoth(){
+    var u = me(); return !!u && !!(u.isSuper || (window.hubSync && hubSync.domainOwners('positions').some(function(o){ return o.id === u.id; })));
+  }
+  function notifyOwners(title, body, key){
+    if (!window.hubNotify || !window.hubSync) return;
+    var u = me();
+    hubSync.domainOwners('positions').forEach(function(o){ if (u && o.id === u.id) return; hubNotify.add({ recipientId: o.id, kind: 'swap', domain: 'positions', title: title, body: body, dedupeKey: key + ':' + o.id }); });
+  }
+  async function writeBoth(touched, nextSwaps){
+    var snap = touched.map(function(p){ return [p, p.counterStatus, p.freezeStatus]; });
+    var undo = function(){ snap.forEach(function(x){ x[0].counterStatus = x[1]; x[0].freezeStatus = x[2]; }); };
+    if (!(await storeSet('positions', state.positions))){ undo(); return false; }
+    if (!(await DataStore.set(KEY, nextSwaps))){ undo(); await storeSet('positions', state.positions); return false; }
+    return true;
+  }
+
+  /* ---------- creating a swap ---------- */
+  async function createSwap(frozenId, raisedId, note, ack, source){
+    if (!canSwap()) return 'החלפת תקנים היא פעולה של המטה, של משאבי אנוש או של משתמש המערכת';
+    var f = posById(frozenId), r = posById(raisedId);
+    if (!f || !r) return 'אחד התקנים לא נמצא (ייתכן שהוא במרכז אחר)';
+    if (f.id === r.id) return 'צריך לבחור שני תקנים שונים';
+    if (counterOf(f) !== 1) return 'התקן להקפאה חייב להיות במונה 1';
+    if (frozenOf(f)) return 'התקן להקפאה כבר מוקפא';
+    if (counterOf(r) !== 0) return 'התקן להעלאה חייב להיות במונה 0';
+    if (frozenOf(r)) return 'התקן להעלאה מוקפא';
+    if (raisingSwap(r.id)) return 'התקן להעלאה כבר הועלה';
+    if (inActiveSwap(f.id) || inActiveSwap(r.id)) return 'תקן יכול להיות חלק מהחלפה פעילה אחת בלבד';
+    if (occupantId(f) && !ack) return 'התקן להקפאה מאויש על ידי ' + occupantLabel(f) + '. אשר/י שתיווצר סתירה, או העבר אותו קודם';
+    var u = me(), now = new Date().toISOString();
+    var sw = { id: newId('sw'), frozenPositionId: f.id, raisedPositionId: r.id, status: 'active', createdBy: u.id, createdAt: now, note: note || '', history: [{ at: now, by: u.username, action: 'create', note: note || '' }] };
+    f.freezeStatus = 'מוקפא';
+    if (!(await writeBoth([f], swaps().concat([sw])))) return 'השמירה נכשלה';
+    logEvent('swap-create', { label: 'החלפת תקנים: הוקפא ' + label(f) + ', הועלה ' + label(r) + (note ? ' · ' + note : ''), swapId: sw.id, frozen: f.id, raised: r.id });
+    notifyOwners('החלפת תקנים: הוקפא ' + label(f) + ' והועלה ' + label(r), (note ? note + ' · ' : '') + 'בוצע על ידי ' + u.username, 'swap:' + sw.id);
+    return '';
+  }
+  /* a swap that already exists in the text fields: only recorded, no field changes (M6b) */
+  async function linkSwap(frozenId, raisedId, source){
+    var f = posById(frozenId), r = posById(raisedId);
+    if (!f || !r) return 'אחד התקנים לא נמצא';
+    if (f.id === r.id) return 'צריך לבחור שני תקנים שונים';
+    if (counterOf(f) !== 1 || !frozenOf(f)) return 'התקן המוקפא חייב להיות במונה 1 ומוקפא';
+    if (counterOf(r) !== 0 || frozenOf(r)) return 'התקן שהועלה חייב להיות במונה 0 ולא מוקפא';
+    if (inActiveSwap(f.id) || inActiveSwap(r.id)) return 'תקן יכול להיות חלק מהחלפה פעילה אחת בלבד';
+    var u = me(), now = new Date().toISOString();
+    var sw = { id: newId('sw'), frozenPositionId: f.id, raisedPositionId: r.id, status: 'active', createdBy: u.id, createdAt: now, note: 'נרשם מדוח המעבר (M6b)', source: source || 'm6b', history: [{ at: now, by: u.username, action: 'm6b-link', note: '' }] };
+    if (!(await DataStore.set(KEY, swaps().concat([sw])))) return 'השמירה נכשלה';
+    logEvent('swap-create', { label: 'קישור להחלפה מדוח המעבר: מוקפא ' + label(f) + ', הועלה ' + label(r), swapId: sw.id, frozen: f.id, raised: r.id });
+    return '';
+  }
+
+  /* ---------- unfreezing: always a decision ---------- */
+  var OPT = {
+    reverse: { title: 'ביטול ההחלפה', note: 'התקן המוקפא יחזור למופשר והתקן שהועלה יחזור למונה 0.' },
+    convert: { title: 'החלפה קבועה', note: 'התקן שהועלה נשאר במונה 1, והתקן המוקפא הופך למונה 0.' },
+    both: { title: 'שניהם פעילים', note: 'ההפשרה מותרת והתקן שהועלה נשאר מועלה. חריגה ממכסת מונה 1: דורש אישור מפורש של אחראי תחום התקנים ויופיע כסתירה עד שיאושר כחריג.' }
+  };
+  function decisionModal(swId, msg){
+    var sw = swaps().find(function(s){ return s.id === swId; }); if (!sw) return;
+    var f = posById(sw.frozenPositionId), r = posById(sw.raisedPositionId), occR = r ? occupantLabel(r) : '', occF = f ? occupantLabel(f) : '', both = canApproveBoth();
+    function radio(v, extra, disabled){ return '<label class="checkbox-row" style="align-items:flex-start;"><input type="radio" name="sw-opt" value="' + v + '"' + (v === 'reverse' ? ' checked' : '') + (disabled ? ' disabled' : '') + '> <span><b>' + OPT[v].title + (v === 'reverse' ? ' (מסומן מראש)' : '') + '</b><br><span class="locked-note" style="display:inline">' + OPT[v].note + '</span>' + (extra || '') + '</span></label>'; }
+    openModal('<h3>הפשרת תקן מוקפא</h3>'
+      + '<div class="locked-note">התקן <b>' + esc(label(f)) + '</b> הוקפא כדי להעלות את <b>' + esc(label(r)) + '</b>. מה לעשות עם ההחלפה? ההחלטה נשאלת בכל הפשרה ונרשמת ביומן עם שם המחליט.</div>'
+      + radio('reverse', occR ? '<br><span style="color:var(--danger,#c0392b)">התקן שהועלה מאויש על ידי ' + esc(occR) + '. ביטול ההחלפה יהפוך אותו לעובד על תקן במונה 0.</span>' : '')
+      + radio('convert', occF ? '<br><span style="color:var(--danger,#c0392b)">התקן המוקפא מאויש על ידי ' + esc(occF) + '. אחרי ההמרה הוא יהיה במונה 0.</span>' : '')
+      + radio('both', both ? '' : '<br><span class="locked-note" style="display:inline">אפשרות זו זמינה לאחראי תחום התקנים בלבד.</span>', !both)
+      + '<div class="field" id="sw-ack-wrap" style="display:none;"><label class="checkbox-row"><input type="checkbox" id="sw-ack"> אני מבין/ה שתיווצר סתירה (עובד על תקן שאינו ניתן לשיבוץ) שאפשר לאשר כחריג במסך הסתירות</label></div>'
+      + '<div class="field"><label>הערה (אופציונלי)</label><input type="text" id="sw-note"></div>'
+      + '<div id="sw-msg" class="locked-note" style="color:var(--danger,#c0392b)">' + esc(msg || '') + '</div>'
+      + '<div class="modal-actions"><button class="primary" type="button" data-ct="decide" data-id="' + esc(swId) + '">אשר</button><button class="ghost" onclick="closeModal()" type="button">ביטול</button></div>');
+    syncAck(swId);
+  }
+  function needAck(sw, opt){
+    var f = posById(sw.frozenPositionId), r = posById(sw.raisedPositionId);
+    return (opt === 'reverse' && r && occupantId(r)) || (opt === 'convert' && f && occupantId(f));
+  }
+  function syncAck(swId){
+    var sw = swaps().find(function(s){ return s.id === swId; }); if (!sw || !el('sw-ack-wrap')) return;
+    var o = document.querySelector('input[name="sw-opt"]:checked');
+    el('sw-ack-wrap').style.display = o && needAck(sw, o.value) ? 'block' : 'none';
+  }
+  async function decide(swId, opt, note, ack){
+    if (!canSwap()) return 'ההפשרה היא פעולה של המטה, של משאבי אנוש או של משתמש המערכת';
+    var sw = swaps().find(function(s){ return s.id === swId; });
+    if (!sw || sw.status !== 'active' || sw.bothActive) return 'ההחלפה כבר אינה פעילה';
+    if (!OPT[opt]) return 'נא לבחור אפשרות';
+    if (opt === 'both' && !canApproveBoth()) return 'האפשרות "שניהם פעילים" דורשת אישור מפורש של אחראי תחום התקנים';
+    if (needAck(sw, opt) && !ack) return 'יש לאשר שתיווצר סתירה לפני שממשיכים';
+    var f = posById(sw.frozenPositionId), r = posById(sw.raisedPositionId), u = me(), now = new Date().toISOString(), touched = [];
+    var prev = JSON.stringify(sw);
+    if (opt === 'reverse'){ if (f){ f.freezeStatus = 'מופשר'; touched.push(f); } sw.status = 'reversed'; sw.reversedBy = u.id; sw.reversedAt = now; }
+    else if (opt === 'convert'){ if (r){ r.counterStatus = 'מונה 1'; touched.push(r); } if (f){ f.counterStatus = 'מונה 0'; f.freezeStatus = 'מופשר'; touched.push(f); } sw.status = 'converted'; sw.convertedBy = u.id; sw.convertedAt = now; }
+    else { if (f){ f.freezeStatus = 'מופשר'; touched.push(f); } sw.bothActive = true; sw.approvedBy = u.id; sw.approvedAt = now; }
+    sw.history = (sw.history || []).concat([{ at: now, by: u.username, action: opt, note: note || '' }]);
+    var list = swaps().map(function(x){ return x.id === sw.id ? sw : x; });
+    if (!(await writeBoth(touched, list))){ Object.assign(sw, JSON.parse(prev)); return 'השמירה נכשלה'; }
+    logEvent('swap-' + opt, { label: 'הפשרת ' + label(f) + ': ' + OPT[opt].title + ' · הפעיל/ה: ' + u.username + (note ? ' · ' + note : ''), swapId: sw.id, frozen: sw.frozenPositionId, raised: sw.raisedPositionId, option: opt, note: note || '' });
+    notifyOwners('הפשרת תקן: ' + OPT[opt].title, label(f) + ' · ' + label(r) + ' · ' + u.username, 'swapdec:' + sw.id + ':' + opt);
+    return '';
+  }
+
+  /* ---------- new swap window ---------- */
+  function candidates(kind){
+    return (state.positions || []).filter(function(p){
+      if (kind === 'frozen') return counterOf(p) === 1 && !frozenOf(p) && !inActiveSwap(p.id);
+      return counterOf(p) === 0 && !frozenOf(p) && !raisingSwap(p.id) && !inActiveSwap(p.id);
+    }).sort(function(a, b){ return String(a.serialNumber).localeCompare(String(b.serialNumber), 'he', { numeric: true }); });
+  }
+  function opt(p){ var o = occupantLabel(p); return '<option value="' + esc(p.id) + '">' + esc(label(p)) + (o ? ' (מאויש: ' + esc(o) + ')' : ' (פנוי)') + '</option>'; }
+  function openNew(msg){
+    if (!canSwap()){ alert('החלפת תקנים היא פעולה של המטה, של משאבי אנוש או של משתמש המערכת'); return; }
+    openModal('<h3>החלפת תקנים</h3><div class="locked-note">מקפיאים תקן במונה 1 כדי להעלות תקן במונה 0. שני התקנים והפעולה נרשמים ביומן, ואחראי תחום התקנים מקבל התראה.</div>'
+      + '<div class="field"><label>תקן להקפאה (מונה 1)</label><select id="sw-frozen"><option value="">— בחר —</option>' + candidates('frozen').map(opt).join('') + '</select></div>'
+      + '<div class="field"><label>תקן להעלאה (מונה 0)</label><select id="sw-raised"><option value="">— בחר —</option>' + candidates('raised').map(opt).join('') + '</select></div>'
+      + '<div class="field" id="sw-occ" style="display:none;"><label class="checkbox-row"><input type="checkbox" id="sw-ack"> התקן להקפאה מאויש. אני מבין/ה שתיווצר סתירה (עובד על תקן מוקפא) שאפשר לאשר כחריג</label></div>'
+      + '<div class="field"><label>הערה (אופציונלי)</label><input type="text" id="sw-note"></div>'
+      + '<div id="sw-msg" class="locked-note" style="color:var(--danger,#c0392b)">' + esc(msg || '') + '</div>'
+      + '<div class="modal-actions"><button class="primary" type="button" data-ct="create">בצע החלפה</button><button class="ghost" type="button" data-ct="manager">חזרה</button></div>', true);
+  }
+  function openManager(){
+    var list = swaps().slice().sort(function(a, b){ return (b.createdAt || '') < (a.createdAt || '') ? -1 : 1; }), can = canSwap();
+    var rows = list.map(function(s){
+      var f = posById(s.frozenPositionId), r = posById(s.raisedPositionId), by = (state.users || []).find(function(x){ return x.id === s.createdBy; });
+      var st = s.bothActive ? 'שניהם פעילים (חריגה ממכסה)' : SW_STATUS[s.status] || s.status;
+      var hist = (s.history || []).map(function(h){ return esc(new Date(h.at).toLocaleDateString('he-IL')) + ' · ' + esc(h.by || '') + ' · ' + esc(({ create: 'נוצרה', reverse: 'בוטלה', convert: 'הוחלפה לצמיתות', both: 'שניהם פעילים', 'm6b-link': 'נרשמה מדוח המעבר' })[h.action] || h.action) + (h.note ? ' · ' + esc(h.note) : ''); }).join('<br>');
+      return '<tr><td>' + esc(st) + '</td><td>' + esc(f ? label(f) : '(נמחק)') + '</td><td>' + esc(r ? label(r) : '(נמחק)') + '</td><td>' + esc(by ? by.username : '—') + '<div class="locked-note" style="margin:0">' + esc(s.createdAt ? new Date(s.createdAt).toLocaleDateString('he-IL') : '') + '</div></td><td>' + (s.note ? esc(s.note) : '') + '<div class="locked-note" style="margin:0">' + hist + '</div></td>'
+        + '<td>' + (can && s.status === 'active' && !s.bothActive ? '<button class="ghost" type="button" data-ct="unfreeze" data-id="' + esc(s.id) + '">הפשר…</button>' : '') + '</td></tr>';
+    }).join('') || '<tr><td colspan="6">עדיין לא בוצעו החלפות.</td></tr>';
+    openModal('<h3>החלפת תקנים</h3><div class="locked-note">הקפאת תקן במונה 1 מאפשרת להעלות תקן במונה 0. המונה והקפאה נשארים בשדות התקן, וההחלפה מקשרת ביניהם.</div>'
+      + '<div class="table-scroll"><table><thead><tr><th>סטטוס</th><th>תקן מוקפא</th><th>תקן שהועלה</th><th>נוצרה</th><th>הערה והיסטוריה</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>'
+      + '<div class="modal-actions">' + (can ? '<button class="primary" type="button" data-ct="new">החלפה חדשה</button><button class="ghost" type="button" data-ct="m6b">דוח מונה והקפאה</button>' : '<span class="locked-note">החלפה והפשרה הן פעולות של המטה ושל משאבי אנוש.</span>') + '<button class="ghost" onclick="closeModal()" type="button">סגור</button></div>', true);
+  }
+
+  /* ---------- the position form ---------- */
+  function formNote(p){
+    if (!p || !p.id) return '';
+    var fs_ = freezingSwap(p.id), rs = raisingSwap(p.id), a = assignable(p);
+    if (fs_){ var rr = posById(fs_.raisedPositionId); return '<div class="locked-note">התקן מוקפא בהחלפה פעילה (הועלה: ' + esc(label(rr)) + '). שדה ההקפאה נעול. ' + (canSwap() ? '<button class="ghost" type="button" data-ct="unfreeze" data-id="' + esc(fs_.id) + '">הפשר…</button>' : 'להפשרה פנו למטה או למשאבי אנוש.') + '</div>'; }
+    if (rs){ var ff = posById(rs.frozenPositionId); return '<div class="locked-note">התקן הועלה בהחלפה פעילה (הוקפא: ' + esc(label(ff)) + '), ולכן הוא ניתן לשיבוץ למרות מונה 0.</div>'; }
+    if (!a.ok) return '<div class="dup-err" role="alert">' + esc(a.reason) + ': לא ניתן לשבץ עובד לתקן הזה. ' + (counterOf(p) === 0 && !frozenOf(p) ? 'כדי לאפשר שיבוץ יש להעלות אותו בהחלפת תקנים.' : 'כדי לאפשר שיבוץ יש להפשיר אותו.') + '</div>';
+    return '';
+  }
+  function freezeLocked(p){ return !!(p && p.id && freezingSwap(p.id)); }
+  /* '' = go on, otherwise the reason the save stops */
+  function savePositionGuard(existingId, data){
+    var cur = existingId ? posById(existingId) : null;
+    if (cur && freezingSwap(cur.id) && !frozenOf({ freezeStatus: data.freezeStatus })) return 'התקן הוקפא בהחלפה פעילה. ההפשרה נעשית בכפתור "הפשר…" שבטופס, כדי להחליט מה לעשות בהחלפה.';
+    var lid = data.currentAppointment && data.currentAppointment.linkedEmployeeId;
+    if (lid && lid !== occupantId(cur)){
+      var probe = Object.assign({}, cur || {}, { id: existingId || '', counterStatus: data.counterStatus, freezeStatus: data.freezeStatus });
+      var a = assignable(probe); if (!a.ok) return blockMsg(probe, a);
+    }
+    return '';
+  }
+  function posOptionDisabled(p, empId){ var a = assignable(p); return !a.ok && occupantId(p) !== empId ? a.reason : ''; }
+
+  /* ---------- the M6b report ---------- */
+  function handledMap(){ var h = DataStore.peekAll(KEY_H); return h && !Array.isArray(h) && typeof h === 'object' ? h : {}; }
+  var CAT = { a: 'מונה או הקפאה ריקים', b: 'מונה 0 ומופשר, ללא תקן מוקפא מקושר', c: 'מונה 0 ומוקפא (סותר)', d: 'מונה 1 ומוקפא, ללא תקן שהועלה', e: 'עובד על תקן שאינו ניתן לשיבוץ' };
+  function m6bCats(p){
+    var c = counterOf(p), fr = frozenOf(p), out = [], fz = String(p.freezeStatus || '');
+    if (c === null || !fz.trim()) out.push('a');
+    if (c === 0 && !fr && fz.indexOf('מופשר') > -1 && !raisingSwap(p.id)) out.push('b');
+    if (c === 0 && fr) out.push('c');
+    if (c === 1 && fr && !freezingSwap(p.id) && !swaps().some(function(s){ return s.status === 'active' && s.bothActive && s.frozenPositionId === p.id; })) out.push('d');
+    if (occupantId(p) && !assignable(p).ok) out.push('e');
+    return out;
+  }
+  var m6 = [];
+  function m6bRows(){
+    var h = handledMap(); m6 = [];
+    (state.positions || []).forEach(function(p){ if (h[p.id]) return; var cats = m6bCats(p); if (cats.length) m6.push({ pos: p, cats: cats }); });
+    return m6;
+  }
+  function partnerKind(p){ var c = counterOf(p), fr = frozenOf(p); if (c === 0 && !fr) return 'frozen'; if (c === 1 && fr) return 'raised'; return ''; }
+  function partnerOptions(kind){
+    var list = (state.positions || []).filter(function(q){
+      if (kind === 'frozen') return counterOf(q) === 1 && frozenOf(q) && !inActiveSwap(q.id);
+      return counterOf(q) === 0 && !frozenOf(q) && !raisingSwap(q.id) && !inActiveSwap(q.id);
+    });
+    return '<option value="">— בחר —</option>' + list.map(function(q){ return '<option value="' + esc(q.id) + '">' + esc(label(q)) + '</option>'; }).join('');
+  }
+  var SEL_C = ['', 'מונה 0', 'מונה 1'], SEL_F = ['', 'מופשר', 'מוקפא'];
+  function selHtml(list, v, attr){ return '<select ' + attr + '>' + list.map(function(x){ return '<option value="' + esc(x) + '"' + (x === v ? ' selected' : '') + '>' + (x || '—') + '</option>'; }).join('') + '</select>'; }
+  function openM6b(msg){
+    if (!canSwap()){ alert('הדוח זמין למטה, למשאבי אנוש ולמשתמש המערכת'); return; }
+    var rows = m6bRows(), kindN = {};
+    rows.forEach(function(r){ r.cats.forEach(function(k){ kindN[k] = (kindN[k] || 0) + 1; }); });
+    var body = rows.map(function(r, i){
+      var p = r.pos, pk = partnerKind(p);
+      return '<tr data-m6row="' + i + '"><td><b>' + esc(label(p)) + '</b><div class="locked-note" style="margin:0">' + (occupantLabel(p) ? 'מאויש: ' + esc(occupantLabel(p)) : 'פנוי') + '</div></td><td>' + esc(p.counterStatus || '—') + ' · ' + esc(p.freezeStatus || '—') + '</td><td>' + r.cats.map(function(k){ return '<span class="tag">' + esc(CAT[k]) + '</span>'; }).join(' ') + '</td>'
+        + '<td><select data-m6="act" data-i="' + i + '"><option value="">דלג</option><option value="text">השאר כטקסט</option><option value="fix">תקן ערך</option>' + (pk ? '<option value="link">קשר להחלפה</option>' : '') + '</select></td>'
+        + '<td>' + selHtml(SEL_C, p.counterStatus || '', 'data-m6="counter" data-i="' + i + '"') + ' ' + selHtml(SEL_F, p.freezeStatus || '', 'data-m6="freeze" data-i="' + i + '"') + (pk ? '<br><select data-m6="partner" data-i="' + i + '" data-kind="' + pk + '" title="' + (pk === 'frozen' ? 'התקן שהוקפא בשבילו' : 'התקן שהועלה בגללו') + '">' + partnerOptions(pk) + '</select>' : '') + '</td></tr>';
+    }).join('') || '<tr><td colspan="5">אין תקנים שדורשים החלטה.</td></tr>';
+    openModal('<h3>דוח מונה והקפאה (M6b)</h3>'
+      + '<div class="locked-note">הדוח לא משנה נתונים בעצמו. לכל תקן שהשילוב של המונה וההקפאה בו אינו חד-משמעי בוחרים: <b>השאר כטקסט</b> (מסתיר את השורה), <b>תקן ערך</b> (קובע מונה והקפאה חדשים), <b>קשר להחלפה</b> (רושם החלפה בין תקן מוקפא לתקן שהועלה, בלי לשנות את השדות), או <b>דלג</b>. שום החלפה לא נוצרת אוטומטית.</div>'
+      + '<div class="locked-note" style="display:block;">' + Object.keys(CAT).map(function(k){ return esc(CAT[k]) + ': ' + (kindN[k] || 0); }).join(' · ') + '</div>'
+      + '<div class="table-scroll"><table><thead><tr><th>תקן</th><th>כיום</th><th>מה לא ברור</th><th>החלטה</th><th>ערכים / שותף להחלפה</th></tr></thead><tbody>' + body + '</tbody></table></div>'
+      + '<div id="m6-msg" class="locked-note">' + esc(msg || '') + '</div>'
+      + '<div class="modal-actions"><button class="primary" type="button" data-ct="m6b-apply">החל על הבחירות</button><button class="ghost" type="button" data-ct="m6b-text-all">סמן הכל כ"השאר כטקסט"</button><button class="ghost" type="button" data-ct="m6b-export">ייצוא לאקסל</button><button class="ghost" type="button" data-ct="m6b-reset">אפס סימוני טיפול</button><button class="ghost" onclick="closeModal()" type="button">סגור</button></div>', true);
+  }
+  async function applyM6b(){
+    var h = Object.assign({}, handledMap()), done = 0, errs = [], touched = [], pending = [];
+    m6.forEach(function(r, i){
+      var act = (document.querySelector('[data-m6="act"][data-i="' + i + '"]') || {}).value; if (!act) return;
+      var p = posById(r.pos.id); if (!p) return;
+      if (act === 'text'){ h[p.id] = 'text'; done++; }
+      else if (act === 'fix'){
+        var c = document.querySelector('[data-m6="counter"][data-i="' + i + '"]').value, f = document.querySelector('[data-m6="freeze"][data-i="' + i + '"]').value;
+        p.counterStatus = c; p.freezeStatus = f; touched.push(p); h[p.id] = 'fixed'; done++;
+      } else if (act === 'link'){
+        var sel = document.querySelector('[data-m6="partner"][data-i="' + i + '"]'), pid = sel ? sel.value : '', kind = sel ? sel.getAttribute('data-kind') : '';
+        if (!pid){ errs.push(label(p) + ': לא נבחר שותף'); return; }
+        pending.push({ p: p, frozen: kind === 'frozen' ? pid : p.id, raised: kind === 'frozen' ? p.id : pid });
+      }
+    });
+    if (touched.length && !(await storeSet('positions', state.positions))) errs.push('שמירת התקנים נכשלה');
+    for (var i = 0; i < pending.length; i++){
+      var m = await linkSwap(pending[i].frozen, pending[i].raised, 'm6b');
+      if (m) errs.push(label(pending[i].p) + ': ' + m); else { h[pending[i].frozen] = 'linked'; h[pending[i].raised] = 'linked'; done++; }
+    }
+    await DataStore.set(KEY_H, h);
+    if (typeof renderPositions === 'function') renderPositions();
+    openM6b(done + ' שורות טופלו.' + (errs.length ? ' לא בוצע: ' + errs.join(' · ') : ''));
+  }
+  function exportM6b(){
+    var rows = m6.map(function(r){ var p = r.pos; return { 'מספר תקן': p.serialNumber, 'מלל משרה': p.jobText, 'מאייש': occupantLabel(p), 'מונה': p.counterStatus || '', 'הקפאה': p.freezeStatus || '', 'מה לא ברור': r.cats.map(function(k){ return CAT[k]; }).join('; ') }; });
+    if (!rows.length){ alert('אין שורות לייצוא'); return; }
+    exportToExcel('דוח_מונה_והקפאה', rows);
+  }
+
+  /* ---------- clicks ---------- */
+  document.addEventListener('change', function(e){
+    var t = e.target; if (!t) return;
+    if (t.name === 'sw-opt'){ var d = document.querySelector('[data-ct="decide"]'); if (d) syncAck(d.getAttribute('data-id')); }
+    if (t.id === 'sw-frozen' && el('sw-occ')){ var p = posById(t.value); el('sw-occ').style.display = p && occupantId(p) ? 'block' : 'none'; }
+  });
+  document.addEventListener('click', async function(e){
+    var b = e.target.closest ? e.target.closest('[data-ct]') : null; if (!b) return;
+    var act = b.getAttribute('data-ct'), id = b.getAttribute('data-id');
+    if (act === 'manager') openManager();
+    else if (act === 'new') openNew();
+    else if (act === 'unfreeze'){ if (!canSwap()){ alert('ההפשרה היא פעולה של המטה, של משאבי אנוש או של משתמש המערכת'); return; } decisionModal(id); }
+    else if (act === 'create'){
+      var m = await createSwap((el('sw-frozen') || {}).value, (el('sw-raised') || {}).value, ((el('sw-note') || {}).value || '').trim(), !!(el('sw-ack') && el('sw-ack').checked));
+      if (m){ var keepF = (el('sw-frozen') || {}).value, keepR = (el('sw-raised') || {}).value; openNew(m); if (el('sw-frozen')) el('sw-frozen').value = keepF; if (el('sw-raised')) el('sw-raised').value = keepR; return; }
+      if (typeof renderPositions === 'function') renderPositions(); openManager();
+    }
+    else if (act === 'decide'){
+      var o = document.querySelector('input[name="sw-opt"]:checked');
+      var m2 = await decide(id, o ? o.value : '', ((el('sw-note') || {}).value || '').trim(), !!(el('sw-ack') && el('sw-ack').checked));
+      if (m2){ if (el('sw-msg')) el('sw-msg').textContent = m2; return; }
+      if (typeof renderPositions === 'function') renderPositions(); openManager();
+    }
+    else if (act === 'm6b') openM6b();
+    else if (act === 'm6b-apply') await applyM6b();
+    else if (act === 'm6b-text-all'){ document.querySelectorAll('[data-m6="act"]').forEach(function(s){ s.value = 'text'; }); }
+    else if (act === 'm6b-export') exportM6b();
+    else if (act === 'm6b-reset'){ await DataStore.set(KEY_H, {}); openM6b('סימוני הטיפול אופסו.'); }
+  });
+  function refreshButtons(){ var b = el('swapBtn'); if (b) b.style.display = ''; }
+
+  window.hubCounter = { assignable: assignable, counterOf: counterOf, frozenOf: frozenOf, raisingSwap: raisingSwap, freezingSwap: freezingSwap, swaps: swaps, canSwap: canSwap, canApproveBoth: canApproveBoth,
+    createSwap: createSwap, openDecision: decisionModal, decide: decide, linkSwap: linkSwap, openManager: openManager, openNew: openNew, openM6b: openM6b, m6bRows: m6bRows, m6bCats: m6bCats, formNote: formNote, freezeLocked: freezeLocked,
+    savePositionGuard: savePositionGuard, posOptionDisabled: posOptionDisabled, refreshButtons: refreshButtons, label: label, occupantId: occupantId, occupantLabel: occupantLabel, blockMsg: blockMsg };
 })();
 </script>
 <script>
@@ -9765,13 +10100,14 @@ function positionFormHtml(existing){
         </select>
       </div>
       <div class="field"><label>מופשר/מוקפא</label>
-        <select id="pos-freezeStatus">
+        <select id="pos-freezeStatus"${window.hubCounter && hubCounter.freezeLocked(p) ? ' disabled' : ''}>
           <option value="" ${!p.freezeStatus?'selected':''}>— לא נבחר —</option>
           <option value="מופשר" ${p.freezeStatus==='מופשר'?'selected':''}>מופשר</option>
           <option value="מוקפא" ${p.freezeStatus==='מוקפא'?'selected':''}>מוקפא</option>
         </select>
       </div>
     </div>
+    ${window.hubCounter ? hubCounter.formNote(p) : ''}
     <div class="grid2">
       <div class="field"><label>סוג זמניות</label>
         <input type="text" id="pos-temporality" list="pos-temp-list" value="${escapeHtml(p.temporality)}">
@@ -9867,6 +10203,7 @@ async function savePosition(existingId){
     regulationNotes: document.getElementById('pos-regulationNotes').value.trim(),
     generalNotes: document.getElementById('pos-generalNotes').value.trim()
   };
+  if (window.hubCounter){ const gmsg = hubCounter.savePositionGuard(existingId, data); if (gmsg){ alert(gmsg); return; } }
   let posId = existingId;
   if (existingId){
     const idx = state.positions.findIndex(p=>p.id===existingId);
