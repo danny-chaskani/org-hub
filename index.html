@@ -7028,10 +7028,17 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
   }
   function rowsForReport(){
     var st = S();
+    var byEmp = {}; (st.employees || []).forEach(function(x){ byEmp[x.id] = x; });
+    /* a center user stays inside the center, in the old model and in the new one: the counts are of the people they could ever see */
+    function inPartition(u, ids){
+      if (!(u.scope && u.scope.kind === 'center')) return ids;
+      var main = window.hubOrg ? hubOrg.mainId() : null;
+      return ids.filter(function(id){ var x = byEmp[id]; return x && (x.centerId || main) === u.scope.centerId; });
+    }
     return (st.users || []).filter(function(u){ return !u.isSuper && u.active !== false && u.employeeId; }).map(function(u){
-      var legacy = legacyIds(u.employeeId), hrMode = u.isHr || (u.scope && u.scope.kind === 'hq');
+      var legacy = inPartition(u, legacyIds(u.employeeId)), hrMode = u.isHr || (u.scope && u.scope.kind === 'hq');
       var sc = compute(u.employeeId, hrMode ? 'all' : 'scoped');
-      var next = sc.all ? (st.employees || []).map(function(x){ return x.id; }) : Array.from(sc.ids);
+      var next = inPartition(u, sc.all ? (st.employees || []).map(function(x){ return x.id; }) : Array.from(sc.ids));
       var L = {}, N = {}; legacy.forEach(function(i){ L[i] = 1; }); next.forEach(function(i){ N[i] = 1; });
       var lost = legacy.filter(function(i){ return !N[i]; }), gained = next.filter(function(i){ return !L[i]; });
       return { user: u, emp: (st.employees || []).find(function(x){ return x.id === u.employeeId; }), role: sc.all ? LEVEL_LABEL.all : (sc.heads.length ? sc.heads.map(function(h){ return KIND_HEAD[h.kind] + ': ' + h.name; }).join(' · ') : LEVEL_LABEL.none), legacyN: legacy.length, nextN: next.length, lost: lost, gained: gained, on: u.scopeMode === 'hierarchy' };
@@ -7047,7 +7054,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     var rows = rowsForReport().map(function(r){
       return '<tr><td>' + esc(r.user.username) + '</td><td>' + esc(r.emp ? r.emp.name : '—') + '</td><td>' + esc(r.role) + '</td>'
         + '<td><input type="checkbox" data-hh="hr" data-u="' + esc(r.user.id) + '"' + (r.user.isHr ? ' checked' : '') + ' aria-label="משאבי אנוש"></td>'
-        + '<td>' + (r.on ? '<span class="tag">היקף היררכי</span>' : '<span class="locked-note" style="display:inline">כמו קודם</span>') + '</td><td>' + r.nextN + ' / ' + r.legacyN + '</td></tr>';
+        + '<td>' + (r.on ? '<span class="tag">היקף היררכי</span>' : '<span class="locked-note" style="display:inline">כמו קודם</span>') + '</td><td>חדש: ' + r.nextN + ' · קודם: ' + r.legacyN + '</td></tr>';
     }).join('') || '<tr><td colspan="6">אין משתמשים רגילים</td></tr>';
     return '<div class="card"><div class="panel-head" style="margin-bottom:10px;"><div><h3 style="margin:0 0 6px;">היקף לפי היררכיה</h3><span class="locked-note" style="display:inline">ראש צוות רואה את הצוות, רמ"ד את המדור, רע"ן את הענף, ראש מרכז את המרכז, ומשאבי אנוש את כולם. ההיקף נגזר מראש היחידה בעץ היחידות (לשונית משתמשים), והחלפת ראש יחידה מעבירה אותו אוטומטית. הרשאות לשוניות ודרגות ממשיכות לעבוד בנוסף. משתמש עובר למודל החדש רק אחרי אישור בדוח המעבר.</span></div>'
       + '<button class="primary" type="button" data-hh="report">דוח מעבר להיקף היררכי</button></div>'
@@ -7060,16 +7067,17 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     var rows = rowsForReport(), nu = noUnitCount();
     var body = rows.map(function(r, i){
       var danger = r.lost.length && !r.on;
-      return '<tr><td>' + esc(r.user.username) + '<div class="locked-note" style="margin:0">' + esc(r.emp ? r.emp.name : '') + '</div></td><td>' + esc(r.role) + (r.user.scope ? '<div class="locked-note" style="margin:0">' + esc(window.hubScopeLabel ? hubScopeLabel(r.user) : '') + '</div>' : '') + '</td>'
+      return '<tr><td>' + esc(r.user.username) + '<div class="locked-note" style="margin:0">' + esc(r.emp ? r.emp.name : '') + '</div>'
+        + (r.on ? '<button class="ghost" type="button" data-hh="mode" data-u="' + esc(r.user.id) + '" data-v="legacy">חזור למודל הקודם</button>' : '<button class="' + (danger ? 'ghost' : 'primary') + '" type="button" data-hh="mode" data-u="' + esc(r.user.id) + '" data-v="hierarchy">עבור להיקף היררכי</button>') + '</td>'
+        + '<td>' + esc(r.role) + (r.user.scope ? '<div class="locked-note" style="margin:0">' + esc(window.hubScopeLabel ? hubScopeLabel(r.user) : '') + '</div>' : '') + '</td>'
         + '<td>' + r.legacyN + '</td><td>' + r.nextN + '</td>'
         + '<td>' + (r.lost.length ? '<span style="color:var(--danger,#c0392b)">יאבד ' + r.lost.length + ':</span> ' + esc(names(r.lost)) : '—') + '</td>'
-        + '<td>' + (r.gained.length ? 'יקבל ' + r.gained.length + ': ' + esc(names(r.gained)) : '—') + '</td>'
-        + '<td style="white-space:nowrap;">' + (r.on ? '<button class="ghost" type="button" data-hh="mode" data-u="' + esc(r.user.id) + '" data-v="legacy">חזור למודל הקודם</button>' : '<button class="' + (danger ? 'ghost' : 'primary') + '" type="button" data-hh="mode" data-u="' + esc(r.user.id) + '" data-v="hierarchy">עבור להיקף היררכי</button>') + '</td></tr>';
-    }).join('') || '<tr><td colspan="7">אין משתמשים רגילים</td></tr>';
+        + '<td>' + (r.gained.length ? 'יקבל ' + r.gained.length + ': ' + esc(names(r.gained)) : '—') + '</td></tr>';
+    }).join('') || '<tr><td colspan="6">אין משתמשים רגילים</td></tr>';
     return '<h3>דוח מעבר להיקף היררכי</h3>'
       + '<div class="locked-note">לכל משתמש מוצג מה הוא רואה היום (לפי עץ המנהלים) ומה יראה לפי המבנה הארגוני. שום משתמש לא עובר בלי לחיצה על "עבור". משתמש בלי תפקיד פיקוד יראה רק את עצמו; כדי שיראה יותר: מנו אותו ראש יחידה או סמנו אותו כמשאבי אנוש. משתמשי מטה רואים את כל העובדים. משתמש עם היקף מרכז נשאר מוגבל למרכז שלו גם בתוך המודל.</div>'
       + (nu ? '<div class="locked-note" style="display:block;">' + nu + ' עובדים פעילים אינם משויכים ליחידה, ולכן יהיו גלויים רק למשאבי אנוש ולמנהל ישיר שהוגדר ידנית.</div>' : '')
-      + '<div class="table-scroll"><table><thead><tr><th>משתמש</th><th>תפקיד פיקוד נגזר</th><th>רואה היום</th><th>יראה</th><th>מה יאבד</th><th>מה יקבל</th><th></th></tr></thead><tbody>' + body + '</tbody></table></div>'
+      + '<div class="table-scroll"><table><thead><tr><th>משתמש</th><th>תפקיד פיקוד נגזר</th><th>רואה היום</th><th>יראה</th><th>מה יאבד</th><th>מה יקבל</th></tr></thead><tbody>' + body + '</tbody></table></div>'
       + '<div class="modal-actions"><button class="primary" type="button" data-hh="all-safe">העבר את כל מי שלא מאבד כלום</button><button class="ghost" onclick="closeModal()" type="button">סגור</button></div>';
   }
   function openReport(){ openModal(reportHtml(), true); }
@@ -7406,11 +7414,11 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
       var f = posById(s.frozenPositionId), r = posById(s.raisedPositionId), by = (state.users || []).find(function(x){ return x.id === s.createdBy; });
       var st = s.bothActive ? 'שניהם פעילים (חריגה ממכסה)' : SW_STATUS[s.status] || s.status;
       var hist = (s.history || []).map(function(h){ return esc(new Date(h.at).toLocaleDateString('he-IL')) + ' · ' + esc(h.by || '') + ' · ' + esc(({ create: 'נוצרה', reverse: 'בוטלה', convert: 'הוחלפה לצמיתות', both: 'שניהם פעילים', 'm6b-link': 'נרשמה מדוח המעבר' })[h.action] || h.action) + (h.note ? ' · ' + esc(h.note) : ''); }).join('<br>');
-      return '<tr><td>' + esc(st) + '</td><td>' + esc(f ? label(f) : '(נמחק)') + '</td><td>' + esc(r ? label(r) : '(נמחק)') + '</td><td>' + esc(by ? by.username : '—') + '<div class="locked-note" style="margin:0">' + esc(s.createdAt ? new Date(s.createdAt).toLocaleDateString('he-IL') : '') + '</div></td><td>' + (s.note ? esc(s.note) : '') + '<div class="locked-note" style="margin:0">' + hist + '</div></td>'
-        + '<td>' + (can && s.status === 'active' && !s.bothActive ? '<button class="ghost" type="button" data-ct="unfreeze" data-id="' + esc(s.id) + '">הפשר…</button>' : '') + '</td></tr>';
-    }).join('') || '<tr><td colspan="6">עדיין לא בוצעו החלפות.</td></tr>';
+      return '<tr><td>' + esc(st) + (can && s.status === 'active' && !s.bothActive ? '<div><button class="ghost" type="button" data-ct="unfreeze" data-id="' + esc(s.id) + '">הפשר…</button></div>' : '') + '</td><td>' + esc(f ? label(f) : '(נמחק)') + '</td><td>' + esc(r ? label(r) : '(נמחק)') + '</td><td>' + esc(by ? by.username : '—') + '<div class="locked-note" style="margin:0">' + esc(s.createdAt ? new Date(s.createdAt).toLocaleDateString('he-IL') : '') + '</div></td><td>' + (s.note ? esc(s.note) : '') + '<div class="locked-note" style="margin:0">' + hist + '</div></td>'
+        + '</tr>';
+    }).join('') || '<tr><td colspan="5">עדיין לא בוצעו החלפות.</td></tr>';
     openModal('<h3>החלפת תקנים</h3><div class="locked-note">הקפאת תקן במונה 1 מאפשרת להעלות תקן במונה 0. המונה והקפאה נשארים בשדות התקן, וההחלפה מקשרת ביניהם.</div>'
-      + '<div class="table-scroll"><table><thead><tr><th>סטטוס</th><th>תקן מוקפא</th><th>תקן שהועלה</th><th>נוצרה</th><th>הערה והיסטוריה</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>'
+      + '<div class="table-scroll"><table><thead><tr><th>סטטוס</th><th>תקן מוקפא</th><th>תקן שהועלה</th><th>נוצרה</th><th>הערה והיסטוריה</th></tr></thead><tbody>' + rows + '</tbody></table></div>'
       + '<div class="modal-actions">' + (can ? '<button class="primary" type="button" data-ct="new">החלפה חדשה</button><button class="ghost" type="button" data-ct="m6b">דוח מונה והקפאה</button>' : '<span class="locked-note">החלפה והפשרה הן פעולות של המטה ושל משאבי אנוש.</span>') + '<button class="ghost" onclick="closeModal()" type="button">סגור</button></div>', true);
   }
 
