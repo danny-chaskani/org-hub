@@ -5562,7 +5562,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
       domain: 'convergence', label: 'ההתכנסות', tab: 'convergence',
       title: function(r){ return ((r.firstName || '') + ' ' + (r.lastName || '')).trim() || String(r.id); },
       fields: { firstName: 'שם פרטי', lastName: 'שם משפחה', role: 'תפקיד', level: 'זוטר/מובהק', industry: 'ענף', mador: 'מדור', releaseDate: 'תאריך שחרור', entryDate: 'כניסה', exitDate: 'יציאה', starred: 'סימון ★', employeeId: 'קישור לעובד', centerId: 'מרכז' },
-      access: function(emp, r){ return hasFullDataAccess(emp.id) || (r.industry && canAccess('conv:industry:' + r.industry, emp.id)) || (r.mador && canAccess('conv:mador:' + r.mador, emp.id)); }
+      access: function(emp, r){ return hasFullDataAccess(emp.id) || (window.hubHier && hubHier.engaged(emp.id) && hubHier.convVisible(r, emp.id)) || (r.industry && canAccess('conv:industry:' + r.industry, emp.id)) || (r.mador && canAccess('conv:mador:' + r.mador, emp.id)); }
     },
     positions: {
       domain: 'positions', label: 'התקנים', tab: 'positions',
@@ -5623,9 +5623,80 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     var sc = u.scope || null;
     if (sc && sc.kind === 'center') return sc.centerId === c.centerId;
     if (canDecide(u, c.domain)) return c.status !== 'private';
-    if (c.visibility !== 'all' || c.status === 'private') return false;
+    if (c.status === 'private') return false;
+    if (c.recipients) return c.recipients.indexOf(u.id) > -1;
+    if (c.visibility !== 'all') return false;
     var emp = empById(u.employeeId), e = ent(c); if (!emp || !e) return false;
     return !!canAccess('tab:' + e.tab, emp.id) && !!e.access(emp, c.after || c.before || {});
+  }
+
+  /* ---------- recipients of a sync: the people relevant to this domain and center (not every user) ---------- */
+  /* a center user's screen holds only the employees of the center: the recipients are looked up in the whole data */
+  function empAny(id){ var a = DataStore.peekAll('employees'); return (Array.isArray(a) ? a : state.employees).find(function(e){ return e.id === id; }) || null; }
+  function isManagerUser(u){
+    var emp = empAny(u.employeeId); if (!emp) return false;
+    if (window.hubHier && hubHier.engaged(emp.id)){ var sc = hubHier.scopeFor(emp.id); return !!sc && (sc.all || sc.level !== 'none' || !!sc.domainOnly); }
+    return hasFullDataAccess(emp.id) || getSubordinateIds(emp.id).length > 0 || hasRank(emp.id);
+  }
+  function recipientsFor(entity, centerId, list, viewerId){
+    var def = ENTITIES[entity], out = [], seen = {}; if (viewerId === undefined){ var m0 = me(); viewerId = m0 ? m0.id : null; }
+    function add(u, role, locked){ if (!u || u.active === false || seen[u.id] || u.id === viewerId) return; seen[u.id] = 1; out.push({ user: u, role: role, locked: !!locked }); }
+    var owners = all(KEY_D).filter(function(d){ return d.domain === def.domain; }).map(function(d){ return userById(d.userId); }).filter(function(u){ return u && u.active !== false && u.scope && u.scope.kind === 'hq'; });
+    if (owners.length) owners.forEach(function(u){ add(u, 'אחראי תחום במטה', true); }); else supers().forEach(function(u){ add(u, 'משתמש מערכת (אין אחראי תחום במטה)', true); });
+    all('centerDomains').filter(function(d){ return d.centerId === centerId && d.domain === def.domain; }).forEach(function(d){ add(userById(d.userId), 'אחראי תחום במרכז', false); });
+    var recs = (list || []).map(function(c){ return c.after || c.before || {}; });
+    (state.users || []).forEach(function(u){
+      if (u.isSuper || seen[u.id] || u.active === false) return;
+      var sc = u.scope; if (sc && sc.kind === 'hq') return; if (sc && sc.kind === 'center' && sc.centerId !== centerId) return;
+      var emp = empAny(u.employeeId); if (!emp || !isManagerUser(u) || !canAccess('tab:' + def.tab, emp.id)) return;
+      if (recs.some(function(r){ return !!def.access(emp, r); })) add(u, 'מנהל רלוונטי', false);
+    });
+    return out;
+  }
+  function receives(c, u){
+    if (c.recipients) return c.recipients.indexOf(u.id) > -1;
+    return c.visibility === 'hq' ? canDecide(u, c.domain) : userMaySee(u, Object.assign({}, c, { status: 'submitted' }));
+  }
+  function isCenterOwner(u, entity, centerId){ return !!u && all('centerDomains').some(function(d){ return d.userId === u.id && d.centerId === centerId && d.domain === ENTITIES[entity].domain; }); }
+  /* for each relevant recipient: is he in step with the latest changes of this center, and what waits for him */
+  function trackingRows(entity, centerId, viewerId){
+    var chs = all(KEY_C).filter(function(c){ return c.entityType === entity && c.centerId === centerId; });
+    return recipientsFor(entity, centerId, chs, viewerId).map(function(r){
+      var got = chs.filter(function(c){ return c.status !== 'private' && receives(c, r.user); });
+      var last = got.reduce(function(m, c){ return (c.submittedAt || '') > m ? (c.submittedAt || '') : m; }, '');
+      var pending = got.filter(function(c){ return LOCKED.indexOf(c.status) > -1; }).length;
+      var unsynced = chs.filter(function(c){ return c.status === 'private' || (!receives(c, r.user) && (c.submittedAt || c.createdAt || '') > last); }).length;
+      return { user: r.user, role: r.role, last: last, pending: pending, unsynced: unsynced };
+    });
+  }
+  function trackingHtml(entity, centerId, viewerId){
+    var rows = trackingRows(entity, centerId, viewerId);
+    return '<div class="table-scroll" style="margin-top:10px;"><table class="sync-track"><thead><tr><th>נמען</th><th>תפקיד</th><th>מצב</th><th>ממתין אצלו</th><th>סונכרן לאחרונה</th></tr></thead><tbody>'
+      + (rows.map(function(r){
+        var emp = empById(r.user.employeeId);
+        return '<tr><td>' + esc(r.user.username) + (emp ? '<div class="locked-note" style="margin:0">' + esc(emp.name) + '</div>' : '') + '</td><td>' + esc(r.role) + '</td><td>' + (r.unsynced ? '<span class="req-status rejected">לא מסונכרן (' + r.unsynced + ')</span>' : '<span class="req-status approved">מסונכרן</span>') + '</td><td>' + (r.pending || '—') + '</td><td>' + esc(r.last ? new Date(r.last).toLocaleString('he-IL') : '—') + '</td></tr>';
+      }).join('') || '<tr><td colspan="5">אין נמענים רלוונטיים.</td></tr>') + '</tbody></table></div>';
+  }
+  /* a notification to the center's responsible person when a relevant recipient is not in step: partly synced, or private changes waiting a day */
+  async function checkUnsynced(centerId, entityOnly){
+    var sc = scopeNow(), u = me(); centerId = centerId || (sc && sc.centerId); if (!centerId || !window.hubNotify) return 0;
+    var n = 0, list = entityOnly ? [entityOnly] : Object.keys(ENTITIES);
+    for (var k = 0; k < list.length; k++){
+      var entity = list[k], def = ENTITIES[entity], owners = all('centerDomains').filter(function(d){ return d.centerId === centerId && d.domain === def.domain; }).map(function(d){ return userById(d.userId); }).filter(Boolean);
+      var chs = all(KEY_C).filter(function(c){ return c.entityType === entity && c.centerId === centerId; });
+      var partial = chs.some(function(c){ return c.status !== 'private'; }), oldPriv = chs.some(function(c){ return c.status === 'private' && c.createdAt && (Date.now() - new Date(c.createdAt).getTime()) > 864e5; });
+      if (!partial && !oldPriv) continue;
+      for (var i = 0; i < owners.length; i++){
+        var all0 = trackingRows(entity, centerId, owners[i].id), maxLast = all0.reduce(function(m, r){ return r.last > m ? r.last : m; }, '');
+        var rows = all0.filter(function(r){ return r.unsynced > 0 && (r.last < maxLast || oldPriv); });   /* behind the others, or private changes waiting a day */
+        for (var j = 0; j < rows.length; j++){
+          var r = rows[j];
+          if (!(await hubNotify.add({ recipientId: owners[i].id, kind: 'sync-track', title: 'שינויים ב' + def.label + ' עדיין לא סונכרנו עם ' + r.user.username, body: r.unsynced + ' שינויים שלא נשלחו אליו (' + r.role + '). בלשונית ' + def.label + ' יש לוח מעקב סנכרון.', payload: { open: 'sync-track', entity: entity }, dedupeKey: 'track:' + entity + ':' + centerId + ':' + r.user.id + ':' + r.unsynced + ':' + r.last }))) continue;
+          n++;
+        }
+      }
+    }
+    return n;
   }
 
   /* ---------- the private layer: write interception and read overlay ---------- */
@@ -5782,13 +5853,15 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     entity = entity || 'convergence';
     var list = myPrivate(entity);
     if (!list.length){ openModal('<h3>סנכרון</h3><div class="empty-state">אין שינויים פרטיים לשלוח.</div><div class="modal-actions"><button class="ghost" onclick="closeModal()" type="button">סגור</button></div>'); return; }
-    var who = vis === 'all' ? 'כל מי שמורשה לראות את הנתון יראה אותם כשכבה "ממתין לאישור המטה". רק אחראי התחום במטה יכול לאשר.' : 'רק המטה יראה אותם.';
-    openModal('<h3>סנכרון ' + (vis === 'all' ? 'עם כולם' : 'עם המטה') + ' · ' + esc((ENTITIES[entity] || {}).label || '') + '</h3>'
-      + '<div class="locked-note">אלה ' + list.length + ' השינויים של ' + esc(centerName(sc.centerId)) + ' מול המידע הראשי. ' + who + ' הם לא ייכנסו לראשי עד שהמטה יאשר.</div>'
+    var recs = recipientsFor(entity, sc.centerId, list);
+    var rcp = recs.map(function(r){ var emp = empById(r.user.employeeId); return '<label class="checkbox-row"><input type="checkbox" data-sy-rcp="' + esc(r.user.id) + '"' + (r.locked ? ' checked disabled' : '') + '> ' + esc(r.user.username) + (emp ? ' · ' + esc(emp.name) : '') + ' <span class="tag">' + esc(r.role) + '</span>' + (r.locked ? ' <span class="locked-note" style="display:inline">מחליט</span>' : ' <span class="locked-note" style="display:inline">צפייה</span>') + '</label>'; }).join('') || '<div class="locked-note">אין נמענים רלוונטיים.</div>';
+    openModal('<h3>סנכרון · ' + esc((ENTITIES[entity] || {}).label || '') + '</h3>'
+      + '<div class="locked-note">אלה ' + list.length + ' השינויים של ' + esc(centerName(sc.centerId)) + ' מול המידע הראשי. הם לא ייכנסו לראשי עד שאחראי התחום במטה יאשר. הנמענים שתבחר רואים את השינוי; רק אחראי התחום במטה יכול לאשר, לדחות או לסמן "בבדיקה".</div>'
       + list.map(function(c){
         return '<div class="request-item"><div class="rh"><div><div class="r-title">' + esc(c.label || titleOf(c)) + '</div><div class="r-meta"><span>' + esc(OPS[c.op]) + '</span>'
           + (changedSinceBase(c) ? '<span class="danger-txt">שים לב: הרשומה בראשי השתנתה מאז שהתחלת לערוך. המטה יתבקש להכריע.</span>' : '') + '</div></div></div>' + diffHtml(c) + '</div>';
       }).join('')
+      + '<div class="form-section-title">עם מי לסנכרן</div>' + rcp
       + '<div class="field"><label>הערה למטה (אופציונלי)</label><textarea id="sy-note"></textarea></div>'
       + '<div class="modal-actions"><button class="primary" type="button" data-sy="submit" data-vis="' + vis + '" data-ent="' + entity + '">שלח ' + list.length + ' שינויים</button><button class="ghost" onclick="closeModal()" type="button">ביטול</button></div>', true);
   }
@@ -5797,20 +5870,28 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     for (var i = 0; i < domainOwners(domain).length; i++){ var u = domainOwners(domain)[i]; out.push(await hubNotify.add(Object.assign({}, spec, { recipientId: u.id, domain: domain }))); }
     return out.filter(Boolean);
   }
-  async function submit(vis, note, entity){
+  /* recips: the ids of the chosen recipients (the HQ owners of the domain are always included); the old words 'hq' / 'all' mean owners only */
+  async function submit(recips, note, entity){
     var sc = scopeNow(), u = me(); if (!sc || !u) return 0;
-    var list = myPrivate(entity || 'convergence'); if (!list.length) return 0;
-    var now = new Date().toISOString(), batch = { id: 'sb' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), centerId: sc.centerId, scope: vis, submittedBy: u.id, submittedAt: now, changeIds: list.map(function(c){ return c.id; }), status: 'open', note: note || '' };
+    entity = entity || 'convergence';
+    var list = myPrivate(entity); if (!list.length) return 0;
+    var valid = recipientsFor(entity, sc.centerId, list), want = Array.isArray(recips) ? recips : [], final = [];
+    valid.forEach(function(r){ if (r.locked || want.indexOf(r.user.id) > -1) final.push(r.user.id); });
+    var vis = 'list';
+    var now = new Date().toISOString(), batch = { id: 'sb' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), centerId: sc.centerId, scope: vis, recipients: final, submittedBy: u.id, submittedAt: now, changeIds: list.map(function(c){ return c.id; }), status: 'open', note: note || '' };
     var ids = {}; list.forEach(function(c){ ids[c.id] = 1; });
-    var next = all(KEY_C).map(function(c){ return ids[c.id] ? Object.assign({}, c, { status: 'submitted', visibility: vis, batchId: batch.id, submittedAt: now, submittedBy: u.id, note: note || '' }) : c; });
+    var next = all(KEY_C).map(function(c){ return ids[c.id] ? Object.assign({}, c, { status: 'submitted', visibility: vis, recipients: final, batchId: batch.id, submittedAt: now, submittedBy: u.id, note: note || '' }) : c; });
     if (!(await DataStore.set(KEY_C, next))) return 0;
     await DataStore.set(KEY_B, all(KEY_B).concat([batch]));
     var byDomain = {}; list.forEach(function(c){ (byDomain[c.domain] = byDomain[c.domain] || []).push(c); });
     var cname = centerName(sc.centerId);
+    var viewers = final.map(function(id){ return userById(id); }).filter(function(x){ return x && !canDecide(x, ENTITIES[entity].domain); });
+    for (var vi = 0; vi < viewers.length; vi++) await hubNotify.add({ recipientId: viewers[vi].id, kind: 'sync-review', domain: ENTITIES[entity].domain, title: 'מרכז ' + centerName(sc.centerId) + ' סנכרן איתך שינויים ב' + ENTITIES[entity].label, body: list.length + ' רשומות (לצפייה בלבד; רק אחראי התחום במטה מחליט): ' + list.slice(0, 4).map(function(c){ return c.label; }).join(', '), payload: { open: 'sync-review', batchId: batch.id }, dedupeKey: 'syncv:' + batch.id + ':' + viewers[vi].id });
     for (var d in byDomain){
       await notifyDomain(d, { kind: 'sync-review', title: 'מרכז ' + cname + ' עדכן את ' + ((ENTITIES[byDomain[d][0].entityType] || {}).label || DOMAINS[d]) + '. אלה השינויים', body: byDomain[d].length + ' רשומות מחכות להחלטה: ' + byDomain[d].slice(0, 4).map(function(c){ return c.label; }).join(', ') + (byDomain[d].length > 4 ? '…' : ''), payload: { open: 'sync-review', batchId: batch.id }, dedupeKey: 'sync:' + batch.id + ':' + d });
     }
-    logEvent('sync-submit', { label: 'סנכרון ' + (vis === 'all' ? 'עם כולם' : 'עם המטה') + ' · ' + cname + ' · ' + list.length + ' שינויים', centerId: sc.centerId, batchId: batch.id, visibility: vis, count: list.length, domains: Object.keys(byDomain), records: list.map(function(c){ return c.label + ' (' + OPS[c.op] + ')'; }) });
+    logEvent('sync-submit', { label: 'סנכרון עם ' + final.map(function(id){ return (userById(id) || {}).username || '?'; }).join(', ') + ' · ' + cname + ' · ' + list.length + ' שינויים', centerId: sc.centerId, batchId: batch.id, visibility: vis, recipients: final, count: list.length, domains: Object.keys(byDomain), records: list.map(function(c){ return c.label + ' (' + OPS[c.op] + ')'; }) });
+    checkUnsynced(sc.centerId, entity).catch(function(){});
     return list.length;
   }
   function openMine(){
@@ -5820,7 +5901,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
       var by = c.decidedBy ? userById(c.decidedBy) : null;
       var act = c.status === 'private' ? '<button class="ghost" type="button" data-sy="discard" data-id="' + esc(c.id) + '">בטל שינוי</button>'
         : c.status === 'rejected' ? '<button class="ghost" type="button" data-sy="reopen" data-id="' + esc(c.id) + '">החזר לעריכה פרטית</button>' : '';
-      return '<tr><td>' + esc(c.label || titleOf(c)) + '</td><td>' + esc(OPS[c.op]) + '</td><td>' + statusTag(c) + (c.visibility === 'all' && LOCKED.indexOf(c.status) > -1 ? ' <span class="tag">גלוי לכולם</span>' : '') + '</td><td>' + esc(c.submittedAt ? new Date(c.submittedAt).toLocaleString('he-IL') : '—') + '</td><td>'
+      return '<tr><td>' + esc(c.label || titleOf(c)) + '</td><td>' + esc(OPS[c.op]) + '</td><td>' + statusTag(c) + (c.recipients && LOCKED.indexOf(c.status) > -1 ? ' <div class="locked-note" style="margin:0">נמענים: ' + esc(c.recipients.map(function(id){ return (userById(id) || {}).username || '?'; }).join(', ')) + '</div>' : '') + '</td><td>' + esc(c.submittedAt ? new Date(c.submittedAt).toLocaleString('he-IL') : '—') + '</td><td>'
         + (c.decidedAt ? esc((by ? by.username : '') + ' · ' + new Date(c.decidedAt).toLocaleDateString('he-IL')) + (c.decisionNote ? '<div class="locked-note" style="display:block;">' + esc(c.decisionNote) + '</div>' : '') : '—') + '</td><td>' + act + '</td></tr>';
     }).join('') || '<tr><td colspan="6">עדיין לא נעשו שינויים.</td></tr>';
     openModal('<h3>הסטטוס של הסנכרונים של ' + esc(centerName(sc.centerId)) + '</h3><div class="table-scroll"><table><thead><tr><th>רשומה</th><th>סוג</th><th>סטטוס</th><th>נשלח</th><th>החלטה</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div><div class="modal-actions"><button class="ghost" type="button" data-sy="log">יומן סנכרון</button><button class="ghost" onclick="closeModal()" type="button">סגור</button></div>', true);
@@ -5858,7 +5939,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
   }
   function reviewCard(c, u, canDo){
     var by = userById(c.submittedBy), cf = conflictsOf(c);
-    var h = '<div class="request-item" data-sy-card="' + esc(c.id) + '"><div class="rh"><div><div class="r-title"><span class="tag">' + esc((ent(c) || {}).label || '') + '</span> ' + esc(c.label || titleOf(c)) + ' · ' + esc(OPS[c.op]) + '</div><div class="r-meta"><span>מרכז: ' + esc(centerName(c.centerId)) + '</span><span>נשלח ע"י ' + esc(by ? by.username : '—') + ' ב-' + esc(c.submittedAt ? new Date(c.submittedAt).toLocaleString('he-IL') : '') + '</span><span>' + (c.visibility === 'all' ? 'גלוי לכולם' : 'גלוי למטה בלבד') + '</span></div></div>' + statusTag(c) + '</div>';
+    var h = '<div class="request-item" data-sy-card="' + esc(c.id) + '"><div class="rh"><div><div class="r-title"><span class="tag">' + esc((ent(c) || {}).label || '') + '</span> ' + esc(c.label || titleOf(c)) + ' · ' + esc(OPS[c.op]) + '</div><div class="r-meta"><span>מרכז: ' + esc(centerName(c.centerId)) + '</span><span>נשלח ע"י ' + esc(by ? by.username : '—') + ' ב-' + esc(c.submittedAt ? new Date(c.submittedAt).toLocaleString('he-IL') : '') + '</span><span>' + (c.recipients ? 'נמענים: ' + esc(c.recipients.map(function(id){ return (userById(id) || {}).username || '?'; }).join(', ')) : (c.visibility === 'all' ? 'גלוי לכולם' : 'גלוי למטה בלבד')) + '</span></div></div>' + statusTag(c) + '</div>';
     if (c.note) h += '<div class="r-note">הערת המרכז: ' + esc(c.note) + '</div>';
     h += diffHtml(c);
     if (cf.length){
@@ -5928,8 +6009,8 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     var submitter = userById(c.submittedBy), centerUsers = state.users.filter(function(x){ return x.active !== false && x.scope && x.scope.kind === 'center' && x.scope.centerId === c.centerId; });
     var recips = {}; if (submitter) recips[submitter.id] = submitter; centerUsers.forEach(function(x){ if (decision !== 'approve' || x.id === (submitter || {}).id) recips[x.id] = x; });
     await notifyUsers(Object.keys(recips).map(function(k){ return recips[k]; }), { kind: 'sync-review', title: 'הסנכרון של "' + title + '" ' + label, body: (note ? 'הערת המטה: ' + note : '') + (decision === 'reject' ? ' השינוי בוטל והרשומה חזרה לערך הראשי.' : ''), payload: { open: 'sync-mine' } });
-    if (decision === 'reject' && c.visibility === 'all'){      /* everyone who saw the layer is told it is gone */
-      var viewers = state.users.filter(function(x){ return !recips[x.id] && x.id !== u.id && userMaySee(x, Object.assign({}, c, { status: 'submitted' })); });
+    if (decision === 'reject' && (c.visibility === 'all' || c.recipients)){      /* everyone who saw the layer is told it is gone */
+      var viewers = c.recipients ? c.recipients.map(function(id){ return userById(id); }).filter(function(x){ return x && !recips[x.id] && x.id !== u.id; }) : state.users.filter(function(x){ return !recips[x.id] && x.id !== u.id && userMaySee(x, Object.assign({}, c, { status: 'submitted' })); });
       await notifyUsers(viewers, { kind: 'sync-review', title: 'השינוי בוטל: ' + title, body: 'המטה דחה את העדכון של מרכז ' + centerName(c.centerId) + '. הרשומה נשארת כפי שהייתה.' });
     }
     logEvent('sync-' + (decision === 'approve' ? 'approve' : decision === 'reject' ? 'reject' : 'review'), { label: title + ' · ' + label + ' · ' + centerName(c.centerId), centerId: c.centerId, changeId: id, batchId: c.batchId, domain: c.domain, decidedBy: u.username, note: note || '' });
@@ -5964,10 +6045,10 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     if (sc){
       var priv = myPrivate(entity).length, waiting = mineFor(entity, sc.centerId).filter(function(c){ return LOCKED.indexOf(c.status) > -1; }).length;
       h = '<div class="card" style="padding:12px;margin-bottom:12px;"><div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">'
-        + '<b>סנכרון עם המטה · ' + esc(def.label) + '</b><span class="locked-note" style="display:inline">' + (priv ? priv + ' שינויים פרטיים שטרם נשלחו' : 'אין שינויים פרטיים') + (waiting ? ' · ' + waiting + ' ממתינים להחלטת המטה' : '') + '. השינויים שלך נראים רק למרכז שלך עד הסנכרון.</span>'
-        + '<button class="primary" type="button" data-sy="open-submit" data-vis="hq" data-ent="' + entity + '"' + (priv ? '' : ' disabled') + '>סנכרן עם המטה</button>'
-        + '<button class="ghost" type="button" data-sy="open-submit" data-vis="all" data-ent="' + entity + '"' + (priv ? '' : ' disabled') + '>סנכרן עם כולם</button>'
-        + '<button class="ghost" type="button" data-sy="mine">הסטטוס של מה ששלחתי</button><button class="ghost" type="button" data-sy="log">יומן סנכרון</button></div></div>';
+        + '<b>סנכרון · ' + esc(def.label) + '</b><span class="locked-note" style="display:inline">' + (priv ? priv + ' שינויים פרטיים שטרם נשלחו' : 'אין שינויים פרטיים') + (waiting ? ' · ' + waiting + ' ממתינים להחלטת המטה' : '') + '. השינויים שלך נראים רק למרכז שלך עד הסנכרון.</span>'
+        + '<button class="primary" type="button" data-sy="open-submit" data-vis="hq" data-ent="' + entity + '"' + (priv ? '' : ' disabled') + '>סנכרן…</button>'
+        + '<button class="ghost" type="button" data-sy="mine">הסטטוס של מה ששלחתי</button><button class="ghost" type="button" data-sy="log">יומן סנכרון</button></div>'
+        + (isCenterOwner(u, entity, sc.centerId) ? '<div class="form-section-title" style="margin-top:10px;">מעקב סנכרון (אחראי התחום במרכז)</div>' + trackingHtml(entity, sc.centerId) : '') + '</div>';
     } else {
       var pend = pendingFor(u).filter(function(c){ return c.entityType === entity; }), deciding = pend.filter(function(c){ return canDecide(u, c.domain); });
       if (pend.length || canDecide(u, def.domain)){
@@ -5981,7 +6062,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
   }
   /* the "update from the center, waiting for HQ approval" layer: only changes the viewer may see, read-only */
   function layerHtml(pend, u){
-    var seen = pend.filter(function(c){ return c.visibility === 'all'; });
+    var seen = pend.filter(function(c){ return !canDecide(u, c.domain) && (c.visibility === 'all' || (c.recipients && c.recipients.indexOf(u.id) > -1)); });
     if (!seen.length) return '';
     return '<div class="table-scroll" style="margin-top:10px;"><table><thead><tr><th>רשומה</th><th>מרכז</th><th>סוג</th><th>שינוי מוצע</th><th>סטטוס</th></tr></thead><tbody>'
       + seen.map(function(c){ return '<tr class="sync-layer-row"><td>' + esc(c.label || titleOf(c)) + ' <span class="tag">עדכון מהמרכז, ממתין לאישור המטה</span></td><td>' + esc(centerName(c.centerId)) + '</td><td>' + esc(OPS[c.op]) + '</td><td>' + (c.op === 'update' ? fieldDiff(c).map(function(x){ return esc(fieldLabel(c, x.k)) + ': ' + esc(shortVal(x.before, x.k)) + ' ← <b>' + esc(shortVal(x.after, x.k)) + '</b>'; }).join('<br>') : '—') + '</td><td>' + statusTag(c) + '</td></tr>'; }).join('')
@@ -6020,7 +6101,8 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     if (act === 'open-submit') openSubmit(b.getAttribute('data-vis'), b.getAttribute('data-ent'));
     else if (act === 'submit'){
       b.disabled = true;
-      var n = await submit(b.getAttribute('data-vis'), (el('sy-note') || {}).value || '', b.getAttribute('data-ent'));
+      var chosen = Array.from(document.querySelectorAll('[data-sy-rcp]')).filter(function(x){ return x.checked; }).map(function(x){ return x.getAttribute('data-sy-rcp'); });
+      var n = await submit(chosen, (el('sy-note') || {}).value || '', b.getAttribute('data-ent'));
       closeModal(); await reloadState(b.getAttribute('data-ent') || 'convergence'); if (window.hubNotify) hubNotify.refresh();
       if (n) openMine();
     }
@@ -6042,11 +6124,12 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
   });
   window.hubNotifyHandlers = window.hubNotifyHandlers || {};
   window.hubNotifyHandlers['sync-review'] = function(p){ closeModal(); openReview(p && p.batchId); };
+  window.hubNotifyHandlers['sync-track'] = function(p){ closeModal(); var sc = scopeNow(); if (!sc) return; var ent0 = (p && p.entity) || 'convergence'; openModal('<h3>מעקב סנכרון · ' + esc(ENTITIES[ent0].label) + '</h3>' + trackingHtml(ent0, sc.centerId) + '<div class="modal-actions"><button class="ghost" onclick="closeModal()" type="button">סגור</button></div>', true); };
   window.hubNotifyHandlers['sync-mine'] = function(){ closeModal(); if (scopeNow()) openMine(); else openReview(); };
   if (window.DataStore) DataStore.on('change', function(ev){ if (ev && /^(syncChanges|hqDomains)$/.test(ev.name || '')){ try{ renderBar(); }catch(x){} } });
   document.addEventListener('click', function(e){ if (e.target.closest && e.target.closest('.tab-btn[data-tab="convergence"], .tab-btn[data-tab="positions"], .tab-btn[data-tab="incentives"]')) setTimeout(renderBar, 0); });
 
-  window.hubSync = { rerender: rerender, derived: derived, renderBar: renderBar, tag: tag, isLocked: isLocked, submit: submit, decide: decide, pendingFor: pendingFor, domainOwners: domainOwners, canDecide: canDecide, userMaySee: userMaySee, myPrivate: myPrivate, openReview: openReview, openMine: openMine, openLog: openLog, changes: function(){ return all(KEY_C); }, conflictsOf: conflictsOf, ENTITIES: ENTITIES, DOMAINS: DOMAINS };
+  window.hubSync = { recipientsFor: recipientsFor, trackingRows: trackingRows, checkUnsynced: checkUnsynced, isCenterOwner: isCenterOwner, rerender: rerender, derived: derived, renderBar: renderBar, tag: tag, isLocked: isLocked, submit: submit, decide: decide, pendingFor: pendingFor, domainOwners: domainOwners, canDecide: canDecide, userMaySee: userMaySee, myPrivate: myPrivate, openReview: openReview, openMine: openMine, openLog: openLog, changes: function(){ return all(KEY_C); }, conflictsOf: conflictsOf, ENTITIES: ENTITIES, DOMAINS: DOMAINS };
 })();
 </script>
 <script>
@@ -8048,6 +8131,7 @@ async function completeLogin(user){
   if (window.hubOrgSnapshotClosed) setTimeout(()=>{ hubOrgSnapshotClosed().catch(()=>{}); }, 900);
   if (window.hubFlex) setTimeout(()=>{ hubFlex.sync().then(()=>window.hubCalRules ? hubCalRules.sync() : null).then(()=>hubFlex.runReminders()).then(()=>{ if (window.hubNotify) hubNotify.refresh(); }).catch(()=>{}); }, 1200);
   if (window.hubAbroad) setTimeout(()=>{ hubAbroad.followTasks().catch(()=>{}); }, 1800);
+  if (window.hubSync && DataStore.getScope()) setTimeout(()=>{ hubSync.checkUnsynced().then(()=>{ if (window.hubNotify) hubNotify.refresh(); }).catch(()=>{}); }, 2500);
   if (window.hubConflicts){ hubConflicts.refreshButton(); setTimeout(()=>{ hubConflicts.run().then(()=>{ if (window.hubNotify) hubNotify.refresh(); }).catch(()=>{}); }, 1500); }
   if (!appBooted){ appBooted = true; bootApp(); } else { refreshAllViews(); }
   applyAccessControl();
