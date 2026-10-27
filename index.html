@@ -923,6 +923,9 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     /* tables become stacked rows (employees, positions, convergence, attendance, users) */
   /* tables → cards (employees, positions, convergence, attendance, users) */
   .card:has(> .table-scroll > #empTable), .card:has(> .table-scroll > #posTable), .card:has(> .table-scroll > #convTable), .card:has(> .table-scroll > #attTable), .card:has(> .table-scroll > #usersTable){ background: none; border: 0; box-shadow: none; padding: 0; backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .pp-item{ display:block; width:100%; text-align:start; padding:8px 10px; margin-top:4px; border:1px solid var(--border); border-radius:var(--r-md,10px); background:transparent; color:inherit; cursor:pointer; font:inherit; }
+  .pp-item:hover{ border-color:var(--text-dim); }
+  .pp-create{ margin-top:8px; font-size:13px; }
   .dup-err{ margin-top:8px; padding:10px 12px; border-radius:var(--r-md,10px); background:var(--danger-soft); color:var(--danger-text); font-size:13px; display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
   .ot-row{ display:flex; flex-wrap:wrap; gap:6px; align-items:center; padding-block:8px; border-bottom:1px solid var(--border); }
   .ot-actions{ margin-inline-start:auto; display:flex; gap:6px; flex-wrap:wrap; }
@@ -1566,7 +1569,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
 
     <div class="panel-head" style="margin-top:28px;">
       <div><h2 style="font-size:18px;">מבנה ארגוני</h2><p>ענפים, מדורים וצוותים בכל מרכז. עובד משויך ליחידה אחת, ושדות ענף / מדור / צוות בכרטיס שלו מתמלאים ממנה.</p></div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;"><button class="ghost" id="ot-class" type="button">דוח סיווג מדור / צוות</button><button class="ghost" id="ot-mgr" type="button">הצעת מנהלים</button><button class="ghost" id="rel-report" type="button">דוח תאריכי שחרור</button></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;"><button class="ghost" id="ot-class" type="button">דוח סיווג מדור / צוות</button><button class="ghost" id="ot-mgr" type="button">הצעת מנהלים</button><button class="ghost" id="rel-report" type="button">דוח תאריכי שחרור</button><button class="ghost" id="dup-report" type="button">דוח כפילויות וקישורים</button><button class="ghost" id="conflict-report" type="button">סתירות פתוחות</button></div>
     </div>
     <div class="card" id="orgTreeCard"><div class="field" style="max-width:280px;"><label>מרכז</label><select id="ot-center"></select></div><div id="ot-tree"></div></div>
 
@@ -3853,6 +3856,317 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
 })();
 </script>
 <script>
+/* ================================================================
+   Data integrity (fix round): position picker in the employee card, import preview helpers,
+   duplicates / missing-links report, and the first conflict rules.
+   Nothing is merged or changed without an explicit choice of the user.
+   ================================================================ */
+(function(){
+  'use strict';
+  var el = function(id){ return document.getElementById(id); };
+  var esc = function(s){ return typeof escapeHtml === 'function' ? escapeHtml(s) : String(s); };
+  var norm = function(s){ return hubIds.norm(s); };
+  function posOf(empId){ return state.positions.find(function(p){ return p.currentAppointment && p.currentAppointment.linkedEmployeeId === empId; }) || null; }
+  function posLabel(p){ return p.serialNumber + ' — ' + (p.jobText || ''); }
+
+  /* ---------- position picker (employee card) ---------- */
+  var pp = { empId: null, posId: '', newSerial: '', confirmed: false };
+  window.hubPosPickerHtml = function(emp, curPos){
+    return '<div class="field" id="pp-wrap"><label>תקן (אופציונלי)</label>'
+      + '<input type="hidden" id="f-positionId" value="' + esc(curPos ? curPos.id : '') + '"><input type="hidden" id="f-newPositionSerial" value="">'
+      + '<div id="pp-chosen" style="margin-bottom:8px;"></div>'
+      + '<input type="text" id="pp-search" autocomplete="off" placeholder="חיפוש לפי מספר תקן או מלל משרה">'
+      + '<div id="pp-results"></div><div id="pp-warn"></div>'
+      + '<div class="locked-note">🔗 בחירה כאן מעדכנת את "מינוי נוכחי" בניהול תקנים, ולהפך. מספר שלא קיים אפשר ליצור כתקן חדש ישירות מכאן.</div></div>';
+  };
+  function setHidden(){ el('f-positionId').value = pp.posId || ''; el('f-newPositionSerial').value = pp.newSerial || ''; }
+  function renderChosen(){
+    var box = el('pp-chosen'); if (!box) return;
+    var p = pp.posId ? state.positions.find(function(x){ return x.id === pp.posId; }) : null;
+    if (p) box.innerHTML = '<span class="tag">' + esc(posLabel(p)) + '</span> <button type="button" class="ghost" data-pp="clear">הסר שיוך לתקן</button>';
+    else if (pp.newSerial) box.innerHTML = '<span class="tag">תקן חדש: ' + esc(pp.newSerial) + ' (ייווצר בשמירה)</span> <button type="button" class="ghost" data-pp="clear">ביטול</button>';
+    else box.innerHTML = '<span class="locked-note" style="display:inline">ללא תקן</span>';
+  }
+  function renderWarn(){
+    var w = el('pp-warn'); if (!w) return;
+    var p = pp.posId ? state.positions.find(function(x){ return x.id === pp.posId; }) : null;
+    var occ = p && p.currentAppointment && p.currentAppointment.linkedEmployeeId;
+    if (p && occ && occ !== pp.empId){
+      var o = empById(occ);
+      w.innerHTML = '<div class="dup-err" role="alert"><div>התקן "' + esc(p.serialNumber) + '" מאויש כרגע על ידי <b>' + esc(o ? o.name : (p.currentAppointment.fullName || '—')) + '</b>. שיבוץ יסיר אותו מהתקן.</div>'
+        + '<label class="checkbox-row"><input type="checkbox" id="pp-confirm"' + (pp.confirmed ? ' checked' : '') + '> אני מאשר/ת את השיבוץ</label></div>';
+    } else { w.innerHTML = ''; pp.confirmed = false; }
+  }
+  function renderResults(){
+    var box = el('pp-results'); if (!box) return;
+    var raw = el('pp-search').value.trim(), q = norm(raw);
+    if (!raw){ box.innerHTML = ''; return; }
+    var list = state.positions.filter(function(p){ return norm(p.serialNumber).indexOf(q) >= 0 || norm(p.jobText).indexOf(q) >= 0; })
+      .sort(function(a, b){ return (norm(a.serialNumber) === q ? 0 : 1) - (norm(b.serialNumber) === q ? 0 : 1) || String(a.serialNumber).localeCompare(String(b.serialNumber), 'he', { numeric: true }); }).slice(0, 8);
+    var html = list.map(function(p){
+      var occ = hubIds.occupantName(p);
+      return '<button type="button" class="pp-item" data-pp="pick" data-id="' + esc(p.id) + '"><b>' + esc(p.serialNumber) + '</b> — ' + esc(p.jobText || '') + ' <span class="locked-note" style="display:inline">' + (occ ? 'מאויש: ' + esc(occ) : 'פנוי') + '</span></button>';
+    }).join('');
+    var exact = hubIds.findPosition(raw, null);
+    if (!exact){
+      html += '<div class="pp-create">אין תקן במספר "' + esc(raw) + '". <button type="button" class="ghost" data-pp="create">צור תקן חדש עם המספר הזה ושייך לעובד</button></div>';
+    } else if (!exact.visible){
+      html += '<div class="dup-err">התקן "' + esc(raw) + '" קיים במרכז אחר ואינו גלוי לך.</div>';
+    }
+    box.innerHTML = html || '<div class="locked-note">לא נמצאו תקנים</div>';
+  }
+  window.hubPosPickerInit = function(emp){
+    var w = el('pp-wrap'); if (!w) return;
+    var cur = emp ? posOf(emp.id) : null;
+    pp = { empId: emp ? emp.id : null, posId: cur ? cur.id : '', newSerial: '', confirmed: false };
+    setHidden(); renderChosen(); renderWarn();
+    if (emp && emp.positionSerial && !cur){
+      el('pp-search').value = emp.positionSerial; renderResults();
+      el('pp-warn').innerHTML = '<div class="dup-err" role="alert">מספר התקן "' + esc(emp.positionSerial) + '" שיובא לעובד עדיין לא משויך לתקן. בחר תקן קיים או צור תקן חדש.</div>';
+    }
+  };
+  /* false = the save must stop (the reason is shown in the form) */
+  window.hubPosPickerCheck = function(){
+    if (!el('pp-wrap')) return true;
+    var p = pp.posId ? state.positions.find(function(x){ return x.id === pp.posId; }) : null;
+    var occ = p && p.currentAppointment && p.currentAppointment.linkedEmployeeId;
+    if (p && occ && occ !== pp.empId && !(el('pp-confirm') && el('pp-confirm').checked)){
+      renderWarn(); el('pp-warn').scrollIntoView({ block: 'center' }); return false;
+    }
+    if (pp.newSerial){
+      var hit = hubIds.findPosition(pp.newSerial, null);
+      if (hit){ el('pp-warn').innerHTML = hubIds.noticePosition(hit, pp.newSerial); el('pp-warn').scrollIntoView({ block: 'center' }); return false; }
+    }
+    return true;
+  };
+  document.addEventListener('input', function(e){ if (e.target.id === 'pp-search') renderResults(); });
+  document.addEventListener('change', function(e){ if (e.target.id === 'pp-confirm') pp.confirmed = e.target.checked; });
+  document.addEventListener('click', function(e){
+    var b = e.target.closest ? e.target.closest('[data-pp]') : null; if (!b || !el('pp-wrap')) return;
+    var act = b.getAttribute('data-pp');
+    if (act === 'pick'){ pp.posId = b.getAttribute('data-id'); pp.newSerial = ''; pp.confirmed = false; el('pp-search').value = ''; el('pp-results').innerHTML = ''; }
+    else if (act === 'create'){ pp.newSerial = el('pp-search').value.trim(); pp.posId = ''; pp.confirmed = false; el('pp-search').value = ''; el('pp-results').innerHTML = ''; }
+    else if (act === 'clear'){ pp.posId = ''; pp.newSerial = ''; pp.confirmed = false; }
+    setHidden(); renderChosen(); renderWarn();
+  });
+
+  /* ---------- identifier lookups for imports ---------- */
+  window.hubFindEmployeeForImport = function(row){
+    var pn = (row.personalNumber || '').trim();
+    if (pn){
+      var byPn = state.employees.find(function(e){ return norm(e.personalNumber) === norm(pn); });
+      if (byPn) return byPn;
+      return state.employees.find(function(e){ return e.name === row.name && !e.personalNumber; }) || null;
+    }
+    return state.employees.find(function(e){ return e.name === row.name; }) || null;
+  };
+  /* text of a problem that makes a row impossible to import, or '' */
+  window.hubImportProblem = function(configKey, row, existing){
+    if (configKey === 'employees' && row.personalNumber){
+      var hit = hubIds.findEmployee(row.personalNumber, existing ? existing.id : null);
+      if (hit) return hit.visible ? 'המספר האישי כבר שייך ל' + hit.rec.name : 'המספר האישי קיים ברשומה במרכז אחר';
+    }
+    if (configKey === 'positions' && row.serialNumber){
+      var hp = hubIds.findPosition(row.serialNumber, existing ? existing.id : null);
+      if (hp) return hp.visible ? 'מספר התקן כבר קיים' : 'מספר התקן קיים ברשומה במרכז אחר';
+    }
+    return '';
+  };
+  /* after an employees import: link imported serials to existing vacant positions */
+  window.hubResolveImportedSerials = async function(){
+    var linked = 0, pending = 0, changed = false;
+    state.employees.forEach(function(e){
+      if (!e.positionSerial) return;
+      if (posOf(e.id)){ e.positionSerial = ''; changed = true; return; }
+      var hit = hubIds.findPosition(e.positionSerial, null), p = hit && hit.visible ? hit.rec : null;
+      var occ = p && p.currentAppointment && p.currentAppointment.linkedEmployeeId;
+      if (p && !occ){
+        p.currentAppointment = p.currentAppointment || {};
+        p.currentAppointment.linkedEmployeeId = e.id; p.currentAppointment.fullName = e.name; p.currentAppointment.personalNumber = e.personalNumber || '';
+        e.positionSerial = ''; linked++; changed = true;
+      } else pending++;
+    });
+    if (linked) await storeSet('positions', state.positions);
+    if (changed) await storeSet('employees', state.employees);
+    return { linked: linked, pending: pending };
+  };
+  /* after a positions import: link the imported holder to the employee with that personal number */
+  window.hubLinkPositionHolders = async function(){
+    var n = 0;
+    state.positions.forEach(function(p){
+      var ca = p.currentAppointment; if (!ca || ca.linkedEmployeeId || !ca.personalNumber) return;
+      var e = state.employees.find(function(x){ return norm(x.personalNumber) === norm(ca.personalNumber); });
+      if (e && !posOf(e.id)){ ca.linkedEmployeeId = e.id; ca.fullName = e.name; n++; }
+    });
+    if (n) await storeSet('positions', state.positions);
+    return n;
+  };
+
+  /* ---------- duplicates and missing links report ---------- */
+  function groups(list, field){
+    var m = {};
+    list.forEach(function(r){ var k = norm(r[field]); if (k){ (m[k] = m[k] || []).push(r); } });
+    return Object.keys(m).filter(function(k){ return m[k].length > 1; }).map(function(k){ return { key: k, recs: m[k] }; });
+  }
+  function dupEmployeeGroups(){ return groups(state.employees, 'personalNumber'); }
+  function dupPositionGroups(){ return groups(state.positions, 'serialNumber'); }
+  function nameKey(a, b){ return (a || '').trim() === (b || '').trim() ? 1 : 0; }
+
+  function unlinkedItems(){
+    var items = [];
+    state.convergence.forEach(function(c){
+      if (c.employeeId) return;
+      var full = ((c.firstName || '') + ' ' + (c.lastName || '')).trim();
+      var m = state.employees.filter(function(e){ return (e.name || '').trim() === full; });
+      items.push({ kind: 'conv', rec: c, label: 'התכנסות: ' + full, match: m.length === 1 ? m[0] : null, why: m.length > 1 ? 'כמה עובדים בשם הזה' : (m.length ? '' : 'לא נמצא עובד בשם הזה') });
+    });
+    state.positions.forEach(function(p){
+      var ca = p.currentAppointment; if (!ca || ca.linkedEmployeeId || !(ca.fullName || ca.personalNumber)) return;
+      var m = [];
+      if (ca.personalNumber) m = state.employees.filter(function(e){ return norm(e.personalNumber) === norm(ca.personalNumber); });
+      if (!m.length && ca.fullName) m = state.employees.filter(function(e){ return (e.name || '').trim() === (ca.fullName || '').trim(); });
+      var taken = m.length === 1 && posOf(m[0].id);
+      items.push({ kind: 'pos', rec: p, label: 'תקן ' + p.serialNumber + ': ' + (ca.fullName || ca.personalNumber), match: m.length === 1 && !taken ? m[0] : null, why: taken ? 'העובד כבר משויך לתקן אחר' : (m.length > 1 ? 'כמה עובדים מתאימים' : (m.length ? '' : 'לא נמצא עובד')) });
+    });
+    (state.incentives || []).forEach(function(i){
+      if (i.employeeId && empById(i.employeeId)) return;
+      items.push({ kind: 'inc', rec: i, label: 'תמריץ: ' + (i.snapName || '?') + ' — ' + (i.name || ''), match: null, why: 'אין קישור לעובד קיים. יש לתקן ידנית' });
+    });
+    return items;
+  }
+
+  var unl = [];
+  function recRow(e){ var p = posOf(e.id); return '<td>' + esc(e.name) + '</td><td>' + esc(e.role || '—') + '</td><td>' + esc([e.department, e.industry, e.mador, e.team].filter(Boolean).join(' / ') || '—') + '</td><td>' + (p ? esc(p.serialNumber) : '—') + '</td>'; }
+  function actCell(gi, ri, kind){
+    return '<td style="white-space:nowrap;"><select data-dp-act="' + kind + gi + '-' + ri + '"><option value="keep">השאר את המספר</option><option value="clear">נקה את המספר</option><option value="set">שנה ל…</option>' + (kind === 'S' ? '<option value="del">מחק את התקן</option>' : '') + '</select> <input type="text" data-dp-val="' + kind + gi + '-' + ri + '" style="width:110px" placeholder="מספר חדש"></td>';
+  }
+  var gE = [], gP = [];
+  function openReport(msg){
+    gE = dupEmployeeGroups(); gP = dupPositionGroups(); unl = unlinkedItems();
+    var h = '<h3>דוח כפילויות וקישורים</h3><div class="locked-note">אין מיזוג אוטומטי. לכל מקרה בוחרים מה לעשות בכל רשומה ולוחצים "החל". כדי לשמור על מספר ייחודי, בקבוצה אחת אפשר להשאיר את המספר ברשומה אחת בלבד.</div>';
+    h += '<div class="form-section-title">מספר אישי כפול (' + gE.length + ')</div>';
+    h += gE.map(function(g, gi){
+      return '<div class="card" style="padding:12px;margin-bottom:8px;"><b>מספר אישי ' + esc(g.recs[0].personalNumber) + '</b><div class="table-scroll"><table><thead><tr><th>שם</th><th>תפקיד</th><th>יחידה</th><th>תקן</th><th>פעולה</th></tr></thead><tbody>'
+        + g.recs.map(function(e, ri){ return '<tr>' + recRow(e) + actCell(gi, ri, 'E') + '</tr>'; }).join('') + '</tbody></table></div><button class="primary" type="button" data-dp-apply="E' + gi + '">החל</button> <span class="locked-note" id="dp-msg-E' + gi + '" style="display:inline"></span></div>';
+    }).join('') || '<div class="locked-note">אין מספרים אישיים כפולים.</div>';
+    h += '<div class="form-section-title">מספר תקן כפול (' + gP.length + ')</div>';
+    h += gP.map(function(g, gi){
+      return '<div class="card" style="padding:12px;margin-bottom:8px;"><b>מספר תקן ' + esc(g.recs[0].serialNumber) + '</b><div class="table-scroll"><table><thead><tr><th>מלל משרה</th><th>מאייש</th><th>יחידה רושמת</th><th>פעולה</th></tr></thead><tbody>'
+        + g.recs.map(function(p, ri){ return '<tr><td>' + esc(p.jobText || '—') + '</td><td>' + esc(hubIds.occupantName(p) || 'פנוי') + '</td><td>' + esc(p.registrationUnit || '—') + '</td>' + actCell(gi, ri, 'S') + '</tr>'; }).join('') + '</tbody></table></div><button class="primary" type="button" data-dp-apply="S' + gi + '">החל</button> <span class="locked-note" id="dp-msg-S' + gi + '" style="display:inline"></span></div>';
+    }).join('') || '<div class="locked-note">אין מספרי תקן כפולים.</div>';
+    h += '<div class="form-section-title">רשומות בלי קישור לעובד (' + unl.length + ')</div>';
+    h += unl.length ? '<div class="table-scroll"><table><thead><tr><th></th><th>רשומה</th><th>עובד מוצע</th><th>הערה</th></tr></thead><tbody>'
+      + unl.map(function(u, i){ return '<tr><td>' + (u.match ? '<input type="checkbox" data-ul-ck="' + i + '">' : '') + '</td><td>' + esc(u.label) + '</td><td>' + (u.match ? esc(u.match.name) + (u.match.personalNumber ? ' (' + esc(u.match.personalNumber) + ')' : '') : '—') + '</td><td>' + esc(u.why || '') + '</td></tr>'; }).join('')
+      + '</tbody></table></div><button class="primary" type="button" data-ul-apply="1">קשר את המסומנות</button> <span class="locked-note" id="ul-msg" style="display:inline"></span>'
+      : '<div class="locked-note">כל הרשומות מקושרות לעובד.</div>';
+    h += '<div class="locked-note" id="dp-top">' + esc(msg || '') + '</div><div class="modal-actions"><button class="ghost" type="button" data-dp-export="1">ייצוא לאקסל</button><button class="ghost" onclick="closeModal()" type="button">סגור</button></div>';
+    openModal(h, true);
+  }
+  function readAct(kind, gi, ri){
+    var a = document.querySelector('[data-dp-act="' + kind + gi + '-' + ri + '"]'), v = document.querySelector('[data-dp-val="' + kind + gi + '-' + ri + '"]');
+    return { act: a ? a.value : 'keep', val: v ? v.value.trim() : '' };
+  }
+  async function applyGroup(kind, gi){
+    var isE = kind === 'E', g = isE ? gE[gi] : gP[gi], field = isE ? 'personalNumber' : 'serialNumber', arr = isE ? state.employees : state.positions;
+    var msg = document.getElementById('dp-msg-' + kind + gi), plan = g.recs.map(function(r, ri){ return { rec: r, a: readAct(kind, gi, ri) }; });
+    var keep = plan.filter(function(p){ return p.a.act === 'keep'; }).length;
+    if (keep > 1){ msg.textContent = 'אפשר להשאיר את המספר ברשומה אחת בלבד'; return; }
+    var newVals = plan.filter(function(p){ return p.a.act === 'set'; }).map(function(p){ return p.a.val; });
+    if (plan.some(function(p){ return p.a.act === 'set' && !p.a.val; })){ msg.textContent = 'חסר מספר חדש'; return; }
+    if (new Set(newVals.map(norm)).size !== newVals.length){ msg.textContent = 'המספרים החדשים חייבים להיות שונים זה מזה'; return; }
+    for (var i = 0; i < plan.length; i++){
+      if (plan[i].a.act !== 'set') continue;
+      var hit = isE ? hubIds.findEmployee(plan[i].a.val, plan[i].rec.id) : hubIds.findPosition(plan[i].a.val, plan[i].rec.id);
+      if (hit || (norm(plan[i].a.val) === g.key)){ msg.textContent = 'המספר "' + plan[i].a.val + '" כבר קיים'; return; }
+    }
+    if (plan.some(function(p){ return p.a.act === 'del' && hubIds.occupantName(p.rec); })){ msg.textContent = 'אי אפשר למחוק תקן מאויש. שנה את המספר או פנה את התקן קודם'; return; }
+    plan.forEach(function(p){
+      if (p.a.act === 'clear') p.rec[field] = '';
+      else if (p.a.act === 'set') p.rec[field] = p.a.val;
+    });
+    var dels = plan.filter(function(p){ return p.a.act === 'del'; }).map(function(p){ return p.rec.id; });
+    if (dels.length) state.positions = state.positions.filter(function(p){ return dels.indexOf(p.id) < 0; });
+    if (isE){ await storeSet('employees', state.employees); for (var j = 0; j < plan.length; j++) await hubSyncEmployeeCopies(plan[j].rec.id); }
+    else await storeSet('positions', state.positions);
+    if (typeof refreshAllViews === 'function') refreshAllViews();
+    openReport('הכפילות טופלה.');
+  }
+  async function applyLinks(){
+    var n = 0, convCh = false, posCh = false;
+    unl.forEach(function(u, i){
+      var ck = document.querySelector('[data-ul-ck="' + i + '"]'); if (!ck || !ck.checked || !u.match) return;
+      if (u.kind === 'conv'){ u.rec.employeeId = u.match.id; convCh = true; n++; }
+      else if (u.kind === 'pos'){ if (posOf(u.match.id)) return; u.rec.currentAppointment.linkedEmployeeId = u.match.id; u.rec.currentAppointment.fullName = u.match.name; u.rec.currentAppointment.personalNumber = u.match.personalNumber || ''; posCh = true; n++; }
+    });
+    if (convCh) await storeSet('convergence', state.convergence);
+    if (posCh) await storeSet('positions', state.positions);
+    if (typeof refreshAllViews === 'function') refreshAllViews();
+    openReport(n + ' רשומות קושרו.');
+  }
+  function exportReport(){
+    var rows = [];
+    gE.forEach(function(g){ g.recs.forEach(function(e){ rows.push({ 'סוג': 'מספר אישי כפול', 'מספר': e.personalNumber, 'רשומה': e.name }); }); });
+    gP.forEach(function(g){ g.recs.forEach(function(p){ rows.push({ 'סוג': 'מספר תקן כפול', 'מספר': p.serialNumber, 'רשומה': p.jobText }); }); });
+    unl.forEach(function(u){ rows.push({ 'סוג': 'ללא קישור לעובד', 'מספר': '', 'רשומה': u.label + (u.match ? ' → ' + u.match.name : '') }); });
+    if (!rows.length){ alert('אין ממצאים לייצוא'); return; }
+    exportToExcel('דוח_כפילויות_וקישורים', rows);
+  }
+  document.addEventListener('click', function(e){
+    var t = e.target.closest ? e.target : null; if (!t) return;
+    if (t.closest('#dup-report')) { openReport(); return; }
+    var ap = t.closest('[data-dp-apply]');
+    if (ap){ var v = ap.getAttribute('data-dp-apply'); applyGroup(v.charAt(0), Number(v.slice(1))); return; }
+    if (t.closest('[data-ul-apply]')){ applyLinks(); return; }
+    if (t.closest('[data-dp-export]')){ exportReport(); return; }
+    if (t.closest('#conflict-report')){ openConflicts(); return; }
+  });
+
+  /* ---------- conflict rules ---------- */
+  var RULES = [];
+  function rule(id, title, evaluate){ RULES.push({ id: id, title: title, evaluate: evaluate }); }
+  rule('dup-personal', 'מספר אישי כפול', function(){
+    return groups(hubIds.allOf('employees'), 'personalNumber').map(function(g){ return { key: g.key, text: 'המספר האישי "' + g.recs[0].personalNumber + '" מופיע אצל ' + g.recs.length + ' עובדים: ' + g.recs.map(function(r){ return r.name; }).join(', ') }; });
+  });
+  rule('dup-serial', 'מספר תקן כפול', function(){
+    return groups(hubIds.allOf('positions'), 'serialNumber').map(function(g){ return { key: g.key, text: 'מספר התקן "' + g.recs[0].serialNumber + '" מופיע ב-' + g.recs.length + ' תקנים' }; });
+  });
+  rule('emp-pos-missing', 'מספר תקן בכרטיס עובד שלא קיים בניהול תקנים', function(){
+    var out = [];
+    hubIds.allOf('employees').forEach(function(e){
+      if (!e.positionSerial) return;
+      var hit = hubIds.findPosition(e.positionSerial, null);
+      if (!hit) out.push({ key: e.id, text: e.name + ': מספר התקן "' + e.positionSerial + '" בכרטיס העובד אינו קיים בניהול תקנים' });
+      else {
+        var ca = hit.rec.currentAppointment || {};
+        if (ca.linkedEmployeeId && ca.linkedEmployeeId !== e.id) out.push({ key: e.id, text: e.name + ': התקן "' + e.positionSerial + '" כבר מאויש על ידי עובד אחר' });
+      }
+    });
+    return out;
+  });
+  window.hubConflictRules = { add: rule, list: function(){ return RULES; } };
+  function evaluate(){
+    var out = [];
+    RULES.forEach(function(r){ var f = []; try{ f = r.evaluate() || []; }catch(e){ console.error('conflict rule failed', r.id, e); } f.forEach(function(x){ out.push({ ruleId: r.id, title: r.title, key: x.key, text: x.text }); }); });
+    return out;
+  }
+  async function runAndNotify(){
+    if (!window.hubNotify) return 0;
+    var found = evaluate(), n = 0;
+    for (var i = 0; i < found.length; i++){
+      var f = found[i], created = await hubNotify.forSuperUsers({ kind: 'conflict', ruleId: f.ruleId, title: f.title, body: f.text, dedupeKey: 'conflict:' + f.ruleId + ':' + f.key });
+      n += created.length;
+    }
+    return n;
+  }
+  function openConflicts(){
+    var found = evaluate();
+    var body = found.map(function(f){ return '<tr><td>' + esc(f.title) + '</td><td>' + esc(f.text) + '</td></tr>'; }).join('') || '<tr><td colspan="2">אין סתירות פתוחות.</td></tr>';
+    openModal('<h3>סתירות פתוחות</h3><div class="locked-note">הכללים נבדקים בכל כניסה של משתמש-על, וכל ממצא חדש נשלח כהתראה. ממצא שתוקן נעלם מכאן.</div><div class="table-scroll"><table><thead><tr><th>כלל</th><th>ממצא</th></tr></thead><tbody>' + body + '</tbody></table></div><div class="modal-actions"><button class="ghost" id="dup-report" type="button">דוח כפילויות וקישורים</button><button class="ghost" onclick="closeModal()" type="button">סגור</button></div>', true);
+  }
+  window.hubConflicts = { evaluate: evaluate, runAndNotify: runAndNotify, open: openConflicts };
+})();
+</script>
+<script>
 /* ---------------- storage helpers ---------------- */
 function hasArtifactStorage(){ return typeof window !== 'undefined' && window.storage && typeof window.storage.get === 'function'; }
 async function storeSet(key, value){
@@ -4126,6 +4440,7 @@ async function completeLogin(user){
   try{ sessionStorage.setItem('hub:session', user.id); }catch(e){}
   if (window.hubApplyScope) await hubApplyScope(user);
   hideAuth();
+  if (user.isSuper && window.hubConflicts) setTimeout(()=>{ hubConflicts.runAndNotify().then(()=>{ if (window.hubNotify) hubNotify.refresh(); }).catch(()=>{}); }, 1500);
   if (!appBooted){ appBooted = true; bootApp(); } else { refreshAllViews(); }
   applyAccessControl();
 }
@@ -5216,17 +5531,7 @@ function employeeFormHtml(existing, presetManagerId){
     </div>
 
     <div class="form-section-title">תקן והערות</div>
-    <div class="field"><label>תקן נוכחי (אופציונלי)</label>
-      <select id="f-positionId">
-        <option value="">— ללא תקן —</option>
-        ${posOptions}
-      </select>
-      <div class="locked-note">🔗 קישור/שינוי כאן יעדכן אוטומטית את "מינוי נוכחי" בניהול תקנים, ולהפך</div>
-    </div>
-    <div class="field"><label>או הזן מספר תקן חדש ליצירה (אופציונלי)</label>
-      <input type="text" id="f-newPositionSerial" placeholder="לדוגמה: 4521 — אם מספר זה לא קיים, ייווצר תקן חדש וישויך לעובד">
-      <div class="locked-note">🆕 אם ממלאים כאן מספר תקן, הוא יופיע גם בדף "ניהול תקנים" — אם המספר כבר קיים, העובד פשוט ישויך אליו</div>
-    </div>
+    ${hubPosPickerHtml(e, currentPos)}
     <div class="field"><label>הערות</label><textarea id="f-notes">${escapeHtml(e.notes)}</textarea></div>
 
     <div class="modal-actions">
@@ -5236,8 +5541,8 @@ function employeeFormHtml(existing, presetManagerId){
   `;
 }
 
-function addEmployee(presetManagerId){ openModal(employeeFormHtml(null, presetManagerId)); if (window.hubUnitPickerInit) hubUnitPickerInit(); }
-function editEmployee(id){ openModal(employeeFormHtml(empById(id))); if (window.hubUnitPickerInit) hubUnitPickerInit(); }
+function addEmployee(presetManagerId){ openModal(employeeFormHtml(null, presetManagerId)); if (window.hubUnitPickerInit) hubUnitPickerInit(); hubPosPickerInit(null); }
+function editEmployee(id){ openModal(employeeFormHtml(empById(id))); if (window.hubUnitPickerInit) hubUnitPickerInit(); hubPosPickerInit(empById(id)); }
 
 async function saveEmployee(existingId){
   const name = document.getElementById('f-name').value.trim();
@@ -5285,6 +5590,7 @@ async function saveEmployee(existingId){
     if (existingId === state.currentUserId){ alert('לא ניתן להגדיר את עצמך כלא פעיל'); return; }
     if (wouldRemoveLastActiveSuper(existingId)){ alert('לא ניתן להגדיר כלא פעיל את העובד של משתמש העל האחרון'); return; }
   }
+  if (!hubPosPickerCheck()) return;
   if (data.personalNumber){
     const dupHit = hubIds.findEmployee(data.personalNumber, existingId);
     if (dupHit){ hubIds.show('dup-pn', hubIds.noticeEmployee(dupHit, data.personalNumber), 'f-personalNumber'); return; }
@@ -5342,6 +5648,7 @@ async function saveEmployee(existingId){
     if (effNow.date && linkedPos && linkedPos.currentAppointment.releaseDate !== effNow.date){ linkedPos.currentAppointment.releaseDate = effNow.date; positionsChanged = true; }
   }
   if (positionsChanged) await storeSet('positions', state.positions);
+  if (selectedPositionId){ const eRec = state.employees.find(x=>x.id===employeeId); if (eRec && eRec.positionSerial) eRec.positionSerial = ''; }
 
   await storeSet('employees', state.employees);
   if (window.hubOrgAfterEmployeeSave) await hubOrgAfterEmployeeSave(employeeId, prevUnitId);
@@ -6978,7 +7285,8 @@ const IMPORT_CONFIGS = {
       {key:'actualReleaseDate', label:'שחרור בפועל'},
       {key:'contractEndDate', label:'סיום חוזה'},
       {key:'unitIntakeDate', label:'תאריך קליטה ליחידה'},
-      {key:'personalNumber', label:'מספר אישי'},
+      {key:'personalNumber', label:'מספר אישי (מזהה את העובד)', aliases:['מספר אישי']},
+      {key:'positionSerial', label:'מספר תקן'},
       {key:'grade', label:'דרגה'},
       {key:'professionNumber', label:'מספר מקצוע'},
       {key:'professionText', label:'מלל מקצוע'},
@@ -7000,8 +7308,10 @@ const IMPORT_CONFIGS = {
       row.active = /^(לא|לא פעיל|false|0|no|n)$/i.test(ac) ? 'לא' : (ac ? 'כן' : '');
       return row;
     },
-    keyOf: row => row.name,
-    matchExisting: row => state.employees.find(e=>e.name===row.name) || null,
+    unique: true,
+    keyOf: row => row.personalNumber ? 'pn:' + hubIds.norm(row.personalNumber) : 'nm:' + row.name,
+    matchExisting: row => hubFindEmployeeForImport(row),
+    warnRow: row => row.personalNumber ? '' : 'אין מספר אישי: הזיהוי לפי שם בלבד',
     getExisting: (existing, key) => {
       if (key==='managerName') return existing.managerId ? (empById(existing.managerId)||{}).name || '' : '';
       if (key==='active') return existing.active===false ? 'לא' : 'כן';
@@ -7011,7 +7321,7 @@ const IMPORT_CONFIGS = {
     createRecord: (ctx, row) => {
       const emp = {
         id: uid('e'), name:row.name, role:row.role, department:row.department, managerId:null,
-        email:row.email, phone:row.phone, startDate:row.startDate, enlistmentDate:row.enlistmentDate, compulsoryReleaseDate:row.compulsoryReleaseDate, actualReleaseDate:row.actualReleaseDate, contractEndDate:row.contractEndDate, unitIntakeDate:row.unitIntakeDate, personalNumber:row.personalNumber, grade:row.grade,
+        email:row.email, phone:row.phone, startDate:row.startDate, enlistmentDate:row.enlistmentDate, compulsoryReleaseDate:row.compulsoryReleaseDate, actualReleaseDate:row.actualReleaseDate, contractEndDate:row.contractEndDate, unitIntakeDate:row.unitIntakeDate, personalNumber:row.personalNumber, positionSerial:row.positionSerial || '', grade:row.grade,
         industry:row.industry, mador:row.mador, team:row.team, ramad:row.ramad, rank:row.rank, level:row.level, serviceType:row.serviceType,
         professionNumber:row.professionNumber, professionText:row.professionText,
         isVolunteer:false, isCadet:false, education:row.education, flexA:false, flexB:false,
@@ -7040,6 +7350,7 @@ const IMPORT_CONFIGS = {
       if (row.contractEndDate) existing.contractEndDate = row.contractEndDate;
       if (row.unitIntakeDate) existing.unitIntakeDate = row.unitIntakeDate;
       if (row.personalNumber) existing.personalNumber = row.personalNumber;
+      if (row.positionSerial) existing.positionSerial = row.positionSerial;
       if (row.grade) existing.grade = row.grade;
       if (row.professionNumber) existing.professionNumber = row.professionNumber;
       if (row.professionText) existing.professionText = row.professionText;
@@ -7059,14 +7370,16 @@ const IMPORT_CONFIGS = {
         if (mgr) state.employees.find(e=>e.id===empId).managerId = mgr.id;
       });
       await storeSet('employees', state.employees);
+      const sr = await hubResolveImportedSerials();
       closeModal();
-      renderEmployees(); renderOrgChart(); renderWhoAmI(); renderMeetingFilter(); renderMeetingsList(); renderTasks(); renderAttendance(); renderMgrInfo();
-      alert(`ייבוא הושלם: ${counts.created} נוספו, ${counts.updated} עודכנו, ${counts.kept} נותרו ללא שינוי, ${counts.both} נשמרו כרשומות כפולות`);
+      renderEmployees(); renderOrgChart(); renderWhoAmI(); renderMeetingFilter(); renderMeetingsList(); renderTasks(); renderAttendance(); renderMgrInfo(); renderPositions();
+      alert(`ייבוא הושלם: ${counts.created} נוספו, ${counts.updated} עודכנו, ${counts.kept} נותרו ללא שינוי` + (counts.skipped ? `, ${counts.skipped} שורות עם בעיה דולגו` : '') + (sr.linked ? `. ${sr.linked} עובדים שויכו לתקן לפי המספר שבקובץ` : '') + (sr.pending ? `. ${sr.pending} מספרי תקן מהקובץ לא שויכו (תקן לא קיים או מאויש), והם יופיעו בסתירות` : ''));
     }
   },
   positions: {
     title: 'ייבוא תקנים מאקסל',
     recordLabel: r => r.serialNumber,
+    unique: true,
     fields: [
       {key:'serialNumber', label:'מספר תקן', required:true},
       {key:'jobText', label:'מלל משרה', required:true},
@@ -7138,9 +7451,10 @@ const IMPORT_CONFIGS = {
     },
     finalizeImport: async (ctx, counts) => {
       await storeSet('positions', state.positions);
+      const linkedHolders = await hubLinkPositionHolders();
       closeModal();
       renderPositionFilterOptions(); renderPositions(); renderEmployees();
-      alert(`ייבוא הושלם: ${counts.created} נוספו, ${counts.updated} עודכנו, ${counts.kept} נותרו ללא שינוי, ${counts.both} נשמרו כרשומות כפולות`);
+      alert(`ייבוא הושלם: ${counts.created} נוספו, ${counts.updated} עודכנו, ${counts.kept} נותרו ללא שינוי` + (counts.skipped ? `, ${counts.skipped} שורות עם בעיה דולגו` : '') + (linkedHolders ? `. ${linkedHolders} מאיישים קושרו לעובד לפי מספר אישי` : ''));
     }
   },
   convergence: {
@@ -7353,7 +7667,7 @@ function openFileDuplicatesModal(){
     const head = `<tr><th>שדה</th>${g.variants.map(v=>`<th>שורה ${v.row.__rowNo}</th>`).join('')}</tr>`;
     const body = diffFields.map(f=>`<tr><td>${escapeHtml(f.label)}</td>${g.variants.map(v=>`<td>${escapeHtml(v.row[f.key] || '—')}</td>`).join('')}</tr>`).join('');
     const radios = g.variants.map((v,vi)=>`<label class="checkbox-row"><input type="radio" name="fd-${gi}" value="${vi}" ${vi===g.variants.length-1?'checked':''}> השתמש בשורה ${v.row.__rowNo}</label>`).join('')
-      + `<label class="checkbox-row"><input type="radio" name="fd-${gi}" value="all"> ייבא את כולן כרשומות נפרדות</label>`
+      + (cfg.unique ? '' : `<label class="checkbox-row"><input type="radio" name="fd-${gi}" value="all"> ייבא את כולן כרשומות נפרדות</label>`)
       + `<label class="checkbox-row"><input type="radio" name="fd-${gi}" value="none"> דלג על כולן</label>`;
     return `<div class="card" style="padding:14px; margin-bottom:10px;">
       <div style="font-weight:700; margin-bottom:8px;">⚠️ ${escapeHtml(cfg.recordLabel(g.variants[0].row))} מופיע/ה ${g.variants.length} פעמים בקובץ עם נתונים שונים</div>
@@ -7400,8 +7714,12 @@ function continueImportAnalysis(configKey, mappedRows){
   const cfg = IMPORT_CONFIGS[configKey];
   const autoRows = [];   // {row, existing, decision:'create'|'merge'}
   const conflicts = [];  // {row, existing, diffs:[{key,label,oldVal,newVal}]}
+  const problems = [], warnings = [];
   mappedRows.forEach(row=>{
     const existing = row.__forceCreate ? null : cfg.matchExisting(row);
+    const prob = hubImportProblem(configKey, row, existing);
+    if (prob){ problems.push({row, reason:prob}); return; }
+    if (cfg.warnRow){ const w = cfg.warnRow(row); if (w) warnings.push({row, reason:w}); }
     if (!existing){ autoRows.push({row, existing:null, decision:'create'}); return; }
     const diffs = cfg.fields
       .filter(f => !(cfg.noDiff || []).includes(f.key) && row[f.key] && cfg.getExisting(existing, f.key) !== row[f.key])
@@ -7409,8 +7727,38 @@ function continueImportAnalysis(configKey, mappedRows){
     if (diffs.length){ conflicts.push({row, existing, diffs}); }
     else { autoRows.push({row, existing, decision:'merge'}); }
   });
-  pendingImportBatch = {configKey, autoRows, conflicts};
-  if (!conflicts.length){ applyImportBatch(); } else { openImportConflictsModal(); }
+  pendingImportBatch = {configKey, autoRows, conflicts, problems, warnings};
+  openImportPreview();
+}
+function openImportPreview(){
+  const b = pendingImportBatch, cfg = IMPORT_CONFIGS[b.configKey];
+  const created = b.autoRows.filter(x=>x.decision==='create').length;
+  const updates = b.autoRows.length - created + b.conflicts.length;
+  const list = (arr, cls)=> arr.slice(0, 40).map(x=>`<tr><td>${x.row.__rowNo}</td><td>${escapeHtml(cfg.recordLabel(x.row))}</td><td class="${cls}">${escapeHtml(x.reason)}</td></tr>`).join('') + (arr.length > 40 ? `<tr><td colspan="3">ועוד ${arr.length - 40}…</td></tr>` : '');
+  openModal(`
+    <h3>סיכום לפני הייבוא</h3>
+    <div class="grid2" style="margin-bottom:10px;">
+      <div class="card" style="padding:12px;text-align:center;"><div style="font-size:26px;font-weight:800;" id="imp-n-new">${created}</div>רשומות חדשות</div>
+      <div class="card" style="padding:12px;text-align:center;"><div style="font-size:26px;font-weight:800;" id="imp-n-upd">${updates}</div>עדכונים של רשומות קיימות</div>
+    </div>
+    <div class="card" style="padding:12px;text-align:center;margin-bottom:10px;${b.problems.length?'border-color:var(--danger);':''}"><div style="font-size:26px;font-weight:800;" id="imp-n-prob">${b.problems.length}</div>שורות עם בעיה (לא ייובאו)</div>
+    ${b.problems.length ? `<div class="table-scroll"><table><thead><tr><th>שורה</th><th>רשומה</th><th>בעיה</th></tr></thead><tbody>${list(b.problems, 'danger-txt')}</tbody></table></div>` : ''}
+    ${b.warnings.length ? `<div class="locked-note">${b.warnings.length} שורות עם הערה (ייובאו):</div><div class="table-scroll"><table><tbody>${list(b.warnings, '')}</tbody></table></div>` : ''}
+    ${cfg.unique ? `<div class="locked-note">הרשומות מזוהות לפי ${b.configKey==='employees'?'מספר אישי':'מספר תקן'}: מזהה קיים מעדכן את הרשומה ולא יוצר כפילות.</div>` : ''}
+    <div class="modal-actions">
+      <button class="primary" id="imp-continue" onclick="proceedImportBatch()" ${created + updates === 0 ? 'disabled' : ''}>המשך לייבוא</button>
+      ${b.problems.length ? '<button class="ghost" onclick="exportImportProblems()">ייצוא השורות הבעייתיות</button>' : ''}
+      <button class="ghost" onclick="pendingImportBatch=null; closeModal();">ביטול</button>
+    </div>
+  `, true);
+}
+function proceedImportBatch(){
+  if (!pendingImportBatch) return;
+  if (!pendingImportBatch.conflicts.length){ applyImportBatch(); } else { openImportConflictsModal(); }
+}
+function exportImportProblems(){
+  const b = pendingImportBatch; if (!b) return;
+  exportToExcel('שורות_בעייתיות_בייבוא', b.problems.map(p=>({'שורה':p.row.__rowNo, 'רשומה':IMPORT_CONFIGS[b.configKey].recordLabel(p.row), 'בעיה':p.reason})));
 }
 function openImportConflictsModal(){
   const cfg = IMPORT_CONFIGS[pendingImportBatch.configKey];
@@ -7422,7 +7770,7 @@ function openImportConflictsModal(){
     return `<div class="card" style="padding:14px; margin-bottom:10px;">
       <div style="font-weight:700; font-size:14px; margin-bottom:8px;">🔁 ${escapeHtml(cfg.recordLabel(c.row))}</div>
       <table style="font-size:12.5px;"><thead><tr><th>שדה</th><th>קיים במערכת</th><th>חדש מהקובץ</th><th>מה להשאיר?</th></tr></thead><tbody>${diffRows}</tbody></table>
-      <label class="checkbox-row" style="margin-top:8px;"><input type="checkbox" id="cf-both-${i}"> שמור את שניהם — צור רשומה נפרדת במקום לעדכן את הקיימת</label>
+      ${cfg.unique ? '' : `<label class="checkbox-row" style="margin-top:8px;"><input type="checkbox" id="cf-both-${i}"> שמור את שניהם — צור רשומה נפרדת במקום לעדכן את הקיימת</label>`}
     </div>`;
   }).join('');
   openModal(`
@@ -7445,7 +7793,7 @@ async function applyImportBatch(){
   const cfg = IMPORT_CONFIGS[pendingImportBatch.configKey];
   const { autoRows, conflicts } = pendingImportBatch;
   const ctx = cfg.beginImport();
-  const counts = {created:0, updated:0, kept:0, both:0};
+  const counts = {created:0, updated:0, kept:0, both:0, skipped:(pendingImportBatch.problems||[]).length};
 
   autoRows.forEach(entry=>{
     if (entry.decision === 'create'){ cfg.createRecord(ctx, entry.row); counts.created++; }
