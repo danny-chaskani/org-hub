@@ -266,6 +266,7 @@ window.addEventListener('error', function(e){
   .tab-btn:active{ transform: scale(0.98); }
   .tab-btn:focus-visible{ outline-offset: -2px; }
     .tab-btn[data-tab="dashboard"]{ --ico: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3.5' y='3.5' width='7' height='7' rx='1.5'/%3E%3Crect x='13.5' y='3.5' width='7' height='7' rx='1.5'/%3E%3Crect x='3.5' y='13.5' width='7' height='7' rx='1.5'/%3E%3Crect x='13.5' y='13.5' width='7' height='7' rx='1.5'/%3E%3C/svg%3E"); }
+  .tab-btn[data-tab="calendar"]{ --ico: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3.5' y='5' width='17' height='15' rx='2'/%3E%3Cpath d='M3.5 10h17M8 3v4M16 3v4M8 14h2M14 14h2'/%3E%3C/svg%3E"); }
   .tab-btn[data-tab="roles"]{ --ico: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3.5' y='7.5' width='17' height='12' rx='2'/%3E%3Cpath d='M9 7.5v-2a1.5 1.5 0 0 1 1.5-1.5h3a1.5 1.5 0 0 1 1.5 1.5v2M3.5 13h17'/%3E%3C/svg%3E"); }
   .tab-btn[data-tab="orgchart"]{ --ico: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='9' y='3.5' width='6' height='5' rx='1'/%3E%3Crect x='3' y='15.5' width='6' height='5' rx='1'/%3E%3Crect x='15' y='15.5' width='6' height='5' rx='1'/%3E%3Cpath d='M12 8.5v3.5M6 15.5V12h12v3.5'/%3E%3C/svg%3E"); }
   .tab-btn[data-tab="meetings"]{ --ico: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3.5' y='5' width='17' height='15' rx='2'/%3E%3Cpath d='M3.5 10h17M8 3v4M16 3v4'/%3E%3C/svg%3E"); }
@@ -845,6 +846,56 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
   /* ==========================================================
      MOBILE (phones and small tablets)
      ========================================================== */
+  .ef-chip button{ background:none; border:0; color:inherit; cursor:pointer; font-size:15px; line-height:1; padding:0 2px; }
+  .ef-list summary{ cursor:pointer; padding:8px 10px; border:1px solid var(--border); border-radius:var(--r-md,10px); }
+  .ef-opts{ max-height:200px; overflow:auto; padding:6px 4px; border:1px solid var(--border); border-radius:var(--r-md,10px); margin-top:4px; }
+  .pp-item{ display:block; width:100%; text-align:start; padding:8px 10px; margin-top:4px; border:1px solid var(--border); border-radius:var(--r-md,10px); background:transparent; color:inherit; cursor:pointer; font:inherit; }
+  .pp-item:hover{ border-color:var(--text-dim); }
+  .pp-create{ margin-top:8px; font-size:13px; }
+  .dup-err{ margin-top:8px; padding:10px 12px; border-radius:var(--r-md,10px); background:var(--danger-soft); color:var(--danger-text); font-size:13px; display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  /* calendar */
+  :root{ --cal-task:#2E7D6B; --cal-rem:#B26A00; --cal-comp:#6B5BD2; --cal-rel:#C2410C; --cal-ent:#0E7490; --cal-flex:#B83280; --cal-occ:#475569; }
+  :root[data-theme="dark"]{ --cal-task:#5FD0A8; --cal-rem:#F2B84B; --cal-comp:#A99BFF; --cal-rel:#FF9A62; --cal-ent:#5FD3E6; --cal-flex:#F08AC8; --cal-occ:#A9B8CC; }
+  @media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){ --cal-task:#5FD0A8; --cal-rem:#F2B84B; --cal-comp:#A99BFF; --cal-rel:#FF9A62; --cal-ent:#5FD3E6; --cal-flex:#F08AC8; --cal-occ:#A9B8CC; } }
+  .cal-task{ --c:var(--cal-task); } .cal-rem{ --c:var(--cal-rem); } .cal-comp{ --c:var(--cal-comp); } .cal-rel{ --c:var(--cal-rel); } .cal-ent{ --c:var(--cal-ent); } .cal-flex{ --c:var(--cal-flex); } .cal-occ{ --c:var(--cal-occ); }
+  .cal-toolbar{ display:flex; flex-wrap:wrap; gap:10px; align-items:center; justify-content:space-between; }
+  .cal-toolbar h3{ margin:0; font-size:17px; }
+  .cal-nav{ display:flex; gap:6px; } .cal-range{ display:flex; gap:8px; align-items:center; }
+  .cal-nav[hidden], .cal-range[hidden], #roleFilters[hidden], #roleTreeWrap[hidden], #roleNotIn[hidden], #roleTree[hidden], #empFilterPanel[hidden]{ display:none !important; }
+  .cal-layers{ display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
+  .cal-layer{ display:inline-flex; align-items:center; gap:6px; padding:5px 10px; border-radius:8px; border:1px solid var(--border); cursor:pointer; font-size:13px; }
+  .cal-layer::before{ content:""; width:10px; height:10px; border-radius:50%; background:var(--c); order:-1; }
+  .cal-layer input{ accent-color:var(--c); }
+  .cal-item{ display:block; width:100%; text-align:start; margin-top:3px; padding:3px 7px; border:0; border-inline-start:3px solid var(--c); border-radius:6px; background:color-mix(in srgb, var(--c) 14%, transparent); color:var(--text); font:inherit; font-size:12px; line-height:1.35; cursor:pointer; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .cal-item:hover{ background:color-mix(in srgb, var(--c) 26%, transparent); }
+  .cal-done{ opacity:.55; text-decoration:line-through; }
+  .cal-grid{ display:grid; grid-template-columns:repeat(7, minmax(0,1fr)); gap:1px; background:var(--border); border:1px solid var(--border); border-radius:10px; overflow:hidden; }
+  .cal-dow{ background:var(--raised); padding:6px; text-align:center; font-size:12px; font-weight:600; color:var(--text-dim); }
+  .cal-cell{ background:var(--sheet); min-height:96px; padding:4px; min-width:0; }
+  .cal-other{ opacity:.5; }
+  .cal-today{ box-shadow: inset 0 0 0 2px var(--accent); }
+  .cal-num, .cal-more{ border:0; background:none; color:inherit; font:inherit; cursor:pointer; font-size:12px; padding:2px 4px; }
+  .cal-more{ color:var(--text-dim); display:block; }
+  .cal-week{ display:grid; grid-template-columns:repeat(7, minmax(0,1fr)); gap:8px; }
+  .cal-col{ border:1px solid var(--border); border-radius:10px; padding:6px; min-width:0; }
+  .cal-colhead{ border:0; background:none; color:inherit; font:inherit; cursor:pointer; padding:2px 0 6px; display:block; width:100%; text-align:start; }
+  .cal-daylist .cal-row{ display:flex; gap:10px; align-items:center; } .cal-daylist .cal-item{ width:auto; max-width:70%; white-space:normal; font-size:13px; }
+  .cal-agenda-day{ margin-bottom:12px; }
+  .cal-year{ display:grid; grid-template-columns:repeat(auto-fill, minmax(210px, 1fr)); gap:14px; }
+  .cal-ymhead{ border:0; background:none; color:inherit; font:inherit; font-weight:700; cursor:pointer; padding:0 0 4px; }
+  .cal-minigrid{ display:grid; grid-template-columns:repeat(7, 1fr); gap:2px; }
+  .cal-mini{ border:0; border-radius:5px; background:transparent; color:inherit; font:inherit; font-size:11px; padding:4px 0; cursor:pointer; }
+  .cal-mini-empty{ display:block; }
+  .cal-has1{ background:color-mix(in srgb, var(--accent) 20%, transparent); } .cal-has2{ background:color-mix(in srgb, var(--accent) 40%, transparent); } .cal-has3{ background:color-mix(in srgb, var(--accent) 65%, transparent); }
+  @media (max-width: 760px){
+    .cal-week{ grid-template-columns:1fr; }
+    .cal-cell{ min-height:64px; padding:2px; }
+    .cal-v-month .cal-item{ font-size:0; padding:0; height:6px; margin-top:2px; border-radius:3px; border-inline-start-width:0; background:var(--c); width:100%; }
+    .cal-v-month .cal-more{ font-size:10px; padding:0 2px; }
+    .cal-daylist .cal-item{ max-width:100%; }
+  }
+  .ot-row{ display:flex; flex-wrap:wrap; gap:6px; align-items:center; padding-block:8px; border-bottom:1px solid var(--border); }
+  .ot-actions{ margin-inline-start:auto; display:flex; gap:6px; flex-wrap:wrap; }
   @media (max-width: 800px){
     body{ overflow-x: hidden; }
     header{ padding: calc(8px + env(safe-area-inset-top)) 12px 8px; gap: 8px; flex-wrap: wrap; }
@@ -924,15 +975,6 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     /* tables become stacked rows (employees, positions, convergence, attendance, users) */
   /* tables → cards (employees, positions, convergence, attendance, users) */
   .card:has(> .table-scroll > #empTable), .card:has(> .table-scroll > #posTable), .card:has(> .table-scroll > #convTable), .card:has(> .table-scroll > #attTable), .card:has(> .table-scroll > #usersTable){ background: none; border: 0; box-shadow: none; padding: 0; backdrop-filter: none; -webkit-backdrop-filter: none; }
-  .ef-chip button{ background:none; border:0; color:inherit; cursor:pointer; font-size:15px; line-height:1; padding:0 2px; }
-  .ef-list summary{ cursor:pointer; padding:8px 10px; border:1px solid var(--border); border-radius:var(--r-md,10px); }
-  .ef-opts{ max-height:200px; overflow:auto; padding:6px 4px; border:1px solid var(--border); border-radius:var(--r-md,10px); margin-top:4px; }
-  .pp-item{ display:block; width:100%; text-align:start; padding:8px 10px; margin-top:4px; border:1px solid var(--border); border-radius:var(--r-md,10px); background:transparent; color:inherit; cursor:pointer; font:inherit; }
-  .pp-item:hover{ border-color:var(--text-dim); }
-  .pp-create{ margin-top:8px; font-size:13px; }
-  .dup-err{ margin-top:8px; padding:10px 12px; border-radius:var(--r-md,10px); background:var(--danger-soft); color:var(--danger-text); font-size:13px; display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
-  .ot-row{ display:flex; flex-wrap:wrap; gap:6px; align-items:center; padding-block:8px; border-bottom:1px solid var(--border); }
-  .ot-actions{ margin-inline-start:auto; display:flex; gap:6px; flex-wrap:wrap; }
   .table-scroll:has(> #empTable, > #posTable, > #convTable, > #attTable, > #usersTable){ max-height: none; overflow: visible; border: 0; background: none; }
   #empTable, #posTable, #convTable, #attTable, #usersTable, #empTable tbody, #posTable tbody, #convTable tbody, #attTable tbody, #usersTable tbody, #empTable tr, #posTable tr, #convTable tr, #attTable tr, #usersTable tr{ display: block; width: 100%; }
   #empTable thead, #posTable thead, #convTable thead, #attTable thead, #usersTable thead{ display: none; }
@@ -1179,6 +1221,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
   <div class="nav-group-title">עבודה שוטפת</div>
   <button class="tab-btn" data-tab="orgchart">מבנה ארגוני</button>
   <button class="tab-btn" data-tab="meetings">סיכומי פגישות</button>
+  <button class="tab-btn" data-tab="calendar">לוח שנה</button>
   <button class="tab-btn" data-tab="tasks">משימות</button>
   <button class="tab-btn" data-tab="mgrinfo">מידע למנהלים</button>
   <div class="nav-group-title">תהליכי כוח אדם</div>
@@ -1246,6 +1289,24 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     </div>
     <div class="card org-wrap"><div id="orgTree" class="tree"></div></div>
     <div class="card org-wrap" id="roleTreeWrap" hidden><div id="roleTree" class="tree"></div><div id="roleNotIn" hidden></div></div>
+  </section>
+
+  <!-- CALENDAR -->
+  <section class="panel" id="panel-calendar">
+    <div class="panel-head">
+      <div><h2>לוח שנה</h2><p>משימות, תזכורות, שחרורים, כניסות, גמישות ואיוש תפקידים בלוח אחד. בוחרים אילו שכבות להציג, והבחירה נשמרת לכל משתמש</p></div>
+      <div style="display:flex; gap:8px; flex-wrap:wrap;"><button class="ghost" id="calRulesBtn" type="button">כללים אוטומטיים</button></div>
+    </div>
+    <div class="card">
+      <div class="cal-toolbar">
+        <div id="calViews" class="task-filters" style="margin:0;"></div>
+        <div id="calNav" class="cal-nav"><button class="ghost" id="calPrev" type="button" aria-label="הקודם">›</button><button class="ghost" id="calToday" type="button">היום</button><button class="ghost" id="calNext" type="button" aria-label="הבא">‹</button></div>
+        <div id="calRange" class="cal-range" hidden><input type="date" id="calFrom" aria-label="מתאריך"><span>עד</span><input type="date" id="calTo" aria-label="עד תאריך"></div>
+        <h3 id="calTitle"></h3>
+      </div>
+      <div id="calLayers" class="cal-layers"></div>
+    </div>
+    <div class="card"><div id="calBody" class="cal-body"></div></div>
   </section>
 
   <!-- ROLES -->
@@ -4892,6 +4953,305 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     var o = document.querySelector('.tab-btn[data-tab="orgchart"]'); if (o) o.addEventListener('click', renderOrgTab);
   }
   window.hubRoles = { reload: reload, list: function(){ return roles; }, occupancy: occupancy, holders: holders, unitPath: unitPath, currentHolderId: currentHolderId, render: renderAll, open: openForm, statusLabel: STATUS };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
+})();
+</script>
+<script>
+/* ================================================================
+   Calendar (round 3, stages 10-11): one component, five views (day / week / month / year / custom range).
+   Items are DERIVED from the live data by layer providers, nothing is duplicated.
+   Layers: tasks, reminders, end of compulsory service, releases, entries, flex, role occupancy.
+   The chosen layers and view are kept per user (collection "userPrefs").
+   The data already respects the user's scope (center or HQ), because it comes from the scoped state.
+   ================================================================ */
+(function(){
+  'use strict';
+  var el = function(id){ return document.getElementById(id); };
+  var esc = function(s){ return typeof escapeHtml === 'function' ? escapeHtml(s) : String(s); };
+  var LAYERS = [
+    { key: 'tasks', label: 'משימות', cls: 'task' },
+    { key: 'reminders', label: 'תזכורות', cls: 'rem' },
+    { key: 'compulsory', label: 'סיום חובה', cls: 'comp' },
+    { key: 'releases', label: 'שחרורים', cls: 'rel' },
+    { key: 'entries', label: 'כניסות', cls: 'ent' },
+    { key: 'flex', label: 'גמישות', cls: 'flex' },
+    { key: 'occupancy', label: 'איוש תפקידים', cls: 'occ' }
+  ];
+  var VIEWS = [{ k: 'day', l: 'יום' }, { k: 'week', l: 'שבוע' }, { k: 'month', l: 'חודש' }, { k: 'year', l: 'שנה' }, { k: 'range', l: 'טווח' }];
+  var DAYS = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
+  var cal = { view: 'month', date: iso(new Date()), layers: LAYERS.map(function(l){ return l.key; }), from: '', to: '' };
+  var shown = [];                                          /* items of the current rendering, addressed by index from the DOM */
+
+  /* ---------- dates (local time, YYYY-MM-DD) ---------- */
+  function iso(d){ return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+  function parse(s){ var p = s.split('-'); return new Date(+p[0], +p[1] - 1, +p[2]); }
+  function addDays(s, n){ var d = parse(s); d.setDate(d.getDate() + n); return iso(d); }
+  function addMonths(s, n){ var d = parse(s); d.setDate(1); d.setMonth(d.getMonth() + n); return iso(d); }
+  function weekStart(s){ var d = parse(s); d.setDate(d.getDate() - d.getDay()); return iso(d); }
+  function monthStart(s){ return s.slice(0, 8) + '01'; }
+  function monthEnd(s){ var d = parse(s); d = new Date(d.getFullYear(), d.getMonth() + 1, 0); return iso(d); }
+  function todayIso(){ return iso(new Date()); }
+  function heDate(s, opts){ return parse(s).toLocaleDateString('he-IL', opts || { day: 'numeric', month: 'long', year: 'numeric' }); }
+  function between(a, b, x){ return x >= a && x <= b; }
+
+  /* ---------- providers: layer -> items for [from, to] ---------- */
+  function rangeItem(layer, from, to, title, sub, ref, kind){ return { layer: layer, date: from, end: to, title: title, sub: sub || '', ref: ref, kind: kind || '' }; }
+  var providers = {
+    tasks: function(from, to){
+      var out = [];
+      state.tasks.forEach(function(t){
+        if (t.autoKind === 'flex-end') return;                              /* shown in the flex layer */
+        if (!t.dueDate || !between(from, to, t.dueDate)) return;
+        if (typeof taskVisibleToCurrentUser === 'function' && !taskVisibleToCurrentUser(t)) return;
+        out.push({ layer: 'tasks', date: t.dueDate, title: t.title, sub: (TASK_STATUS_LABELS[t.status || 'none'] || '') , ref: { type: 'task', id: t.id }, done: t.status === 'done', kind: 'due' });
+      });
+      return out;
+    },
+    reminders: function(from, to){
+      var out = [];
+      state.tasks.forEach(function(t){
+        if (t.autoKind === 'flex-end' || !t.remindAt || t.status === 'done' || !between(from, to, t.remindAt)) return;
+        if (typeof taskVisibleToCurrentUser === 'function' && !taskVisibleToCurrentUser(t)) return;
+        out.push({ layer: 'reminders', date: t.remindAt, title: 'תזכורת: ' + t.title, sub: t.dueDate ? 'יעד ' + t.dueDate : '', ref: { type: 'task', id: t.id }, kind: 'remind' });
+      });
+      return out;
+    },
+    compulsory: function(from, to){
+      return state.employees.filter(function(e){ return e.compulsoryReleaseDate && e.active !== false && between(from, to, e.compulsoryReleaseDate); })
+        .map(function(e){ return { layer: 'compulsory', date: e.compulsoryReleaseDate, title: 'סיום חובה: ' + e.name, sub: e.serviceType || '', ref: { type: 'employee', id: e.id } }; });
+    },
+    releases: function(from, to){
+      var out = [];
+      state.employees.forEach(function(e){
+        if (e.active === false) return;
+        var eff = effectiveReleaseDate(e);
+        if (eff.date && between(from, to, eff.date)) out.push({ layer: 'releases', date: eff.date, title: 'שחרור: ' + e.name, sub: eff.label, ref: { type: 'employee', id: e.id } });
+      });
+      return out;
+    },
+    entries: function(from, to){
+      var out = [];
+      state.convergence.forEach(function(c){
+        var nm = ((c.firstName || '') + ' ' + (c.lastName || '')).trim(), ref = { type: 'convergence', id: c.id };
+        if (c.entryDate && between(from, to, c.entryDate)) out.push({ layer: 'entries', date: c.entryDate, title: 'כניסה להתכנסות: ' + nm, sub: c.industry || '', ref: ref, kind: 'in' });
+        if (c.exitDate && between(from, to, c.exitDate)) out.push({ layer: 'entries', date: c.exitDate, title: 'יציאה מהתכנסות: ' + nm, sub: c.industry || '', ref: ref, kind: 'out' });
+      });
+      return out;
+    },
+    flex: function(from, to){
+      var out = [];
+      if (window.hubFlex){
+        hubFlex.calendarEvents(from, to).forEach(function(ev){
+          out.push({ layer: 'flex', date: ev.date, title: ev.title, sub: 'תאריך סיום גמישות', ref: { type: 'employee', id: ev.employeeId }, kind: 'end' });
+        });
+      }
+      state.tasks.forEach(function(t){
+        if (t.autoKind !== 'flex-end' || t.status === 'done') return;
+        if (t.dueDate && between(from, to, t.dueDate)) out.push({ layer: 'flex', date: t.dueDate, title: t.title, sub: 'משימת שיבוץ', ref: { type: 'task', id: t.id }, kind: 'task' });
+        if (t.remindAt && between(from, to, t.remindAt)) out.push({ layer: 'flex', date: t.remindAt, title: 'תזכורת: ' + t.title, sub: 'משימת שיבוץ', ref: { type: 'task', id: t.id }, kind: 'remind' });
+      });
+      return out;
+    },
+    occupancy: function(from, to){
+      var out = [];
+      if (!window.hubRoles) return out;
+      hubRoles.list().forEach(function(r){
+        if (r.active === false) return;
+        var o = hubRoles.occupancy(r, from), ref = { type: 'role', id: r.id };
+        if (o.cur && o.cur.to && between(from, to, o.cur.to)) out.push({ layer: 'occupancy', date: o.cur.to, title: 'מסיים/ת תפקיד: ' + r.title + ' (' + o.cur.name + ')', sub: 'היום האחרון בתפקיד', ref: ref, kind: 'leave' });
+        if (o.gap){
+          var gf = o.gap.from, gt = o.gap.to || addDays(to, 0);
+          if (gf <= to && gt >= from) out.push(rangeItem('occupancy', gf < from ? from : gf, gt > to ? to : gt, 'פער איוש: ' + r.title, o.gap.to ? 'עד ' + o.gap.to : 'אין מחליף', ref, 'gap'));
+        }
+        if (o.overlap && o.overlap.from <= to && o.overlap.to >= from) out.push(rangeItem('occupancy', o.overlap.from < from ? from : o.overlap.from, o.overlap.to > to ? to : o.overlap.to, 'חפיפה: ' + r.title, (o.cur ? o.cur.name : '') + ' ו' + (o.fut ? o.fut.name : ''), ref, 'overlap'));
+        if (o.fut && o.fut.from && between(from, to, o.fut.from)) out.push({ layer: 'occupancy', date: o.fut.from, title: 'כניסת מחליף/ה: ' + r.title + ' (' + o.fut.name + ')', sub: '', ref: ref, kind: 'enter' });
+      });
+      return out;
+    }
+  };
+  function itemsBetween(from, to){
+    var byDay = {};
+    cal.layers.forEach(function(k){
+      if (!providers[k]) return;
+      var list = []; try{ list = providers[k](from, to) || []; }catch(e){ console.error('calendar provider failed', k, e); }
+      list.forEach(function(it){
+        var last = it.end || it.date, d = it.date, g = 0;
+        while (d <= last && g++ < 400){ if (d >= from && d <= to){ (byDay[d] = byDay[d] || []).push(it); } d = addDays(d, 1); }
+      });
+    });
+    var order = {}; LAYERS.forEach(function(l, i){ order[l.key] = i; });
+    Object.keys(byDay).forEach(function(d){ byDay[d].sort(function(a, b){ return order[a.layer] - order[b.layer] || a.title.localeCompare(b.title, 'he'); }); });
+    return byDay;
+  }
+  function layerCls(k){ return LAYERS.find(function(l){ return l.key === k; }).cls; }
+  function chip(it, compact){
+    shown.push(it);
+    return '<button type="button" class="cal-item cal-' + layerCls(it.layer) + (it.done ? ' cal-done' : '') + '" data-cal-item="' + (shown.length - 1) + '" title="' + esc(it.title + (it.sub ? ' — ' + it.sub : '')) + '">' + (compact ? '' : '') + esc(it.title) + '</button>';
+  }
+
+  /* ---------- views ---------- */
+  function range(){
+    var d = cal.date;
+    if (cal.view === 'day') return [d, d];
+    if (cal.view === 'week') return [weekStart(d), addDays(weekStart(d), 6)];
+    if (cal.view === 'month') { var s = weekStart(monthStart(d)); return [s, addDays(s, 41)]; }
+    if (cal.view === 'year') return [d.slice(0, 4) + '-01-01', d.slice(0, 4) + '-12-31'];
+    return [cal.from || d, cal.to || addDays(cal.from || d, 30)];
+  }
+  function title(){
+    var d = cal.date;
+    if (cal.view === 'day') return heDate(d, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+    if (cal.view === 'week'){ var s = weekStart(d); return heDate(s, { day: 'numeric', month: 'short' }) + ' – ' + heDate(addDays(s, 6), { day: 'numeric', month: 'short', year: 'numeric' }); }
+    if (cal.view === 'month') return heDate(d, { month: 'long', year: 'numeric' });
+    if (cal.view === 'year') return d.slice(0, 4);
+    return 'טווח מותאם';
+  }
+  function dayHead(){ return DAYS.map(function(n){ return '<div class="cal-dow">' + n + '</div>'; }).join(''); }
+  function viewMonth(){
+    var r = range(), by = itemsBetween(r[0], r[1]), cur = cal.date.slice(0, 7), today = todayIso(), h = '<div class="cal-grid">' + dayHead();
+    for (var i = 0; i < 42; i++){
+      var d = addDays(r[0], i), its = by[d] || [], other = d.slice(0, 7) !== cur;
+      h += '<div class="cal-cell' + (other ? ' cal-other' : '') + (d === today ? ' cal-today' : '') + '"><button type="button" class="cal-num" data-cal-day="' + d + '">' + parse(d).getDate() + '</button>'
+        + its.slice(0, 3).map(function(it){ return chip(it); }).join('') + (its.length > 3 ? '<button type="button" class="cal-more" data-cal-day="' + d + '">+' + (its.length - 3) + ' עוד</button>' : '') + '</div>';
+    }
+    return h + '</div>';
+  }
+  function viewWeek(){
+    var r = range(), by = itemsBetween(r[0], r[1]), today = todayIso(), h = '<div class="cal-week">';
+    for (var i = 0; i < 7; i++){
+      var d = addDays(r[0], i), its = by[d] || [];
+      h += '<div class="cal-col' + (d === today ? ' cal-today' : '') + '"><button type="button" class="cal-colhead" data-cal-day="' + d + '"><b>' + DAYS[i] + '</b> ' + parse(d).getDate() + '/' + (parse(d).getMonth() + 1) + '</button>'
+        + (its.map(function(it){ return chip(it); }).join('') || '<div class="locked-note">אין פריטים</div>') + '</div>';
+    }
+    return h + '</div>';
+  }
+  function viewDay(){
+    var d = cal.date, its = itemsBetween(d, d)[d] || [];
+    return '<div class="cal-daylist">' + (its.map(function(it){ return '<div class="cal-row">' + chip(it) + '<span class="locked-note">' + esc(it.sub || '') + '</span></div>'; }).join('') || '<div class="empty-state">אין פריטים ביום הזה בשכבות שנבחרו</div>') + '</div>';
+  }
+  function viewYear(){
+    var y = cal.date.slice(0, 4), by = itemsBetween(y + '-01-01', y + '-12-31'), today = todayIso(), h = '<div class="cal-year">';
+    for (var m = 0; m < 12; m++){
+      var first = y + '-' + String(m + 1).padStart(2, '0') + '-01', start = weekStart(first), total = 0, cells = '';
+      for (var i = 0; i < 42; i++){
+        var d = addDays(start, i); if (d.slice(0, 7) !== first.slice(0, 7)){ cells += '<span class="cal-mini-empty"></span>'; continue; }
+        var n = (by[d] || []).length; total += n;
+        cells += '<button type="button" class="cal-mini' + (d === today ? ' cal-today' : '') + (n ? ' cal-has' + (n > 3 ? '3' : n > 1 ? '2' : '1') : '') + '" data-cal-day="' + d + '" title="' + (n ? n + ' פריטים' : '') + '">' + parse(d).getDate() + '</button>';
+      }
+      h += '<div class="cal-yearmonth"><button type="button" class="cal-ymhead" data-cal-month="' + first + '">' + heDate(first, { month: 'long' }) + ' <span class="locked-note">' + (total ? total + ' פריטים' : '') + '</span></button><div class="cal-minigrid">' + cells + '</div></div>';
+    }
+    return h + '</div>';
+  }
+  function viewRange(){
+    var r = range(); if (r[1] < r[0]) return '<div class="empty-state">תאריך הסיום קודם לתאריך ההתחלה</div>';
+    var max = addDays(r[0], 366), to = r[1] > max ? max : r[1], by = itemsBetween(r[0], to), days = Object.keys(by).sort();
+    return '<div class="cal-daylist">' + (days.map(function(d){ return '<div class="cal-agenda-day"><button type="button" class="cal-colhead" data-cal-day="' + d + '"><b>' + heDate(d, { weekday: 'long', day: 'numeric', month: 'long' }) + '</b></button>' + by[d].map(function(it){ return '<div class="cal-row">' + chip(it) + '<span class="locked-note">' + esc(it.sub || '') + '</span></div>'; }).join('') + '</div>'; }).join('') || '<div class="empty-state">אין פריטים בטווח</div>') + (r[1] > max ? '<div class="locked-note">מוצגת שנה אחת מתחילת הטווח</div>' : '') + '</div>';
+  }
+  function render(){
+    var box = el('calBody'); if (!box) return;
+    shown = [];
+    el('calTitle').textContent = title();
+    el('calViews').innerHTML = VIEWS.map(function(v){ return '<button type="button" class="ghost' + (cal.view === v.k ? ' active' : '') + '" data-cal-view="' + v.k + '">' + v.l + '</button>'; }).join('');
+    el('calRange').hidden = cal.view !== 'range';
+    el('calNav').hidden = cal.view === 'range';
+    el('calLayers').innerHTML = LAYERS.map(function(l){ return '<label class="cal-layer cal-' + l.cls + '"><input type="checkbox" data-cal-layer="' + l.key + '"' + (cal.layers.indexOf(l.key) >= 0 ? ' checked' : '') + '><span>' + l.label + '</span></label>'; }).join('');
+    var fn = { day: viewDay, week: viewWeek, month: viewMonth, year: viewYear, range: viewRange }[cal.view];
+    box.className = 'cal-body cal-v-' + cal.view;
+    box.innerHTML = fn();
+  }
+
+  /* ---------- per-user preferences ---------- */
+  async function prefs(){ var a = await DataStore.get('userPrefs', []); return Array.isArray(a) ? a : []; }
+  async function loadPrefs(){
+    var uid = state.authUserId; if (!uid) return;
+    var list = await prefs(), get = function(k){ var p = list.find(function(x){ return x.userId === uid && x.key === k; }); return p ? p.value : undefined; };
+    var l = get('calendar.layers'); if (Array.isArray(l)) cal.layers = l.filter(function(k){ return providers[k]; });
+    var v = get('calendar.view'); if (v && VIEWS.some(function(x){ return x.k === v; })) cal.view = v;
+  }
+  async function savePref(key, value){
+    var uid = state.authUserId; if (!uid) return;
+    var list = await prefs(), p = list.find(function(x){ return x.userId === uid && x.key === key; });
+    if (p) p.value = value; else list.push({ id: 'up' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), userId: uid, key: key, value: value });
+    await DataStore.set('userPrefs', list);
+  }
+
+  /* ---------- item popup and actions ---------- */
+  function openRecord(ref){
+    closeModal();
+    if (ref.type === 'task') editTask(ref.id);
+    else if (ref.type === 'employee') openEmployeeProfile(ref.id);
+    else if (ref.type === 'convergence') openConvForm(ref.id);
+    else if (ref.type === 'position') openPositionForm(ref.id);
+    else if (ref.type === 'role') hubRoles.open(ref.id);
+  }
+  function offsetDays(unit, amount){ return unit === 'day' ? amount : unit === 'week' ? amount * 7 : unit === 'month' ? amount * 30 : amount; }
+  function openItem(idx){
+    var it = shown[idx]; if (!it) return;
+    var t = it.ref.type === 'task' ? state.tasks.find(function(x){ return x.id === it.ref.id; }) : null;
+    var h = '<h3>' + esc(it.title) + '</h3><div class="locked-note">' + esc(heDate(it.date)) + (it.end && it.end !== it.date ? ' – ' + esc(heDate(it.end)) : '') + (it.sub ? ' · ' + esc(it.sub) : '') + '</div>';
+    if (t && t.dueDate){
+      var cur = t.remindOffset || { unit: 'week', amount: 1 };
+      h += '<div class="form-section-title">תזכורת למשימה</div><div class="grid2"><div class="field"><label>כמה זמן לפני יום היעד (' + esc(t.dueDate) + ')</label><select id="cal-r-unit"><option value="day">ימים</option><option value="week">שבועות</option><option value="month">חודשים</option><option value="custom">מותאם (ימים)</option></select></div>'
+        + '<div class="field"><label>כמות</label><input type="number" min="0" id="cal-r-amount" value="' + esc(cur.amount) + '"></div></div>'
+        + (t.remindAt ? '<div class="locked-note">תזכורת קיימת בתאריך ' + esc(t.remindAt) + '</div>' : '')
+        + '<div class="modal-actions"><button class="primary" type="button" data-cal-setrem="' + esc(t.id) + '">' + (t.remindAt ? 'עדכן תזכורת' : 'הוסף תזכורת') + '</button>' + (t.remindAt ? '<button class="ghost" type="button" data-cal-clearrem="' + esc(t.id) + '">הסר תזכורת</button>' : '') + '<button class="ghost" type="button" data-cal-open="' + idx + '">פתח את המשימה</button><button class="ghost" onclick="closeModal()" type="button">סגור</button></div>';
+    } else {
+      h += '<div class="modal-actions"><button class="primary" type="button" data-cal-open="' + idx + '">פתח את הרשומה</button><button class="ghost" onclick="closeModal()" type="button">סגור</button></div>';
+    }
+    openModal(h);
+    if (t && t.remindOffset && el('cal-r-unit')) el('cal-r-unit').value = t.remindOffset.unit;
+  }
+  async function setReminder(taskId){
+    var t = state.tasks.find(function(x){ return x.id === taskId; }); if (!t || !t.dueDate) return;
+    var unit = el('cal-r-unit').value, amount = Math.max(0, parseInt(el('cal-r-amount').value, 10) || 0);
+    t.remindOffset = { unit: unit, amount: amount };
+    t.remindAt = addDays(t.dueDate, -offsetDays(unit, amount));
+    await storeSet('tasks', state.tasks);
+    closeModal(); render(); if (typeof renderTasks === 'function') renderTasks();
+  }
+  async function clearReminder(taskId){
+    var t = state.tasks.find(function(x){ return x.id === taskId; }); if (!t) return;
+    t.remindAt = ''; delete t.remindOffset;
+    await storeSet('tasks', state.tasks);
+    closeModal(); render(); if (typeof renderTasks === 'function') renderTasks();
+  }
+
+  /* ---------- events ---------- */
+  function move(dir){
+    var d = cal.date;
+    if (cal.view === 'day') cal.date = addDays(d, dir);
+    else if (cal.view === 'week') cal.date = addDays(d, 7 * dir);
+    else if (cal.view === 'month') cal.date = addMonths(d, dir);
+    else if (cal.view === 'year') cal.date = (+d.slice(0, 4) + dir) + d.slice(4);
+    render();
+  }
+  document.addEventListener('click', function(e){
+    var t = e.target.closest ? e.target : null; if (!t) return;
+    var v = t.closest('[data-cal-view]');
+    if (v){ cal.view = v.getAttribute('data-cal-view'); if (cal.view === 'range' && !cal.from){ cal.from = cal.date; cal.to = addDays(cal.date, 30); el('calFrom').value = cal.from; el('calTo').value = cal.to; } savePref('calendar.view', cal.view); render(); return; }
+    if (t.closest('#calPrev')){ move(-1); return; }
+    if (t.closest('#calNext')){ move(1); return; }
+    if (t.closest('#calToday')){ cal.date = todayIso(); render(); return; }
+    var dy = t.closest('[data-cal-day]'); if (dy){ cal.date = dy.getAttribute('data-cal-day'); cal.view = 'day'; render(); return; }
+    var mo = t.closest('[data-cal-month]'); if (mo){ cal.date = mo.getAttribute('data-cal-month'); cal.view = 'month'; render(); return; }
+    var it = t.closest('[data-cal-item]'); if (it){ openItem(Number(it.getAttribute('data-cal-item'))); return; }
+    var op = t.closest('[data-cal-open]'); if (op){ var x = shown[Number(op.getAttribute('data-cal-open'))]; if (x) openRecord(x.ref); return; }
+    var sr = t.closest('[data-cal-setrem]'); if (sr){ setReminder(sr.getAttribute('data-cal-setrem')); return; }
+    var cr = t.closest('[data-cal-clearrem]'); if (cr){ clearReminder(cr.getAttribute('data-cal-clearrem')); return; }
+  });
+  document.addEventListener('change', function(e){
+    var t = e.target;
+    if (t.getAttribute && t.getAttribute('data-cal-layer')){
+      var k = t.getAttribute('data-cal-layer'), i = cal.layers.indexOf(k);
+      if (t.checked && i < 0) cal.layers.push(k); else if (!t.checked && i >= 0) cal.layers.splice(i, 1);
+      savePref('calendar.layers', cal.layers.slice()); render();
+    } else if (t.id === 'calFrom' || t.id === 'calTo'){ cal.from = el('calFrom').value; cal.to = el('calTo').value; render(); }
+  });
+  function init(){
+    var tab = document.querySelector('.tab-btn[data-tab="calendar"]');
+    if (tab) tab.addEventListener('click', async function(){ await loadPrefs(); if (window.hubRoles) await hubRoles.reload(); render(); });
+  }
+  window.hubCalendar = { render: render, items: itemsBetween, providers: providers, state: function(){ return cal; }, loadPrefs: loadPrefs, setView: function(v){ cal.view = v; render(); }, setDate: function(d){ cal.date = d; render(); }, setLayers: function(l){ cal.layers = l; render(); } };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 })();
 </script>
