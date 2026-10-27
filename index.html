@@ -2083,7 +2083,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
   }
 
   /* ---- record metadata (stage 2) ---- */
-  var META_COLLECTIONS = ['employees', 'meetings', 'tasks', 'postings', 'positions', 'convergence', 'attendance', 'attendanceRequests', 'infoItems', 'contactRoles', 'incentives', 'users', 'grants', 'notifications', 'orgUnits', 'roles', 'syncChanges', 'syncBatches', 'hqDomains', 'events', 'eventStakeholders', 'abroadForms', 'conflictFindings', 'conflictExceptions', 'conflictSubs', 'responsibilities', 'positionSwaps'];
+  var META_COLLECTIONS = ['employees', 'meetings', 'tasks', 'postings', 'positions', 'convergence', 'attendance', 'attendanceRequests', 'infoItems', 'contactRoles', 'incentives', 'users', 'grants', 'notifications', 'orgUnits', 'roles', 'syncChanges', 'syncBatches', 'hqDomains', 'events', 'eventStakeholders', 'abroadForms', 'conflictFindings', 'conflictExceptions', 'conflictSubs', 'responsibilities', 'positionSwaps', 'centerDomains'];
   var META_FIELDS = ['rev', 'updatedAt', 'updatedBy'];
   var NOISE_FIELDS = { users: ['lastLoginAt'] };   /* changes that must not count as an edit */
   function hasMeta(name){ return META_COLLECTIONS.indexOf(name) > -1; }
@@ -3098,7 +3098,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
   'use strict';
   var el = function(id){ return document.getElementById(id); };
   var esc = function(s){ return typeof escapeHtml === 'function' ? escapeHtml(s) : String(s); };
-  var TYPE = { abroadForms:'טפסי חו"ל', responsibilities:'אחראים', syncChanges:'שינויי סנכרון', syncBatches:'קבוצות סנכרון', hqDomains:'תחומי אחריות מטה', positionSwaps:'החלפות תקנים', employees:'עובדים', meetings:'סיכומי פגישות', tasks:'משימות', postings:'שיבוצים', positions:'תקנים', convergence:'התכנסות', attendance:'נוכחות', attendanceRequests:'בקשות נוכחות', infoItems:'מידע למנהלים', contactRoles:'דף קשר', incentives:'תמריצים', users:'משתמשים', grants:'הרשאות', orgUnits:'מרכזים ויחידות', unitMemberships:'היסטוריית שיוך', notifications:'התראות', system:'מערכת' };
+  var TYPE = { abroadForms:'טפסי חו"ל', responsibilities:'אחראים', syncChanges:'שינויי סנכרון', syncBatches:'קבוצות סנכרון', hqDomains:'תחומי אחריות מטה', positionSwaps:'החלפות תקנים', centerDomains:'אחראי תחום במרכז', employees:'עובדים', meetings:'סיכומי פגישות', tasks:'משימות', postings:'שיבוצים', positions:'תקנים', convergence:'התכנסות', attendance:'נוכחות', attendanceRequests:'בקשות נוכחות', infoItems:'מידע למנהלים', contactRoles:'דף קשר', incentives:'תמריצים', users:'משתמשים', grants:'הרשאות', orgUnits:'מרכזים ויחידות', unitMemberships:'היסטוריית שיוך', notifications:'התראות', system:'מערכת' };
   var ACTION = { create:'נוצר', update:'עודכן', delete:'נמחק', 'backup-export':'ייצוא גיבוי', restore:'שחזור', 'sync-submit':'שליחת סנכרון', 'sync-approve':'אישור סנכרון', 'sync-reject':'דחיית סנכרון', 'sync-review':'סנכרון לבדיקה', 'sync-discard':'ביטול שינוי פרטי', 'sync-reopen':'החזרה לעריכה', 'sync-domains':'תחומי אחריות מטה', 'sync-derived':'עדכון נגזר מכרטיס העובד', 'swap-create':'החלפת תקנים', 'swap-reverse':'ביטול החלפה', 'swap-convert':'החלפה קבועה', 'swap-both':'הפשרה: שניהם פעילים' };
   var SOURCE = { ui:'ממשק', 'import':'ייבוא', migration:'שדרוג נתונים', sync:'סנכרון', rule:'כלל אוטומטי', derived:'נגזר מכרטיס העובד' };
   var FIELD = { name:'שם', role:'תפקיד', department:'מרכז', industry:'ענף', mador:'מדור', team:'צוות', ramad:'רמ"ד', rank:'רמת הרשאה', level:'זוטר/מובהק', serviceType:'סוג שירות', managerId:'מנהל ישיר', email:'אימייל', phone:'טלפון', active:'פעיל', title:'כותרת', status:'סטטוס', priority:'עדיפות', dueDate:'תאריך יעד', description:'תיאור', assignedTo:'מוקצה ל', jobText:'מלל משרה', serialNumber:'מס\' תקן', counterStatus:'מונה', freezeStatus:'הקפאה', currentAppointment:'מינוי נוכחי', futureAppointment:'מינוי עתידי', firstName:'שם פרטי', lastName:'שם משפחה', releaseDate:'תאריך שחרור', entryDate:'כניסה', exitDate:'יציאה', starred:'רידוד', gross:'שווי ברוטו', code:'קוד', entered:'הוזן', notes:'הערות', content:'תוכן', topic:'נושא', file:'קובץ', comments:'תגובות', summary:'סיכום', date:'תאריך', requestedStatus:'סטטוס מבוקש', note:'הערה', roleTitle:'תפקיד', holderName:'שם התפקידן', responsibilities:'תחומי אחריות' };
@@ -5996,7 +5996,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
       return '<tr><td>' + esc(u.username) + '</td>' + Object.keys(DOMAINS).map(function(d){ return '<td><input type="checkbox" data-hqd="' + esc(u.id) + '|' + d + '"' + (assigned.some(function(a){ return a.userId === u.id && a.domain === d; }) ? ' checked' : '') + '></td>'; }).join('') + '</tr>';
     }).join('') || '<tr><td colspan="4">אין משתמשי מטה. הגדר היקף "מטה" למשתמש בלשונית המשתמשים.</td></tr>';
     var orphan = Object.keys(DOMAINS).filter(function(d){ return !assigned.some(function(a){ return a.domain === d && hq.some(function(u){ return u.id === a.userId; }); }); });
-    return '<div class="card"><div class="panel-head" style="margin-bottom:10px;"><div><h3 style="margin:0 0 6px;">תחומי אחריות של משתמשי מטה</h3><span class="locked-note" style="display:inline">סנכרונים ובקשות מרכזים מנותבים לבעלי התחום. תחום בלי אחראי עובר למשתמש המערכת. הסנכרון פעיל בהתכנסות, בתקנים ובתמריצים.</span></div></div>'
+    return '<div class="card"><div class="panel-head" style="margin-bottom:10px;"><div><h3 style="margin:0 0 6px;">תחומי אחריות של משתמשי מטה</h3><span class="locked-note" style="display:inline">סנכרונים ובקשות מרכזים מנותבים לבעלי התחום. תחום בלי אחראי עובר למשתמש המערכת. אחראי תחום במטה (במודל ההיקף החדש) רואה ועורך רק את התחום שלו, בכל המרכזים, ומעובדים רק את מה שהתחום דורש.</span></div></div>'
       + '<div class="table-scroll"><table><thead><tr><th>משתמש מטה</th>' + Object.keys(DOMAINS).map(function(d){ return '<th>' + DOMAINS[d] + '</th>'; }).join('') + '</tr></thead><tbody>' + rows + '</tbody></table></div>'
       + (orphan.length ? '<div class="locked-note" style="display:block;">תחומים בלי אחראי (ההתראות עוברות למשתמש המערכת): ' + orphan.map(function(d){ return DOMAINS[d]; }).join(', ') + '</div>' : '') + '</div>';
   }
@@ -6869,11 +6869,27 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
   if (window.DataStore && DataStore.on) DataStore.on('change', function(){ memo = null; });
 
   /* ---------- who is limited, and how ---------- */
+  var DOMAIN_KEYS = ['positions', 'convergence', 'incentives'];
+  var DOMAIN_LABEL = { positions: 'תקנים', convergence: 'התכנסות', incentives: 'תמריצים' };
+  function peek(n){ var a = window.DataStore && DataStore.peekAll ? DataStore.peekAll(n) : null; return Array.isArray(a) ? a : []; }
   function userOf(empId){ return (S().users || []).find(function(u){ return u.employeeId === empId && u.active !== false; }) || null; }
+  /* the domains a user is responsible for: for all centers (HQ user) and per center (center user) */
+  function ownedBy(user){
+    var out = { hq: {}, centers: {} }; if (!user) return out;
+    if (user.scope && user.scope.kind === 'hq') peek('hqDomains').forEach(function(d){ if (d.userId === user.id) out.hq[d.domain] = 1; });
+    peek('centerDomains').forEach(function(d){ if (d.userId === user.id) (out.centers[d.centerId] = out.centers[d.centerId] || {})[d.domain] = 1; });
+    return out;
+  }
+  function hasDomains(o){ return Object.keys(o.hq).length > 0 || Object.keys(o.centers).length > 0; }
+  function ownedList(o){
+    var out = Object.keys(o.hq).map(function(d){ return DOMAIN_LABEL[d] + ' (כל המרכזים)'; });
+    Object.keys(o.centers).forEach(function(cid){ var u = C().byId[cid]; Object.keys(o.centers[cid]).forEach(function(d){ out.push(DOMAIN_LABEL[d] + ' (' + (u ? u.name : '?') + ')'); }); });
+    return out;
+  }
   function modeOf(empId){
     var u = userOf(empId); if (!u || u.isSuper) return 'legacy';
     if (u.isHr) return 'all';
-    if (u.scopeMode === 'hierarchy') return (u.scope && u.scope.kind === 'hq') ? 'all' : 'scoped';
+    if (u.scopeMode === 'hierarchy') return (u.scope && u.scope.kind === 'hq') ? 'domain' : 'scoped';
     return 'legacy';
   }
   function engaged(empId){ empId = empId || me(); return !!empId && modeOf(empId) !== 'legacy'; }
@@ -6885,13 +6901,31 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     while (q.length && g++ < 2000){ var id = q.shift(); into[id] = 1; (c.kids[id] || []).forEach(function(k){ if (!into[k.id]) q.push(k.id); }); }
     return into;
   }
+  /* the center a record belongs to: its own stamp, the center of its employee, or the main center */
+  function recCenter(rec){
+    if (rec.centerId) return rec.centerId;
+    var eid = rec.employeeId || (rec.currentAppointment || {}).linkedEmployeeId, e = eid ? C().emps[eid] : null;
+    return (e && e.centerId) || (window.hubOrg ? hubOrg.mainId() : null);
+  }
+  function owns(o, domain, rec){ if (o.hq[domain]) return true; var c = o.centers[recCenter(rec)]; return !!(c && c[domain]); }
+  /* the employees behind the records of the owned domains: the only employees a domain owner needs to see */
+  function domainEmployees(o){
+    var out = new Set(); if (!hasDomains(o)) return out;
+    var st = S();
+    (st.convergence || []).forEach(function(r){ if (owns(o, 'convergence', r)){ var e = convEmployee(r); if (e) out.add(e); } });
+    (st.positions || []).forEach(function(p){ if (owns(o, 'positions', p)){ var e = (p.currentAppointment || {}).linkedEmployeeId; if (e) out.add(e); } });
+    (st.incentives || []).forEach(function(i){ if (owns(o, 'incentives', i) && i.employeeId) out.add(i.employeeId); });
+    return out;
+  }
   function compute(empId, mode){
     var c = C();
     if (mode === 'all') return { all: true, level: 'all', heads: [], ids: null, units: null };
+    var user = userOf(empId), o = ownedBy(user);
+    if (mode === 'domain') return { all: false, level: 'none', heads: [], ids: new Set([empId]), units: {}, domainOnly: true, owned: o, dom: domainEmployees(o) };
     var heads = headUnits(c, empId), uset = {};
     heads.forEach(function(h){ subtree(c, h.id, uset); });
     var ids = new Set([empId]), self = c.emps[empId];
-    if (self && self.rank === 'צפייה עצמית') return { all: false, level: 'none', heads: [], ids: ids, units: {} };   /* "self view" rank: only the person */
+    if (self && self.rank === 'צפייה עצמית') return { all: false, level: 'none', heads: [], ids: ids, units: {}, owned: o, dom: new Set() };   /* "self view" rank: only the person */
     Object.keys(c.emps).forEach(function(k){ var e = c.emps[k]; if (e.orgUnitId && uset[e.orgUnitId]) ids.add(e.id); });
     /* an explicit (manual) direct commander keeps oversight of the people they were set over */
     var q = [empId], seen = {}, g = 0;
@@ -6901,7 +6935,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     }
     var level = 'none';
     heads.forEach(function(h){ if (level === 'none' || RANK[h.kind] < RANK[level]) level = h.kind; });
-    return { all: false, level: level, heads: heads, ids: ids, units: uset };
+    return { all: false, level: level, heads: heads, ids: ids, units: uset, owned: o, dom: domainEmployees(o), domainOnly: heads.length === 0 && hasDomains(o) };
   }
   function scopeFor(empId){
     empId = empId || me(); if (!empId) return null;
@@ -6909,27 +6943,39 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     var c = C(); if (!c.scopes[empId]) c.scopes[empId] = compute(empId, mode);
     return c.scopes[empId];
   }
-  /* true when the viewer may see the employee under the hierarchy model (legacy viewers: not decided here, so true) */
+  /* true when the viewer may see the employee under the new model (legacy viewers: not decided here, so true) */
   function canSee(empId, viewer){
     var s = scopeFor(viewer); if (!s) return true;
     if (s.all) return true;
-    return !!empId && s.ids.has(empId);
+    return !!empId && (s.ids.has(empId) || (!!s.dom && s.dom.has(empId)));
   }
-  function visibleEmployees(list, viewer){ var s = scopeFor(viewer); return s && !s.all ? list.filter(function(e){ return s.ids.has(e.id); }) : list; }
+  function visibleEmployees(list, viewer){ var s = scopeFor(viewer); return s && !s.all ? list.filter(function(e){ return s.ids.has(e.id) || (s.dom && s.dom.has(e.id)); }) : list; }
+  /* only the people of the viewer's units (not the ones a domain owner sees because of a record) */
+  function unitEmployees(list, viewer){ var s = scopeFor(viewer); return s && !s.all ? list.filter(function(e){ return s.ids.has(e.id); }) : list; }
   function subordinateIds(viewer){
     viewer = viewer || me(); var s = scopeFor(viewer); if (!s) return null;
     var out = s.all ? (S().employees || []).map(function(e){ return e.id; }) : Array.from(s.ids);
     return out.filter(function(id){ return id !== viewer; });
   }
-  function canAssign(targetId, viewer){ viewer = viewer || me(); return targetId === viewer || canSee(targetId, viewer); }
+  function canAssign(targetId, viewer){ viewer = viewer || me(); if (targetId === viewer) return true; var s = scopeFor(viewer); if (!s) return true; return s.all || s.ids.has(targetId); }
   function canManageEmployee(empId, viewer){ var s = scopeFor(viewer); if (!s) return true; return s.all || s.ids.has(empId); }
   function canCreateEmployees(viewer){ var s = scopeFor(viewer); return !s || s.all; }
   function levelOf(empId){ empId = empId || me(); var s = scopeFor(empId); return s ? s.level : null; }
+  function isDomainOnly(empId){ var s = scopeFor(empId); return !!(s && s.domainOnly); }
+  function ownsDomain(empId, domain){ var o = ownedBy(userOf(empId || me())); if (o.hq[domain]) return true; return Object.keys(o.centers).some(function(cid){ return o.centers[cid][domain]; }); }
+  /* tab access of the three domain tabs: an owner opens it without a grant; a domain-only user does not open the others; null = the normal rules */
+  function domainTabAccess(empId, tab){
+    if (DOMAIN_KEYS.indexOf(tab) < 0) return null;
+    if (ownsDomain(empId, tab)) return true;
+    return isDomainOnly(empId) ? false : null;
+  }
   function levelText(empId){
     var s = scopeFor(empId); if (!s) return '';
     if (s.all) return LEVEL_LABEL.all;
-    if (!s.heads.length) return LEVEL_LABEL.none;
-    return s.heads.map(function(h){ return KIND_HEAD[h.kind] + ': ' + h.name; }).join(' · ');
+    var parts = [];
+    if (s.heads && s.heads.length) parts.push(s.heads.map(function(h){ return KIND_HEAD[h.kind] + ': ' + h.name; }).join(' · '));
+    if (s.owned && hasDomains(s.owned)) parts.push('אחראי תחום: ' + ownedList(s.owned).join(', '));
+    return parts.length ? parts.join(' · ') : LEVEL_LABEL.none;
   }
 
   /* ---------- records ---------- */
@@ -6953,18 +6999,27 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
   }
   function convVisible(rec, viewer){
     var s = scopeFor(viewer); if (!s || s.all) return true;
+    if (s.owned && owns(s.owned, 'convergence', rec)) return true;
+    if (s.domainOnly) return false;
     var eid = convEmployee(rec);
     return eid ? s.ids.has(eid) : textUnitIn(rec, s);
   }
   function posVisible(p, viewer){
     var s = scopeFor(viewer); if (!s || s.all) return true;
+    if (s.owned && owns(s.owned, 'positions', p)) return true;
+    if (s.domainOnly) return false;
     var cur = p.currentAppointment || {};
     if (cur.linkedEmployeeId) return s.ids.has(cur.linkedEmployeeId);
     if (window.hubRoles && hubRoles.list().some(function(r){ return r.positionId === p.id && r.orgUnitId && s.units[r.orgUnitId]; })) return true;
     var reg = (p.registrationUnit || '').trim(); if (!reg) return false;
     return C().units.some(function(u){ return s.units[u.id] && (u.kind === 'center' || u.kind === 'branch') && u.name === reg; });
   }
-  function incVisible(i, viewer){ var s = scopeFor(viewer); if (!s || s.all) return true; return !!i.employeeId && s.ids.has(i.employeeId); }
+  function incVisible(i, viewer){
+    var s = scopeFor(viewer); if (!s || s.all) return true;
+    if (s.owned && owns(s.owned, 'incentives', i)) return true;
+    if (s.domainOnly) return false;
+    return !!i.employeeId && s.ids.has(i.employeeId);
+  }
   function attVisible(a, viewer){ var s = scopeFor(viewer); if (!s || s.all) return true; return s.ids.has(a.employeeId); }
   function taskVisible(t, viewer){
     viewer = viewer || me(); var s = scopeFor(viewer); if (!s) return null;
@@ -7026,6 +7081,12 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     if (typeof hasFullDataAccess === 'function' && hasFullDataAccess(empId)) return (S().employees || []).map(function(x){ return x.id; });
     return [empId].concat(getSubordinateIds(empId));
   }
+  function roleOfScope(sc){
+    var parts = [];
+    if (sc.heads && sc.heads.length) parts.push(sc.heads.map(function(h){ return KIND_HEAD[h.kind] + ': ' + h.name; }).join(' · '));
+    if (sc.owned && hasDomains(sc.owned)) parts.push('אחראי תחום: ' + ownedList(sc.owned).join(', '));
+    return parts.length ? parts.join(' · ') : LEVEL_LABEL.none;
+  }
   function rowsForReport(){
     var st = S();
     var byEmp = {}; (st.employees || []).forEach(function(x){ byEmp[x.id] = x; });
@@ -7036,12 +7097,13 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
       return ids.filter(function(id){ var x = byEmp[id]; return x && (x.centerId || main) === u.scope.centerId; });
     }
     return (st.users || []).filter(function(u){ return !u.isSuper && u.active !== false && u.employeeId; }).map(function(u){
-      var legacy = inPartition(u, legacyIds(u.employeeId)), hrMode = u.isHr || (u.scope && u.scope.kind === 'hq');
-      var sc = compute(u.employeeId, hrMode ? 'all' : 'scoped');
-      var next = inPartition(u, sc.all ? (st.employees || []).map(function(x){ return x.id; }) : Array.from(sc.ids));
+      var legacy = inPartition(u, legacyIds(u.employeeId)), isHq = !!(u.scope && u.scope.kind === 'hq');
+      var sc = compute(u.employeeId, u.isHr ? 'all' : (isHq ? 'domain' : 'scoped'));
+      var next = inPartition(u, sc.all ? (st.employees || []).map(function(x){ return x.id; }) : Array.from(new Set(Array.from(sc.ids).concat(sc.dom ? Array.from(sc.dom) : []))));
+      var lostDomains = isHq && !u.isHr ? DOMAIN_KEYS.filter(function(d){ return !sc.owned.hq[d]; }).map(function(d){ return DOMAIN_LABEL[d]; }) : [];
       var L = {}, N = {}; legacy.forEach(function(i){ L[i] = 1; }); next.forEach(function(i){ N[i] = 1; });
       var lost = legacy.filter(function(i){ return !N[i]; }), gained = next.filter(function(i){ return !L[i]; });
-      return { user: u, emp: (st.employees || []).find(function(x){ return x.id === u.employeeId; }), role: sc.all ? LEVEL_LABEL.all : (sc.heads.length ? sc.heads.map(function(h){ return KIND_HEAD[h.kind] + ': ' + h.name; }).join(' · ') : LEVEL_LABEL.none), legacyN: legacy.length, nextN: next.length, lost: lost, gained: gained, on: u.scopeMode === 'hierarchy' };
+      return { user: u, emp: (st.employees || []).find(function(x){ return x.id === u.employeeId; }), role: sc.all ? LEVEL_LABEL.all : roleOfScope(sc), lostDomains: lostDomains, legacyN: legacy.length, nextN: next.length, lost: lost, gained: gained, on: u.scopeMode === 'hierarchy' };
     });
   }
   function names(ids){
@@ -7063,15 +7125,52 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
   window.hubPermExtras = window.hubPermExtras || [];
   window.hubPermExtras.push(card);
 
+  /* a responsible person per domain in every center (the same person may hold several domains) */
+  function centerCard(){
+    if (typeof isSuperUser !== 'function' || !isSuperUser()) return '';
+    var centers = rawUnits().filter(function(u){ return u.kind === 'center' && !u.isHq && u.active !== false; });
+    var users = (S().users || []).filter(function(u){ return u.active !== false && !u.isSuper && u.employeeId; }), cd = peek('centerDomains');
+    function nameOf(u){ var e = (S().employees || []).find(function(x){ return x.id === u.employeeId; }); return u.username + (e ? ' · ' + e.name : ''); }
+    var rows = centers.map(function(c){
+      return '<tr><td>' + esc(c.name) + '</td>' + DOMAIN_KEYS.map(function(d){
+        var cur = cd.find(function(x){ return x.centerId === c.id && x.domain === d; });
+        return '<td><select data-cd="' + esc(c.id) + '|' + d + '"><option value="">— לא הוגדר —</option>' + users.map(function(u){ return '<option value="' + esc(u.id) + '"' + (cur && cur.userId === u.id ? ' selected' : '') + '>' + esc(nameOf(u)) + '</option>'; }).join('') + '</select></td>';
+      }).join('') + '</tr>';
+    }).join('') || '<tr><td colspan="4">אין מרכזים</td></tr>';
+    return '<div class="card"><div class="panel-head" style="margin-bottom:10px;"><div><h3 style="margin:0 0 6px;">אחראי תחום בכל מרכז</h3><span class="locked-note" style="display:inline">בכל מרכז יש אחראי לכל תחום, ואותו אדם יכול להיות אחראי על כמה תחומים. הוא רואה ועורך את התחום רק במרכז שלו, ועובד מול אחראי התחום המקביל במטה (הגדרת אחראי המטה בכרטיס "תחומי אחריות של משתמשי מטה"). הגדרה משייכת את המשתמש למרכז ומעבירה אותו למודל ההיקף החדש.</span></div></div>'
+      + '<div class="table-scroll"><table><thead><tr><th>מרכז</th>' + DOMAIN_KEYS.map(function(d){ return '<th>' + DOMAIN_LABEL[d] + '</th>'; }).join('') + '</tr></thead><tbody>' + rows + '</tbody></table></div></div>';
+  }
+  window.hubPermExtras.push(centerCard);
+  document.addEventListener('change', async function(e){
+    var sel = e.target.closest ? e.target.closest('[data-cd]') : null; if (!sel || typeof isSuperUser !== 'function' || !isSuperUser()) return;
+    var p = sel.getAttribute('data-cd').split('|'), cid = p[0], domain = p[1], uid = sel.value, users = S().users || [];
+    var list = peek('centerDomains').filter(function(x){ return !(x.centerId === cid && x.domain === domain); });
+    var cname = (C().byId[cid] || {}).name || '';
+    if (uid){
+      var u = users.find(function(x){ return x.id === uid; });
+      if (!u) return;
+      if (u.scope && !(u.scope.kind === 'center' && u.scope.centerId === cid)){ alert('המשתמש משויך להיקף אחר (' + (window.hubScopeLabel ? hubScopeLabel(u) : '') + '). אחראי תחום במרכז חייב להיות משתמש של אותו מרכז. שני את ההיקף שלו בלשונית המשתמשים.'); if (typeof renderPermissionsPage === 'function') renderPermissionsPage(); return; }
+      if (!u.scope) u.scope = { kind: 'center', centerId: cid };
+      u.scopeMode = 'hierarchy';
+      await storeSet('users', users);
+      list.push({ id: 'cd' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), centerId: cid, domain: domain, userId: uid });
+      if (window.hubNotify) hubNotify.add({ recipientId: uid, kind: 'hierarchy', title: 'מונית לאחראי תחום ' + DOMAIN_LABEL[domain] + ' במרכז ' + cname, body: 'את/ה רואה ועורכ/ת את התחום במרכז שלך בלבד ועובד/ת מול אחראי התחום במטה.', dedupeKey: 'cd|' + cid + '|' + domain + '|' + uid });
+    }
+    await DataStore.set('centerDomains', list); invalidate();
+    try{ DataStore.audit.logEvent('domain-owner', { label: 'אחראי תחום ' + DOMAIN_LABEL[domain] + ' במרכז ' + cname + ': ' + (uid ? ((users.find(function(x){ return x.id === uid; }) || {}).username || '') : 'הוסר') }); }catch(x){}
+    if (typeof renderPermissionsPage === 'function') renderPermissionsPage();
+    if (typeof applyAccessControl === 'function') applyAccessControl();
+  });
+
   function reportHtml(){
     var rows = rowsForReport(), nu = noUnitCount();
     var body = rows.map(function(r, i){
-      var danger = r.lost.length && !r.on;
+      var danger = (r.lost.length || r.lostDomains.length) && !r.on;
       return '<tr><td>' + esc(r.user.username) + '<div class="locked-note" style="margin:0">' + esc(r.emp ? r.emp.name : '') + '</div>'
         + (r.on ? '<button class="ghost" type="button" data-hh="mode" data-u="' + esc(r.user.id) + '" data-v="legacy">חזור למודל הקודם</button>' : '<button class="' + (danger ? 'ghost' : 'primary') + '" type="button" data-hh="mode" data-u="' + esc(r.user.id) + '" data-v="hierarchy">עבור להיקף היררכי</button>') + '</td>'
         + '<td>' + esc(r.role) + (r.user.scope ? '<div class="locked-note" style="margin:0">' + esc(window.hubScopeLabel ? hubScopeLabel(r.user) : '') + '</div>' : '') + '</td>'
         + '<td>' + r.legacyN + '</td><td>' + r.nextN + '</td>'
-        + '<td>' + (r.lost.length ? '<span style="color:var(--danger,#c0392b)">יאבד ' + r.lost.length + ':</span> ' + esc(names(r.lost)) : '—') + '</td>'
+        + '<td>' + (r.lost.length ? '<span style="color:var(--danger,#c0392b)">יאבד ' + r.lost.length + ':</span> ' + esc(names(r.lost)) : '—') + (r.lostDomains.length ? '<div style="color:var(--danger,#c0392b)">גישה לתחומים שיוסרו: ' + esc(r.lostDomains.join(', ')) + '</div>' : '') + '</td>'
         + '<td>' + (r.gained.length ? 'יקבל ' + r.gained.length + ': ' + esc(names(r.gained)) : '—') + '</td></tr>';
     }).join('') || '<tr><td colspan="6">אין משתמשים רגילים</td></tr>';
     return '<h3>דוח מעבר להיקף היררכי</h3>'
@@ -7097,7 +7196,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     if (act === 'ramad-export'){ exportRamad(); return; }
     if (act === 'mode'){ await setUser(b.getAttribute('data-u'), { scopeMode: b.getAttribute('data-v') === 'hierarchy' ? 'hierarchy' : null }); openReport(); return; }
     if (act === 'all-safe'){
-      var rs = rowsForReport().filter(function(r){ return !r.on && !r.lost.length; });
+      var rs = rowsForReport().filter(function(r){ return !r.on && !r.lost.length && !r.lostDomains.length; });
       for (var i = 0; i < rs.length; i++){ rs[i].user.scopeMode = 'hierarchy'; }
       if (rs.length){ await storeSet('users', S().users); invalidate(); if (typeof renderPermissionsPage === 'function') renderPermissionsPage(); if (typeof renderUsersPage === 'function') renderUsersPage(); }
       openReport(); return;
@@ -7222,7 +7321,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
   window.hubHier = {
     ramadDerived: ramadDerived, ramadEffective: ramadEffective, ramadMismatch: ramadMismatch, ramadSameAsDerived: ramadSameAsDerived, syncRamad: syncRamad,
     ramadFieldHtml: ramadFieldHtml, ramadApply: ramadApply, chainHtml: chainHtml, openRamadReport: openRamadReport,
-    engaged: engaged, isAll: isAll, modeOf: modeOf, scopeFor: scopeFor, canSee: canSee, visibleEmployees: visibleEmployees, subordinateIds: subordinateIds,
+    engaged: engaged, isAll: isAll, unitEmployees: unitEmployees, isDomainOnly: isDomainOnly, ownsDomain: ownsDomain, domainTabAccess: domainTabAccess, ownedBy: ownedBy, recCenter: recCenter, owns: owns, DOMAIN_KEYS: DOMAIN_KEYS, DOMAIN_LABEL: DOMAIN_LABEL, modeOf: modeOf, scopeFor: scopeFor, canSee: canSee, visibleEmployees: visibleEmployees, subordinateIds: subordinateIds,
     canAssign: canAssign, canManageEmployee: canManageEmployee, canCreateEmployees: canCreateEmployees, levelOf: levelOf, levelText: levelText, LEVEL_LABEL: LEVEL_LABEL,
     convVisible: convVisible, posVisible: posVisible, incVisible: incVisible, attVisible: attVisible, taskVisible: taskVisible, eventInScope: eventInScope, refVisible: refVisible,
     chainOf: chainOf, headsOf: headsOf, headChanged: headChanged, invalidate: invalidate, rowsForReport: rowsForReport, openReport: openReport, compute: compute
@@ -8199,6 +8298,7 @@ function hasTabAccess(tab){
   if (tab === 'dashboard') return true;
   if (tab === 'users') return isSuperUser();
   if (tab === 'permissions') return isSuperUser() || hasRank(me);
+  if (window.hubHier && hubHier.engaged(me)){ const dt = hubHier.domainTabAccess(me, tab); if (dt !== null) return dt; }
   if (tab === 'events') return canAccess('tab:events', me) || (window.hubEvents && hubEvents.isInvolved(me)) || (window.hubEvents && hubEvents.canSeeLayer());
   return canAccess('tab:' + tab, me);
 }
@@ -10632,7 +10732,7 @@ function bindAttendance(){
 function visibleEmployeesForAttendance(){
   // top-most manager (no managerId) sees everyone; "צפייה עצמית" sees only self; every other manager sees self + subordinates
   const me = state.currentUserId;
-  if (window.hubHier && hubHier.engaged(me)) return hubHier.visibleEmployees(state.employees).filter(isActiveEmp);
+  if (window.hubHier && hubHier.engaged(me)) return hubHier.unitEmployees(state.employees).filter(isActiveEmp);
   const isTopManager = state.employees.some(e=>e.id===me && !e.managerId) && !isSelfViewOnly(me);
   if (isTopManager) return state.employees.filter(isActiveEmp);
   const ids = visibleEmployeeIdsForCurrentUser();
