@@ -1549,11 +1549,17 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     <div class="card">
       <div class="table-scroll">
         <table id="usersTable">
-          <thead><tr><th>שם משתמש</th><th>עובד מקושר</th><th>סוג</th><th>סטטוס</th><th>כניסה אחרונה</th><th></th></tr></thead>
+          <thead><tr><th>שם משתמש</th><th>עובד מקושר</th><th>סוג</th><th>היקף נתונים</th><th>סטטוס</th><th>כניסה אחרונה</th><th></th></tr></thead>
           <tbody></tbody>
         </table>
       </div>
     </div>
+
+    <div class="panel-head" style="margin-top:28px;">
+      <div><h2 style="font-size:18px;">מרכזים</h2><p>המטה והמרכזים בארגון. עובדים ורשומות משויכים למרכז, ומשתמש עם היקף של מרכז רואה רק את המרכז שלו.</p></div>
+      <button class="primary" id="ctr-add" type="button">+ מרכז חדש</button>
+    </div>
+    <div class="card" id="centersCard"><div class="table-scroll"><table><thead><tr><th>שם</th><th>סוג</th><th>עובדים</th><th></th></tr></thead><tbody id="ctr-body"></tbody></table></div></div>
 
     <div class="panel-head" style="margin-top:28px;">
       <div><h2 style="font-size:18px;">גיבוי ושחזור</h2><p>הורדת כל נתוני המערכת לקובץ אחד ושחזורם. הנתונים שמורים כרגע רק בדפדפן הזה, ולכן כדאי לגבות לפני שינוי גדול.</p></div>
@@ -1918,6 +1924,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
    migration framework that takes a safety backup before it changes anything.
    Stage 3: an append-only audit log (IndexedDB) written automatically on every save.
    Stage 4: attached files live in IndexedDB as blobs; records keep only a fileId.
+   Stage 6: centers and data scope: a center user only reads and writes the records of their own center.
    Everything is asynchronous so that swapping the local adapter for a server
    adapter later does not change any caller.
    ================================================================ */
@@ -1958,7 +1965,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
   }
 
   /* ---- record metadata (stage 2) ---- */
-  var META_COLLECTIONS = ['employees', 'meetings', 'tasks', 'postings', 'positions', 'convergence', 'attendance', 'attendanceRequests', 'infoItems', 'contactRoles', 'incentives', 'users', 'grants', 'notifications'];
+  var META_COLLECTIONS = ['employees', 'meetings', 'tasks', 'postings', 'positions', 'convergence', 'attendance', 'attendanceRequests', 'infoItems', 'contactRoles', 'incentives', 'users', 'grants', 'notifications', 'orgUnits'];
   var META_FIELDS = ['rev', 'updatedAt', 'updatedBy'];
   var NOISE_FIELDS = { users: ['lastLoginAt'] };   /* changes that must not count as an edit */
   function hasMeta(name){ return META_COLLECTIONS.indexOf(name) > -1; }
@@ -2186,19 +2193,84 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     sha256: sha256Hex
   };
 
+  /* ---- data scope (stage 6) ----
+     A center user sees only the records of their center. The filter lives here, in one place: reads return the
+     visible records, and writes merge them back with the records the user cannot see, so nothing hidden is lost.
+     Which records belong to which center: an explicit centerId wins; otherwise it follows the employee the record
+     is about, and anything unassigned belongs to the main center. */
+  var SCOPED = ['employees', 'positions', 'convergence', 'incentives', 'attendance', 'attendanceRequests', 'meetings', 'tasks'];
+  var scope = null;                                    /* { kind: 'center'|'hq', centerId, ownEmployeeId } or null (no limit) */
+  function setScope(s){ scope = s || null; }
+  function getScope(){ return scope; }
+  function peekJson(name){
+    var a = adapter(); if (!a.peekRaw) return null;
+    try{ return JSON.parse(a.peekRaw(name) || 'null'); }catch(e){ return null; }
+  }
+  function scopeCtx(){
+    var emps = {}, list = peekJson('employees') || [];
+    list.forEach(function(e){ if (e && e.id !== undefined) emps[e.id] = e; });
+    var units = (peekJson('orgUnits') || []).filter(function(u){ return u && u.kind === 'center'; });
+    var main = (units.find(function(u){ return u.isMain; }) || units.find(function(u){ return !u.isHq; }) || {}).id || null;
+    return { emps: emps, main: main, units: units };
+  }
+  function centerOfRecord(name, rec, ctx){
+    if (rec.centerId) return rec.centerId;
+    var ofEmp = function(id){ var e = ctx.emps[id]; return e ? (e.centerId || ctx.main) : ctx.main; };
+    if (name === 'positions'){ var lid = rec.currentAppointment && rec.currentAppointment.linkedEmployeeId; return lid ? ofEmp(lid) : ctx.main; }
+    if (name === 'tasks'){ var who = (rec.assignedTo && rec.assignedTo[0]) || rec.assignedBy; return who ? ofEmp(who) : ctx.main; }
+    if (name === 'employees') return ctx.main;
+    return rec.employeeId ? ofEmp(rec.employeeId) : ctx.main;
+  }
+  function scopeActive(name){ return !!scope && scope.kind === 'center' && SCOPED.indexOf(name) > -1 && !!adapter().peekRaw; }
+  function inScope(name, rec, ctx){
+    if (!rec || typeof rec !== 'object') return true;
+    if (name === 'employees' && rec.id === scope.ownEmployeeId) return true;
+    return centerOfRecord(name, rec, ctx) === scope.centerId;
+  }
+  function scopeFilter(name, v){
+    if (!Array.isArray(v) || !scopeActive(name)) return v;
+    var ctx = scopeCtx();
+    return v.filter(function(r){ return inScope(name, r, ctx); });
+  }
+  /* returns the array that is actually stored: visible records from the caller plus the hidden ones already stored */
+  function prepareWrite(name, value){
+    if (!Array.isArray(value) || SCOPED.indexOf(name) < 0 || !adapter().peekRaw) return value;
+    if (scopeActive(name)){
+      var ctx = scopeCtx(), stored = peekJson(name) || [];
+      var hidden = stored.filter(function(r){ return !inScope(name, r, ctx); });
+      var ids = {};
+      value.forEach(function(r){
+        if (!r || typeof r !== 'object') return;
+        ids[r.id] = 1;
+        if (!(name === 'employees' && r.id === scope.ownEmployeeId && r.centerId)) r.centerId = scope.centerId;   /* a center user cannot move records out of their center */
+      });
+      return value.concat(hidden.filter(function(r){ return !(r && ids[r.id]); }));
+    }
+    if (name === 'employees'){                        /* interim rule until units: the "center" field naming a center places the employee there */
+      var centers = (peekJson('orgUnits') || []).filter(function(u){ return u && u.kind === 'center' && u.active !== false; });
+      value.forEach(function(r){
+        if (!r || typeof r !== 'object') return;
+        var d = (r.department || '').trim(), m = d && centers.find(function(c){ return c.name === d; });
+        if (m) r.centerId = m.id;
+      });
+    }
+    return value;
+  }
+
   /* ---- reads and writes of a named key ---- */
   function get(name, fallback){
     return adapter().getRaw(name).then(function(raw){
-      return raw === null || raw === undefined ? fallback : JSON.parse(raw);
+      return raw === null || raw === undefined ? fallback : scopeFilter(name, JSON.parse(raw));
     }).catch(function(){ return fallback; });
   }
   /* resolves true when the value was saved, false when the browser refused (the failure is reported to the user) */
   function set(name, value){
     var a = adapter();
-    var raw, changes = null;
+    var raw, changes = null, full = value;
     try{
-      try{ changes = stamp(name, value, a); }catch(e){ console.error('metadata stamp failed', name, e); }
-      raw = JSON.stringify(value);
+      full = prepareWrite(name, value);
+      try{ changes = stamp(name, full, a); }catch(e){ console.error('metadata stamp failed', name, e); }
+      raw = JSON.stringify(full);
     }catch(e){ return Promise.resolve(fail(name, e, value)); }
     var pending;
     try{ pending = a.setRaw(name, raw); }                  /* local writes happen synchronously, exactly as before */
@@ -2279,8 +2351,9 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     var hasData = existing.filter(function(k){ return k !== 'schemaVersion' && k !== 'migrationLog'; }).length > 0;
     if (!hasData){                                   /* fresh install: nothing to migrate or protect */
       await set('schemaVersion', latestSchema());
+      await ensureDefaultCenters();
       audit.setSource('ui');
-    return migrationState;
+      return migrationState;
     }
     var safety = null;
     audit.setSource('migration');
@@ -2366,13 +2439,29 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     }
   });
 
-  window.DataStore = {
-    PREFIX: PREFIX,
+  /* centers (stage 6): the HQ and a main center always exist, so every record has somewhere to belong */
+  async function ensureDefaultCenters(){
+    var units = await get('orgUnits', null);
+    if (Array.isArray(units) && units.some(function(u){ return u && u.kind === 'center'; })) return 0;
+    units = Array.isArray(units) ? units : [];
+    units.push({ id: 'ou_hq', kind: 'center', name: 'מטה', parentId: null, isHq: true, isMain: false, active: true, sortOrder: 0 },
+               { id: 'ou_main', kind: 'center', name: 'מרכז ראשי', parentId: null, isHq: false, isMain: true, active: true, sortOrder: 1 });
+    if (!(await set('orgUnits', units))) throw new Error('כתיבה נכשלה ב-orgUnits');
+    return 2;
+  }
+  /* M3: create the HQ and the main center (every existing record keeps belonging to the main center) */
+  registerMigration({
+    id: 'M3', version: 4, title: 'מרכזים: מטה ומרכז ראשי',
+    run: async function(){ return { centersCreated: await ensureDefaultCenters() }; }
+  });
+
+  window.DataStore = {    PREFIX: PREFIX,
     get: get, set: set, remove: remove, keys: keys, collection: collection,
     on: on, off: off, emit: emit,
     adapterName: function(){ return adapter().name; },
     META_COLLECTIONS: META_COLLECTIONS,
     openDb: openDb, idbTx: idbTx, audit: audit, blobs: blobs,
+    setScope: setScope, getScope: getScope, scopedNames: SCOPED, ensureDefaultCenters: ensureDefaultCenters,
     schemaVersion: schemaVersion, latestSchema: latestSchema,
     registerMigration: registerMigration, migrate: migrate,
     migrationState: function(){ return migrationState; },
@@ -2856,7 +2945,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
   'use strict';
   var el = function(id){ return document.getElementById(id); };
   var esc = function(s){ return typeof escapeHtml === 'function' ? escapeHtml(s) : String(s); };
-  var TYPE = { employees:'עובדים', meetings:'סיכומי פגישות', tasks:'משימות', postings:'שיבוצים', positions:'תקנים', convergence:'התכנסות', attendance:'נוכחות', attendanceRequests:'בקשות נוכחות', infoItems:'מידע למנהלים', contactRoles:'דף קשר', incentives:'תמריצים', users:'משתמשים', grants:'הרשאות', system:'מערכת' };
+  var TYPE = { employees:'עובדים', meetings:'סיכומי פגישות', tasks:'משימות', postings:'שיבוצים', positions:'תקנים', convergence:'התכנסות', attendance:'נוכחות', attendanceRequests:'בקשות נוכחות', infoItems:'מידע למנהלים', contactRoles:'דף קשר', incentives:'תמריצים', users:'משתמשים', grants:'הרשאות', orgUnits:'מרכזים ויחידות', notifications:'התראות', system:'מערכת' };
   var ACTION = { create:'נוצר', update:'עודכן', delete:'נמחק', 'backup-export':'ייצוא גיבוי', restore:'שחזור' };
   var SOURCE = { ui:'ממשק', 'import':'ייבוא', migration:'שדרוג נתונים' };
   var FIELD = { name:'שם', role:'תפקיד', department:'מרכז', industry:'ענף', mador:'מדור', team:'צוות', ramad:'רמ"ד', rank:'רמת הרשאה', level:'זוטר/מובהק', serviceType:'סוג שירות', managerId:'מנהל ישיר', email:'אימייל', phone:'טלפון', active:'פעיל', title:'כותרת', status:'סטטוס', priority:'עדיפות', dueDate:'תאריך יעד', description:'תיאור', assignedTo:'מוקצה ל', jobText:'מלל משרה', serialNumber:'מס\' תקן', counterStatus:'מונה', freezeStatus:'הקפאה', currentAppointment:'מינוי נוכחי', futureAppointment:'מינוי עתידי', firstName:'שם פרטי', lastName:'שם משפחה', releaseDate:'תאריך שחרור', entryDate:'כניסה', exitDate:'יציאה', starred:'רידוד', gross:'שווי ברוטו', code:'קוד', entered:'הוזן', notes:'הערות', content:'תוכן', topic:'נושא', file:'קובץ', comments:'תגובות', summary:'סיכום', date:'תאריך', requestedStatus:'סטטוס מבוקש', note:'הערה', roleTitle:'תפקיד', holderName:'שם התפקידן', responsibilities:'תחומי אחריות' };
@@ -3067,6 +3156,160 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
   window.addEventListener('storage', function(e){ if (e.key === 'hub:' + KEY) refreshBadge(); });
 
   window.hubNotify = { add: add, forSuperUsers: forSuperUsers, list: listFor, unreadCount: unreadCount, pendingCount: pendingCount, markRead: markRead, markDone: markDone, markAllRead: markAllRead, open: openInbox, refresh: refreshBadge };
+})();
+</script>
+<script>
+/* ================================================================
+   Centers and data scope (stage 6).
+   - hubOrg: the organisational units store (centers for now; the rest of the hierarchy comes in stage 7)
+   - user scope: none (as before) | hq (sees every center) | center X (sees only X's records)
+   - hubApplyScope(user): called at every sign-in, tells DataStore what the user may see and reloads the data
+   ================================================================ */
+(function(){
+  'use strict';
+  var el = function(id){ return document.getElementById(id); };
+  var esc = function(s){ return typeof escapeHtml === 'function' ? escapeHtml(s) : String(s); };
+  var cache = [];                                         /* centers, for synchronous form building */
+  function newId(){ return 'ou' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+
+  async function units(){ var u = await DataStore.get('orgUnits', []); return Array.isArray(u) ? u : []; }
+  async function centers(){ return (await units()).filter(function(u){ return u.kind === 'center'; }).sort(function(a, b){ return (a.sortOrder || 0) - (b.sortOrder || 0); }); }
+  async function refresh(){ cache = await centers(); return cache; }
+  async function save(list){ var ok = await DataStore.set('orgUnits', list); await refresh(); return ok; }
+  function mainId(){ var m = cache.find(function(c){ return c.isMain; }) || cache.find(function(c){ return !c.isHq; }); return m ? m.id : null; }
+
+  async function addCenter(name){
+    name = (name || '').trim();
+    if (!name) return 'נא להזין שם למרכז';
+    var list = await units();
+    if (list.some(function(u){ return u.kind === 'center' && u.name === name; })) return 'כבר קיים מרכז בשם הזה';
+    var n = list.filter(function(u){ return u.kind === 'center'; }).length;
+    list.push({ id: newId(), kind: 'center', name: name, parentId: null, isHq: false, isMain: false, active: true, sortOrder: n });
+    return (await save(list)) ? '' : 'השמירה נכשלה';
+  }
+  async function renameCenter(id, name){
+    name = (name || '').trim();
+    if (!name) return 'נא להזין שם למרכז';
+    var list = await units(), c = list.find(function(u){ return u.id === id; });
+    if (!c) return 'המרכז לא נמצא';
+    if (list.some(function(u){ return u.kind === 'center' && u.id !== id && u.name === name; })) return 'כבר קיים מרכז בשם הזה';
+    c.name = name;
+    return (await save(list)) ? '' : 'השמירה נכשלה';
+  }
+  async function setMain(id){
+    var list = await units();
+    list.forEach(function(u){ if (u.kind === 'center') u.isMain = (u.id === id) && !u.isHq; });
+    return (await save(list)) ? '' : 'השמירה נכשלה';
+  }
+  async function setActive(id, active){
+    var list = await units(), c = list.find(function(u){ return u.id === id; });
+    if (!c) return 'המרכז לא נמצא';
+    if (!active && (c.isHq || c.isMain)) return 'אי אפשר להשבית את המטה או את המרכז הראשי';
+    if (!active && employeesIn(c.id) > 0) return 'במרכז יש עובדים. העבר אותם קודם למרכז אחר.';
+    c.active = active;
+    return (await save(list)) ? '' : 'השמירה נכשלה';
+  }
+  function employeesIn(centerId){
+    var main = mainId();
+    return (typeof state !== 'undefined' ? state.employees : []).filter(function(e){ return (e.centerId || main) === centerId; }).length;
+  }
+  window.hubOrg = { units: units, centers: centers, refresh: refresh, addCenter: addCenter, renameCenter: renameCenter, setMain: setMain, setActive: setActive, mainId: mainId, employeesIn: employeesIn, newId: newId };
+
+  /* ---------- scope of a user ---------- */
+  function scopeOf(user){
+    if (!user || user.isSuper || !user.scope) return null;                   /* super users are never limited */
+    if (user.scope.kind === 'hq') return { kind: 'hq' };
+    if (user.scope.kind === 'center' && user.scope.centerId) return { kind: 'center', centerId: user.scope.centerId, ownEmployeeId: user.employeeId };
+    return null;
+  }
+  /* sets the scope and reloads every scoped collection into the app state (also when the next user has no limit) */
+  window.hubApplyScope = async function(user){
+    await refresh();
+    DataStore.setScope(scopeOf(user));
+    if (typeof state === 'undefined') return;
+    for (var i = 0; i < DataStore.scopedNames.length; i++){
+      var n = DataStore.scopedNames[i];
+      if (Object.prototype.hasOwnProperty.call(state, n)) state[n] = await DataStore.get(n, state[n]);
+    }
+  };
+  window.hubClearScope = function(){ DataStore.setScope(null); };
+  window.hubScopeLabel = function(u){
+    if (!u || u.isSuper || !u.scope) return '';
+    if (u.scope.kind === 'hq') return 'מטה';
+    var c = cache.find(function(x){ return x.id === u.scope.centerId; });
+    return 'מרכז: ' + (c ? c.name : 'לא ידוע');
+  };
+  window.hubScopeOptionsHtml = function(selected){
+    var sel = selected ? (selected.kind === 'hq' ? 'hq' : 'c:' + selected.centerId) : '';
+    return '<option value="">ללא הגבלה (כמו היום)</option><option value="hq"' + (sel === 'hq' ? ' selected' : '') + '>מטה (רואה את כל המרכזים)</option>'
+      + cache.filter(function(c){ return !c.isHq && c.active !== false; }).map(function(c){ return '<option value="c:' + esc(c.id) + '"' + (sel === 'c:' + c.id ? ' selected' : '') + '>מרכז: ' + esc(c.name) + '</option>'; }).join('');
+  };
+  window.hubReadScopeSelect = function(id){
+    var v = el(id) ? el(id).value : '';
+    if (v === 'hq') return { kind: 'hq' };
+    if (v.indexOf('c:') === 0) return { kind: 'center', centerId: v.slice(2) };
+    return null;
+  };
+  window.hubOpenUserScope = function(userId){
+    if (typeof requireSuper === 'function' && !requireSuper()) return;
+    var u = state.users.find(function(x){ return x.id === userId; }); if (!u) return;
+    openModal('<h3>היקף נתונים — ' + esc(u.username) + '</h3>'
+      + '<div class="field"><label>מה המשתמש רואה</label><select id="us-scope">' + hubScopeOptionsHtml(u.scope) + '</select></div>'
+      + '<div class="locked-note">משתמש עם היקף של מרכז רואה ויכול לערוך רק רשומות של המרכז שלו (עובדים, תקנים, התכנסות, תמריצים, נוכחות, משימות ופגישות). משתמשי-על אינם מוגבלים. ההרשאות הקיימות (לשוניות, דרגות, הענקות) ממשיכות לחול בנוסף.</div>'
+      + '<div class="modal-actions"><button class="primary" onclick="hubSaveUserScope(\'' + u.id + '\')">שמור</button><button class="ghost" onclick="closeModal()">ביטול</button></div>');
+  };
+  window.hubSaveUserScope = async function(userId){
+    var u = state.users.find(function(x){ return x.id === userId; }); if (!u) return;
+    var s = hubReadScopeSelect('us-scope');
+    if (s) u.scope = s; else delete u.scope;
+    await storeSet('users', state.users);
+    closeModal(); renderUsersPage();
+  };
+
+  /* ---------- centers card (users tab) ---------- */
+  function badge(c){ return c.isHq ? 'מטה' : c.isMain ? 'מרכז ראשי' : 'מרכז'; }
+  async function render(){
+    var body = el('ctr-body'); if (!body) return;
+    await refresh();
+    if (typeof isSuperUser === 'function' && !isSuperUser()){ body.innerHTML = ''; return; }
+    body.innerHTML = cache.map(function(c){
+      var n = employeesIn(c.id);
+      return '<tr' + (c.active === false ? ' style="opacity:.6"' : '') + '><td>' + esc(c.name) + (c.active === false ? ' <span class="tag">מושבת</span>' : '') + '</td><td><span class="tag">' + badge(c) + '</span></td><td>' + n + '</td><td style="white-space:nowrap;">'
+        + '<button class="ghost" data-ctr="rename" data-id="' + esc(c.id) + '" type="button">שנה שם</button> '
+        + (!c.isHq && !c.isMain ? '<button class="ghost" data-ctr="main" data-id="' + esc(c.id) + '" type="button">הפוך למרכז ראשי</button> ' : '')
+        + (!c.isHq && !c.isMain ? '<button class="ghost" data-ctr="toggle" data-id="' + esc(c.id) + '" type="button">' + (c.active === false ? 'הפעל' : 'השבת') + '</button>' : '')
+        + '</td></tr>';
+    }).join('') || '<tr><td colspan="4">אין מרכזים</td></tr>';
+  }
+  function centerForm(c){
+    openModal('<h3>' + (c ? 'שינוי שם מרכז' : 'מרכז חדש') + '</h3><div class="field"><label>שם המרכז</label><input type="text" id="ctr-name" value="' + esc(c ? c.name : '') + '"></div>'
+      + '<div class="modal-actions"><button class="primary" id="ctr-save" data-id="' + esc(c ? c.id : '') + '" type="button">שמור</button><button class="ghost" onclick="closeModal()" type="button">ביטול</button></div>');
+    var i = el('ctr-name'); if (i) i.focus();
+  }
+  document.addEventListener('click', async function(e){
+    var add = e.target.closest ? e.target.closest('#ctr-add') : null;
+    if (add){ centerForm(null); return; }
+    var save = e.target.closest ? e.target.closest('#ctr-save') : null;
+    if (save){
+      var id = save.getAttribute('data-id'), name = el('ctr-name').value;
+      var err = id ? await renameCenter(id, name) : await addCenter(name);
+      if (err){ alert(err); return; }
+      closeModal(); render(); return;
+    }
+    var b = e.target.closest ? e.target.closest('[data-ctr]') : null;
+    if (!b) return;
+    var act = b.getAttribute('data-ctr'), cid = b.getAttribute('data-id'), c = cache.find(function(x){ return x.id === cid; });
+    if (act === 'rename') centerForm(c);
+    else if (act === 'main'){ var r1 = await setMain(cid); if (r1) alert(r1); render(); }
+    else if (act === 'toggle'){ var r2 = await setActive(cid, c.active === false); if (r2) alert(r2); render(); }
+  });
+  function init(){
+    refresh();
+    var tabBtn = document.querySelector('.tab-btn[data-tab="users"]');
+    if (tabBtn) tabBtn.addEventListener('click', render);
+  }
+  window.hubCentersRender = render;
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 })();
 </script>
 <script>
@@ -3341,12 +3584,14 @@ async function completeLogin(user){
   user.lastLoginAt = new Date().toISOString();
   await storeSet('users', state.users);
   try{ sessionStorage.setItem('hub:session', user.id); }catch(e){}
+  if (window.hubApplyScope) await hubApplyScope(user);
   hideAuth();
   if (!appBooted){ appBooted = true; bootApp(); } else { refreshAllViews(); }
   applyAccessControl();
 }
 
 function logout(){
+  if (window.hubClearScope) hubClearScope();
   state.authUserId = null;
   state.currentUserId = null;
   authPendingUser = null;
@@ -3412,17 +3657,19 @@ function renderUsersPage(){
       <td>${escapeHtml(u.username)}${self?' <span class="tag">אתה</span>':''}</td>
       <td>${emp?escapeHtml(emp.name):'—'}</td>
       <td>${u.isSuper?'<span class="tag">משתמש על</span>':'רגיל'}</td>
+      <td>${u.isSuper?'ללא הגבלה':escapeHtml(window.hubScopeLabel?hubScopeLabel(u)||'ללא הגבלה':'')}</td>
       <td><span class="req-status ${status[0]}">${status[1]}</span></td>
       <td>${u.lastLoginAt?escapeHtml(new Date(u.lastLoginAt).toLocaleString('he-IL')):'—'}</td>
       <td style="white-space:nowrap;">
         ${self?'':`<button class="ghost" onclick="openResetPassword('${u.id}')">איפוס סיסמה</button>`}
+        ${u.isSuper?'':`<button class="ghost" onclick="hubOpenUserScope('${u.id}')">היקף</button>`}
         <button class="ghost" onclick="toggleUserSuper('${u.id}')">${u.isSuper?'הסר משתמש על':'הפוך למשתמש על'}</button>
         ${self?'':`<button class="ghost" onclick="toggleUserActive('${u.id}')">${u.active===false?'הפעל':'השבת'}</button>
         <button class="icon-btn danger-txt" onclick="deleteUser('${u.id}')">🗑️</button>`}
       </td>
     </tr>`;
   }).join('');
-  tbody.innerHTML = rows || `<tr><td colspan="6"><div class="empty-state">אין משתמשים</div></td></tr>`;
+  tbody.innerHTML = rows || `<tr><td colspan="7"><div class="empty-state">אין משתמשים</div></td></tr>`;
 }
 function openUserForm(){
   if (!requireSuper()) return;
