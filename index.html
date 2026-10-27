@@ -3704,8 +3704,10 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
   }
   async function setHead(id, empId){
     var list = await units(), u = byId(list, id); if (!u) return;
+    var oldHead = u.headEmployeeId || null;
     if (empId) u.headEmployeeId = empId; else delete u.headEmployeeId;
     await DataStore.set('orgUnits', list);
+    if (window.hubHier) hubHier.headChanged(u, oldHead, empId || null);
   }
 
   /* ---------- classification report ---------- */
@@ -5179,6 +5181,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
       if (!providers[k] || !layerAllowed(k)) return;
       if (cal.event && ['events', 'tasks', 'reminders'].indexOf(k) < 0) return;
       var list = []; try{ list = providers[k](from, to) || []; }catch(e){ console.error('calendar provider failed', k, e); }
+      if (window.hubHier) list = list.filter(function(it){ return hubHier.refVisible(it.ref); });
       if (cal.event) list = list.filter(function(it){ return it.eventId === cal.event; });
       list.forEach(function(it){
         var last = it.end || it.date, d = it.date, g = 0;
@@ -6202,11 +6205,12 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     if (empIsSuper(emp) || ev.ownerId === emp) return 'manage';
     var s = all(KEY_S).find(function(x){ return x.eventId === ev.id && x.employeeId === emp; });
     if (s) return s.level;
-    return seesAll(emp) ? 'view' : null;
+    if (seesAll(emp)) return 'view';
+    return (window.hubHier && hubHier.engaged(emp) && canAccess('tab:events', emp) && hubHier.eventInScope(ev, emp)) ? 'view' : null;
   }
   function visibleEvents(){ var m = me(); return all(KEY_E).filter(function(ev){ return !!levelOf(ev, m); }); }
   function isInvolved(emp){ return all(KEY_E).some(function(ev){ return ev.ownerId === emp; }) || all(KEY_S).some(function(s){ return s.employeeId === emp; }); }
-  function canSeeLayer(){ var m = me(); return !!m && (seesAll(m) || isInvolved(m)); }
+  function canSeeLayer(){ var m = me(); return !!m && (seesAll(m) || isInvolved(m) || (window.hubHier && hubHier.engaged(m) && canAccess('tab:events', m) && all(KEY_E).some(function(ev){ return hubHier.eventInScope(ev, m); }))); }
   function canCreate(){ return !!me() && canAccess('tab:events', me()); }
   /* null = the task has no (existing) event, so the ordinary task rules apply */
   function canSeeTask(t){
@@ -6744,6 +6748,274 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
 })();
 </script>
 <script>
+/* ================================================================
+   Hierarchy scope (round 5, stage 16).
+   What a user sees and manages inside the data is derived from the unit tree:
+   head of a team sees the team, head of a mador the mador (with its teams), head of a branch the branch, head of a
+   center the center; "human resources" sees everyone. Replacing the head of a unit moves the permission with no other step.
+   A user is switched to this model explicitly (user.scopeMode === 'hierarchy', see the migration report); everyone else
+   keeps the previous behaviour unchanged. Tab grants / rank grants are a separate layer and keep working: a user needs
+   the tab (grants) AND the record in scope (here), except where a resource grant (conv:industry..., pos:unit...) adds records.
+   ================================================================ */
+(function(){
+  'use strict';
+  var el = function(id){ return document.getElementById(id); };
+  var esc = function(s){ return typeof escapeHtml === 'function' ? escapeHtml(s) : String(s); };
+  var LEVEL_LABEL = { all: 'משאבי אנוש (כל העובדים)', center: 'ראש מרכז', branch: 'רע"ן (ראש ענף)', mador: 'רמ"ד (ראש מדור)', team: 'ראש צוות', none: 'ללא תפקיד פיקוד' };
+  var KIND_HEAD = { center: 'ראש מרכז', branch: 'רע"ן', mador: 'רמ"ד', team: 'ראש צוות' };
+  var RANK = { center: 0, branch: 1, mador: 2, team: 3 };
+  var memo = null;
+
+  function S(){ return typeof state !== 'undefined' ? state : { employees: [], users: [], positions: [], convergence: [], tasks: [] }; }
+  function me(){ return S().currentUserId || null; }
+  function rawUnits(){ var a = window.DataStore && DataStore.peekAll ? DataStore.peekAll('orgUnits') : null; return Array.isArray(a) ? a : []; }
+  function build(){
+    var st = S(), units = rawUnits().filter(function(u){ return u && u.id; }), byId = {}, kids = {}, emps = {};
+    units.forEach(function(u){ byId[u.id] = u; var k = u.parentId || ''; (kids[k] = kids[k] || []).push(u); });
+    (st.employees || []).forEach(function(e){ emps[e.id] = e; });
+    return { t: Date.now(), src: st.employees, len: (st.employees || []).length, usr: st.users, units: units, byId: byId, kids: kids, emps: emps, scopes: {} };
+  }
+  function C(){ var st = S(); if (!memo || memo.src !== st.employees || memo.len !== (st.employees || []).length || memo.usr !== st.users || Date.now() - memo.t > 300) memo = build(); return memo; }
+  function invalidate(){ memo = null; }
+  if (window.DataStore && DataStore.on) DataStore.on('change', function(){ memo = null; });
+
+  /* ---------- who is limited, and how ---------- */
+  function userOf(empId){ return (S().users || []).find(function(u){ return u.employeeId === empId && u.active !== false; }) || null; }
+  function modeOf(empId){
+    var u = userOf(empId); if (!u || u.isSuper) return 'legacy';
+    if (u.isHr) return 'all';
+    if (u.scopeMode === 'hierarchy') return (u.scope && u.scope.kind === 'hq') ? 'all' : 'scoped';
+    return 'legacy';
+  }
+  function engaged(empId){ empId = empId || me(); return !!empId && modeOf(empId) !== 'legacy'; }
+  function isAll(empId){ empId = empId || me(); return modeOf(empId) === 'all'; }
+
+  function headUnits(c, empId){ return c.units.filter(function(u){ return u.headEmployeeId === empId && u.active !== false; }); }
+  function subtree(c, rootId, into){
+    var q = [rootId], g = 0;
+    while (q.length && g++ < 2000){ var id = q.shift(); into[id] = 1; (c.kids[id] || []).forEach(function(k){ if (!into[k.id]) q.push(k.id); }); }
+    return into;
+  }
+  function compute(empId, mode){
+    var c = C();
+    if (mode === 'all') return { all: true, level: 'all', heads: [], ids: null, units: null };
+    var heads = headUnits(c, empId), uset = {};
+    heads.forEach(function(h){ subtree(c, h.id, uset); });
+    var ids = new Set([empId]), self = c.emps[empId];
+    if (self && self.rank === 'צפייה עצמית') return { all: false, level: 'none', heads: [], ids: ids, units: {} };   /* "self view" rank: only the person */
+    Object.keys(c.emps).forEach(function(k){ var e = c.emps[k]; if (e.orgUnitId && uset[e.orgUnitId]) ids.add(e.id); });
+    /* an explicit (manual) direct commander keeps oversight of the people they were set over */
+    var q = [empId], seen = {}, g = 0;
+    while (q.length && g++ < 500){
+      var cur = q.shift(); if (seen[cur]) continue; seen[cur] = 1;
+      Object.keys(c.emps).forEach(function(k){ var e = c.emps[k]; if (e.managerId === cur && e.managerSource === 'manual'){ ids.add(e.id); q.push(e.id); } });
+    }
+    var level = 'none';
+    heads.forEach(function(h){ if (level === 'none' || RANK[h.kind] < RANK[level]) level = h.kind; });
+    return { all: false, level: level, heads: heads, ids: ids, units: uset };
+  }
+  function scopeFor(empId){
+    empId = empId || me(); if (!empId) return null;
+    var mode = modeOf(empId); if (mode === 'legacy') return null;
+    var c = C(); if (!c.scopes[empId]) c.scopes[empId] = compute(empId, mode);
+    return c.scopes[empId];
+  }
+  /* true when the viewer may see the employee under the hierarchy model (legacy viewers: not decided here, so true) */
+  function canSee(empId, viewer){
+    var s = scopeFor(viewer); if (!s) return true;
+    if (s.all) return true;
+    return !!empId && s.ids.has(empId);
+  }
+  function visibleEmployees(list, viewer){ var s = scopeFor(viewer); return s && !s.all ? list.filter(function(e){ return s.ids.has(e.id); }) : list; }
+  function subordinateIds(viewer){
+    viewer = viewer || me(); var s = scopeFor(viewer); if (!s) return null;
+    var out = s.all ? (S().employees || []).map(function(e){ return e.id; }) : Array.from(s.ids);
+    return out.filter(function(id){ return id !== viewer; });
+  }
+  function canAssign(targetId, viewer){ viewer = viewer || me(); return targetId === viewer || canSee(targetId, viewer); }
+  function canManageEmployee(empId, viewer){ var s = scopeFor(viewer); if (!s) return true; return s.all || s.ids.has(empId); }
+  function canCreateEmployees(viewer){ var s = scopeFor(viewer); return !s || s.all; }
+  function levelOf(empId){ empId = empId || me(); var s = scopeFor(empId); return s ? s.level : null; }
+  function levelText(empId){
+    var s = scopeFor(empId); if (!s) return '';
+    if (s.all) return LEVEL_LABEL.all;
+    if (!s.heads.length) return LEVEL_LABEL.none;
+    return s.heads.map(function(h){ return KIND_HEAD[h.kind] + ': ' + h.name; }).join(' · ');
+  }
+
+  /* ---------- records ---------- */
+  function parentName(c, u){ var p = u.parentId ? c.byId[u.parentId] : null; return p ? p.name : ''; }
+  function textUnitIn(rec, s){
+    var c = C();
+    if (rec.orgUnitId) return !!s.units[rec.orgUnitId];
+    var ind = (rec.industry || '').trim(), mad = (rec.mador || '').trim();
+    if (!ind && !mad) return false;
+    return c.units.some(function(u){
+      if (!s.units[u.id] || u.active === false) return false;
+      if (mad) return (u.kind === 'mador' || u.kind === 'team') && u.name === mad && (!ind || u.kind === 'team' || parentName(c, u) === ind);
+      return u.kind === 'branch' && u.name === ind;
+    });
+  }
+  function convEmployee(rec){
+    if (rec.employeeId) return rec.employeeId;
+    var full = ((rec.firstName || '') + ' ' + (rec.lastName || '')).trim(); if (!full) return null;
+    var m = (S().employees || []).filter(function(e){ return (e.name || '').trim() === full; });
+    return m.length === 1 ? m[0].id : null;
+  }
+  function convVisible(rec, viewer){
+    var s = scopeFor(viewer); if (!s || s.all) return true;
+    var eid = convEmployee(rec);
+    return eid ? s.ids.has(eid) : textUnitIn(rec, s);
+  }
+  function posVisible(p, viewer){
+    var s = scopeFor(viewer); if (!s || s.all) return true;
+    var cur = p.currentAppointment || {};
+    if (cur.linkedEmployeeId) return s.ids.has(cur.linkedEmployeeId);
+    if (window.hubRoles && hubRoles.list().some(function(r){ return r.positionId === p.id && r.orgUnitId && s.units[r.orgUnitId]; })) return true;
+    var reg = (p.registrationUnit || '').trim(); if (!reg) return false;
+    return C().units.some(function(u){ return s.units[u.id] && (u.kind === 'center' || u.kind === 'branch') && u.name === reg; });
+  }
+  function incVisible(i, viewer){ var s = scopeFor(viewer); if (!s || s.all) return true; return !!i.employeeId && s.ids.has(i.employeeId); }
+  function attVisible(a, viewer){ var s = scopeFor(viewer); if (!s || s.all) return true; return s.ids.has(a.employeeId); }
+  function taskVisible(t, viewer){
+    viewer = viewer || me(); var s = scopeFor(viewer); if (!s) return null;
+    var as = t.assignedTo || [], about = t.aboutEmployeeIds || [];
+    if (as.indexOf(viewer) >= 0 || t.assignedBy === viewer) return true;
+    if (s.all) return true;
+    if (about.length) return about.some(function(id){ return id !== viewer && s.ids.has(id); });
+    return as.some(function(id){ return s.ids.has(id); }) || s.ids.has(t.assignedBy);
+  }
+  function eventInScope(ev, viewer){
+    var s = scopeFor(viewer); if (!s) return false;
+    if (s.all) return true;
+    if (ev.ownerId && ev.ownerId !== (viewer || me()) && s.ids.has(ev.ownerId)) return true;
+    var sts = window.DataStore && DataStore.peekAll ? (DataStore.peekAll('eventStakeholders') || []) : [];
+    return sts.some(function(x){ return x.eventId === ev.id && x.employeeId !== (viewer || me()) && s.ids.has(x.employeeId); });
+  }
+  function refVisible(ref){
+    var s = scopeFor(); if (!s || s.all || !ref) return true;
+    if (ref.type === 'employee') return s.ids.has(ref.id);
+    if (ref.type === 'convergence'){ var c = (S().convergence || []).find(function(x){ return x.id === ref.id; }); return !c || convVisible(c); }
+    if (ref.type === 'role' && window.hubRoles){
+      var r = hubRoles.list().find(function(x){ return x.id === ref.id; }); if (!r) return true;
+      if (r.orgUnitId && s.units[r.orgUnitId]) return true;
+      var hid = hubRoles.currentHolderId ? hubRoles.currentHolderId(r) : null; return !!hid && s.ids.has(hid);
+    }
+    return true;
+  }
+
+  /* ---------- the chain above an employee (derived fields, stage 17) ---------- */
+  function chainOf(e){
+    var c = C(), out = [], cur = e && e.orgUnitId ? c.byId[e.orgUnitId] : null, g = 0;
+    while (cur && g++ < 8){ out.push(cur); cur = cur.parentId ? c.byId[cur.parentId] : null; }
+    return out;
+  }
+  function headsOf(e){
+    var res = {}; chainOf(e).forEach(function(u){
+      if (res[u.kind]) return;
+      res[u.kind] = { unitId: u.id, unitName: u.name, headId: u.headEmployeeId || null, headName: u.headEmployeeId && S().employees ? ((S().employees.find(function(x){ return x.id === u.headEmployeeId; }) || {}).name || '') : '' };
+    });
+    return res;
+  }
+
+  /* ---------- notifications and the log when a head changes ---------- */
+  function headChanged(unit, oldId, newId){
+    invalidate();
+    if (!window.hubNotify || oldId === newId) return;
+    function toUser(empId, text){
+      var u = userOf(empId); if (!u) return;
+      hubNotify.add({ recipientId: u.id, kind: 'hierarchy', title: text, body: 'ההיקף שלך במערכת נגזר ממבנה היחידות, ולכן השתנה אוטומטית.', dedupeKey: 'hier|' + unit.id + '|' + empId + '|' + (newId || '') });
+    }
+    if (newId) toUser(newId, 'מונית לראש היחידה "' + unit.name + '". ההיקף שלך כולל עכשיו את היחידה ואת מה שמתחתיה.');
+    if (oldId) toUser(oldId, 'אינך עוד ראש היחידה "' + unit.name + '". ההיקף שלך על היחידה הוסר.');
+  }
+
+  /* ---------- permissions page card and the migration report ---------- */
+  function legacyIds(empId){
+    var e = (S().employees || []).find(function(x){ return x.id === empId; }); if (!e) return [];
+    if (typeof hasFullDataAccess === 'function' && hasFullDataAccess(empId)) return (S().employees || []).map(function(x){ return x.id; });
+    return [empId].concat(getSubordinateIds(empId));
+  }
+  function rowsForReport(){
+    var st = S();
+    return (st.users || []).filter(function(u){ return !u.isSuper && u.active !== false && u.employeeId; }).map(function(u){
+      var legacy = legacyIds(u.employeeId), hrMode = u.isHr || (u.scope && u.scope.kind === 'hq');
+      var sc = compute(u.employeeId, hrMode ? 'all' : 'scoped');
+      var next = sc.all ? (st.employees || []).map(function(x){ return x.id; }) : Array.from(sc.ids);
+      var L = {}, N = {}; legacy.forEach(function(i){ L[i] = 1; }); next.forEach(function(i){ N[i] = 1; });
+      var lost = legacy.filter(function(i){ return !N[i]; }), gained = next.filter(function(i){ return !L[i]; });
+      return { user: u, emp: (st.employees || []).find(function(x){ return x.id === u.employeeId; }), role: sc.all ? LEVEL_LABEL.all : (sc.heads.length ? sc.heads.map(function(h){ return KIND_HEAD[h.kind] + ': ' + h.name; }).join(' · ') : LEVEL_LABEL.none), legacyN: legacy.length, nextN: next.length, lost: lost, gained: gained, on: u.scopeMode === 'hierarchy' };
+    });
+  }
+  function names(ids){
+    var st = S(), n = ids.slice(0, 5).map(function(id){ var e = (st.employees || []).find(function(x){ return x.id === id; }); return e ? e.name : '?'; });
+    return n.join(', ') + (ids.length > 5 ? ' ועוד ' + (ids.length - 5) : '');
+  }
+  function noUnitCount(){ return (S().employees || []).filter(function(e){ return e.active !== false && !e.orgUnitId; }).length; }
+  function card(){
+    if (typeof isSuperUser !== 'function' || !isSuperUser()) return '';
+    var rows = rowsForReport().map(function(r){
+      return '<tr><td>' + esc(r.user.username) + '</td><td>' + esc(r.emp ? r.emp.name : '—') + '</td><td>' + esc(r.role) + '</td>'
+        + '<td><input type="checkbox" data-hh="hr" data-u="' + esc(r.user.id) + '"' + (r.user.isHr ? ' checked' : '') + ' aria-label="משאבי אנוש"></td>'
+        + '<td>' + (r.on ? '<span class="tag">היקף היררכי</span>' : '<span class="locked-note" style="display:inline">כמו קודם</span>') + '</td><td>' + r.nextN + ' / ' + r.legacyN + '</td></tr>';
+    }).join('') || '<tr><td colspan="6">אין משתמשים רגילים</td></tr>';
+    return '<div class="card"><div class="panel-head" style="margin-bottom:10px;"><div><h3 style="margin:0 0 6px;">היקף לפי היררכיה</h3><span class="locked-note" style="display:inline">ראש צוות רואה את הצוות, רמ"ד את המדור, רע"ן את הענף, ראש מרכז את המרכז, ומשאבי אנוש את כולם. ההיקף נגזר מראש היחידה בעץ היחידות (לשונית משתמשים), והחלפת ראש יחידה מעבירה אותו אוטומטית. הרשאות לשוניות ודרגות ממשיכות לעבוד בנוסף. משתמש עובר למודל החדש רק אחרי אישור בדוח המעבר.</span></div>'
+      + '<button class="primary" type="button" data-hh="report">דוח מעבר להיקף היררכי</button></div>'
+      + '<div class="table-scroll"><table><thead><tr><th>משתמש</th><th>עובד</th><th>תפקיד פיקוד נגזר</th><th>משאבי אנוש</th><th>מודל</th><th>עובדים בהיקף (חדש / קודם)</th></tr></thead><tbody>' + rows + '</tbody></table></div></div>';
+  }
+  window.hubPermExtras = window.hubPermExtras || [];
+  window.hubPermExtras.push(card);
+
+  function reportHtml(){
+    var rows = rowsForReport(), nu = noUnitCount();
+    var body = rows.map(function(r, i){
+      var danger = r.lost.length && !r.on;
+      return '<tr><td>' + esc(r.user.username) + '<div class="locked-note" style="margin:0">' + esc(r.emp ? r.emp.name : '') + '</div></td><td>' + esc(r.role) + (r.user.scope ? '<div class="locked-note" style="margin:0">' + esc(window.hubScopeLabel ? hubScopeLabel(r.user) : '') + '</div>' : '') + '</td>'
+        + '<td>' + r.legacyN + '</td><td>' + r.nextN + '</td>'
+        + '<td>' + (r.lost.length ? '<span style="color:var(--danger,#c0392b)">יאבד ' + r.lost.length + ':</span> ' + esc(names(r.lost)) : '—') + '</td>'
+        + '<td>' + (r.gained.length ? 'יקבל ' + r.gained.length + ': ' + esc(names(r.gained)) : '—') + '</td>'
+        + '<td style="white-space:nowrap;">' + (r.on ? '<button class="ghost" type="button" data-hh="mode" data-u="' + esc(r.user.id) + '" data-v="legacy">חזור למודל הקודם</button>' : '<button class="' + (danger ? 'ghost' : 'primary') + '" type="button" data-hh="mode" data-u="' + esc(r.user.id) + '" data-v="hierarchy">עבור להיקף היררכי</button>') + '</td></tr>';
+    }).join('') || '<tr><td colspan="7">אין משתמשים רגילים</td></tr>';
+    return '<h3>דוח מעבר להיקף היררכי</h3>'
+      + '<div class="locked-note">לכל משתמש מוצג מה הוא רואה היום (לפי עץ המנהלים) ומה יראה לפי המבנה הארגוני. שום משתמש לא עובר בלי לחיצה על "עבור". משתמש בלי תפקיד פיקוד יראה רק את עצמו; כדי שיראה יותר: מנו אותו ראש יחידה או סמנו אותו כמשאבי אנוש. משתמשי מטה רואים את כל העובדים. משתמש עם היקף מרכז נשאר מוגבל למרכז שלו גם בתוך המודל.</div>'
+      + (nu ? '<div class="locked-note" style="display:block;">' + nu + ' עובדים פעילים אינם משויכים ליחידה, ולכן יהיו גלויים רק למשאבי אנוש ולמנהל ישיר שהוגדר ידנית.</div>' : '')
+      + '<div class="table-scroll"><table><thead><tr><th>משתמש</th><th>תפקיד פיקוד נגזר</th><th>רואה היום</th><th>יראה</th><th>מה יאבד</th><th>מה יקבל</th><th></th></tr></thead><tbody>' + body + '</tbody></table></div>'
+      + '<div class="modal-actions"><button class="primary" type="button" data-hh="all-safe">העבר את כל מי שלא מאבד כלום</button><button class="ghost" onclick="closeModal()" type="button">סגור</button></div>';
+  }
+  function openReport(){ openModal(reportHtml(), true); }
+  async function setUser(userId, patch){
+    var u = (S().users || []).find(function(x){ return x.id === userId; }); if (!u) return;
+    Object.keys(patch).forEach(function(k){ if (patch[k] === null || patch[k] === false) delete u[k]; else u[k] = patch[k]; });
+    await storeSet('users', S().users); invalidate();
+    if (typeof renderPermissionsPage === 'function') renderPermissionsPage();
+    if (typeof renderUsersPage === 'function') renderUsersPage();
+  }
+  document.addEventListener('click', async function(e){
+    var b = e.target.closest ? e.target.closest('[data-hh]') : null; if (!b || typeof isSuperUser !== 'function' || !isSuperUser()) return;
+    var act = b.getAttribute('data-hh');
+    if (act === 'report'){ openReport(); return; }
+    if (act === 'mode'){ await setUser(b.getAttribute('data-u'), { scopeMode: b.getAttribute('data-v') === 'hierarchy' ? 'hierarchy' : null }); openReport(); return; }
+    if (act === 'all-safe'){
+      var rs = rowsForReport().filter(function(r){ return !r.on && !r.lost.length; });
+      for (var i = 0; i < rs.length; i++){ rs[i].user.scopeMode = 'hierarchy'; }
+      if (rs.length){ await storeSet('users', S().users); invalidate(); if (typeof renderPermissionsPage === 'function') renderPermissionsPage(); if (typeof renderUsersPage === 'function') renderUsersPage(); }
+      openReport(); return;
+    }
+  });
+  document.addEventListener('change', async function(e){
+    var cb = e.target.closest ? e.target.closest('[data-hh="hr"]') : null; if (!cb || typeof isSuperUser !== 'function' || !isSuperUser()) return;
+    await setUser(cb.getAttribute('data-u'), { isHr: cb.checked ? true : null });
+  });
+
+  window.hubHier = {
+    engaged: engaged, isAll: isAll, modeOf: modeOf, scopeFor: scopeFor, canSee: canSee, visibleEmployees: visibleEmployees, subordinateIds: subordinateIds,
+    canAssign: canAssign, canManageEmployee: canManageEmployee, canCreateEmployees: canCreateEmployees, levelOf: levelOf, levelText: levelText, LEVEL_LABEL: LEVEL_LABEL,
+    convVisible: convVisible, posVisible: posVisible, incVisible: incVisible, attVisible: attVisible, taskVisible: taskVisible, eventInScope: eventInScope, refVisible: refVisible,
+    chainOf: chainOf, headsOf: headsOf, headChanged: headChanged, invalidate: invalidate, rowsForReport: rowsForReport, openReport: openReport, compute: compute
+  };
+})();
+</script>
+<script>
 /* ---------------- storage helpers ---------------- */
 function hasArtifactStorage(){ return typeof window !== 'undefined' && window.storage && typeof window.storage.get === 'function'; }
 async function storeSet(key, value){
@@ -7097,7 +7369,7 @@ function renderUsersPage(){
       <td>${escapeHtml(u.username)}${self?' <span class="tag">אתה</span>':''}</td>
       <td>${emp?escapeHtml(emp.name):'—'}</td>
       <td>${u.isSuper?'<span class="tag">משתמש על</span>':'רגיל'}</td>
-      <td>${u.isSuper?'ללא הגבלה':escapeHtml(window.hubScopeLabel?hubScopeLabel(u)||'ללא הגבלה':'')}</td>
+      <td>${u.isSuper?'ללא הגבלה':escapeHtml(((window.hubScopeLabel?hubScopeLabel(u):'') + (u.isHr?' · משאבי אנוש':'') + (u.scopeMode==='hierarchy'?' · היקף היררכי':'')).replace(/^ · /,'') || 'ללא הגבלה')}</td>
       <td><span class="req-status ${status[0]}">${status[1]}</span></td>
       <td>${u.lastLoginAt?escapeHtml(new Date(u.lastLoginAt).toLocaleString('he-IL')):'—'}</td>
       <td style="white-space:nowrap;">
@@ -7146,7 +7418,7 @@ async function saveNewUser(){
   let cred;
   try{ cred = await makeCredentials(pw); }catch(e){ alert(CRYPTO_ERR); return; }
   state.users.push({
-    id: uid('u'), username, employeeId, isSuper: document.getElementById('nu-super').checked, active:true,
+    id: uid('u'), username, employeeId, isSuper: document.getElementById('nu-super').checked, scopeMode: document.getElementById('nu-super').checked ? undefined : 'hierarchy', active:true,
     mustChangePassword:true, createdAt:new Date().toISOString(), createdBy: state.authUserId, ...cred
   });
   await storeSet('users', state.users);
@@ -7217,8 +7489,14 @@ const RANKS = ['רע"ן','רמ"ד','רש"צ'];
 const SELF_VIEW = 'צפייה עצמית';
 function isActiveEmp(e){ return !!e && e.active !== false; }
 function isSelfViewOnly(empId){ const e = empById(empId); return !!(e && e.rank === SELF_VIEW); }
-function viewerSubordinateIds(){ return isSelfViewOnly(state.currentUserId) ? [] : getSubordinateIds(state.currentUserId); }
-function viewerIsAncestorOf(empId){ return !isSelfViewOnly(state.currentUserId) && isAncestorOf(state.currentUserId, empId); }
+function viewerSubordinateIds(){
+  if (window.hubHier && hubHier.engaged()) return hubHier.subordinateIds();
+  return isSelfViewOnly(state.currentUserId) ? [] : getSubordinateIds(state.currentUserId);
+}
+function viewerIsAncestorOf(empId){
+  if (window.hubHier && hubHier.engaged()) return empId !== state.currentUserId && hubHier.canSee(empId);
+  return !isSelfViewOnly(state.currentUserId) && isAncestorOf(state.currentUserId, empId);
+}
 function wouldRemoveLastActiveSuper(empId){
   const isSup = state.users.some(u=>u.employeeId===empId && u.isSuper && u.active!==false);
   if (!isSup) return false;
@@ -7230,7 +7508,10 @@ const RESTRICTABLE_TABS = ['orgchart','meetings','tasks','mgrinfo','postings','p
 function isTabRestricted(tab){ return (tab === 'incentives' || tab === 'events') ? state.restrictedTabs[tab] !== false : !!state.restrictedTabs[tab]; }
 
 function hasRank(empId){ const e = empById(empId); return !!(e && RANKS.includes(e.rank)); }
-function hasFullDataAccess(empId){ return (isTopManagerUser(empId) && !isSelfViewOnly(empId)) || empIsSuper(empId); }
+function hasFullDataAccess(empId){
+  if (window.hubHier && hubHier.engaged(empId)) return hubHier.isAll(empId);
+  return (isTopManagerUser(empId) && !isSelfViewOnly(empId)) || empIsSuper(empId);
+}
 function grantAllows(g, empId){
   const e = empById(empId);
   if (!e) return false;
@@ -7241,9 +7522,11 @@ function grantAllows(g, empId){
 function baseAccess(resource, empId){
   if (empIsSuper(empId)) return true;
   if (resource.indexOf('tab:') === 0) return !isTabRestricted(resource.slice(4));
-  if (resource.indexOf('conv:industry:') === 0) return hasFullDataAccess(empId) || getIndustryHeadIds(resource.slice(14)).includes(empId);
+  /* "head of an industry / department" by text is the previous model; a user switched to the hierarchy model gets those records from the unit tree instead (and from explicit grants) */
+  const inModel = !!(window.hubHier && hubHier.engaged(empId));
+  if (resource.indexOf('conv:industry:') === 0) return hasFullDataAccess(empId) || (!inModel && getIndustryHeadIds(resource.slice(14)).includes(empId));
   if (resource.indexOf('conv:mador:') === 0) return hasFullDataAccess(empId);
-  if (resource.indexOf('pos:unit:') === 0) return hasFullDataAccess(empId) || getDepartmentHeadIds(resource.slice(9)).includes(empId);
+  if (resource.indexOf('pos:unit:') === 0) return hasFullDataAccess(empId) || (!inModel && getDepartmentHeadIds(resource.slice(9)).includes(empId));
   return false;
 }
 function canAccess(resource, empId, depth){
@@ -7816,15 +8099,16 @@ let selectedEmployeeIds = new Set();
 
 function visibleEmployeesList(){
   const f = (document.getElementById('filterEmpActive') || {}).value || 'active';
-  return state.employees.filter(e => (f==='all' ? true : f==='inactive' ? e.active===false : e.active!==false) && (!window.hubEmpFilter || hubEmpFilter.test(e)));
+  return state.employees.filter(e => (f==='all' ? true : f==='inactive' ? e.active===false : e.active!==false) && (!window.hubEmpFilter || hubEmpFilter.test(e)) && (!window.hubHier || hubHier.canSee(e.id)));
 }
 function renderEmployees(){
   const tbody = document.querySelector('#empTable tbody');
   const list = visibleEmployeesList();
   const lbl = document.getElementById('empCountLabel');
   if (lbl){
-    const act = state.employees.filter(e=>e.active!==false).length;
-    lbl.textContent = `${list.length} מוצגים · ${act} פעילים · ${state.employees.length-act} לא פעילים`;
+    const base = window.hubHier ? hubHier.visibleEmployees(state.employees) : state.employees;
+    const act = base.filter(e=>e.active!==false).length;
+    lbl.textContent = `${list.length} מוצגים · ${act} פעילים · ${base.length-act} לא פעילים`;
   }
   if (!list.length){
     tbody.innerHTML = `<tr><td colspan="16"><div class="empty-state"><div class="big">👥</div>${state.employees.length ? 'אין עובדים התואמים לסינון שנבחר' : 'עדיין אין עובדים במערכת'}</div></td></tr>`;
@@ -8127,8 +8411,8 @@ function employeeFormHtml(existing, presetManagerId){
   `;
 }
 
-function addEmployee(presetManagerId){ openModal(employeeFormHtml(null, presetManagerId)); if (window.hubUnitPickerInit) hubUnitPickerInit(); hubPosPickerInit(null); }
-function editEmployee(id){ openModal(employeeFormHtml(empById(id))); if (window.hubUnitPickerInit) hubUnitPickerInit(); hubPosPickerInit(empById(id)); }
+function addEmployee(presetManagerId){ if (window.hubHier && !hubHier.canCreateEmployees()){ alert('הוספת עובדים נעשית על ידי משאבי אנוש'); return; } openModal(employeeFormHtml(null, presetManagerId)); if (window.hubUnitPickerInit) hubUnitPickerInit(); hubPosPickerInit(null); }
+function editEmployee(id){ if (window.hubHier && !hubHier.canManageEmployee(id)){ alert('העובד אינו בהיקף שלך'); return; } openModal(employeeFormHtml(empById(id))); if (window.hubUnitPickerInit) hubUnitPickerInit(); hubPosPickerInit(empById(id)); }
 
 async function saveEmployee(existingId){
   const name = document.getElementById('f-name').value.trim();
@@ -8278,6 +8562,7 @@ async function deleteEmployeeSilent(id){
   deleteEmployeeCore(id);
 }
 async function deleteEmployee(id){
+  if (window.hubHier && !hubHier.canCreateEmployees()){ alert('מחיקת עובדים נעשית על ידי משאבי אנוש'); return; }
   if (state.users.some(u=>u.employeeId===id)){ alert('לא ניתן למחוק עובד המקושר למשתמש. מחק או נתק קודם את המשתמש בטאב "משתמשים".'); return; }
   const subs = getSubordinateIds(id);
   if (subs.length){
@@ -8394,7 +8679,8 @@ function openEmployeeProfile(id){
 /* ================= ORG CHART TAB ================= */
 function renderOrgChart(){
   const root = document.getElementById('orgTree');
-  const topLevel = state.employees.filter(e=>!e.managerId);
+  const vis = e => !window.hubHier || hubHier.canSee(e.id);
+  const topLevel = state.employees.filter(e=>vis(e) && (!e.managerId || !vis(empById(e.managerId)||{})));
   if (!topLevel.length){
     root.innerHTML = `<div class="empty-state"><div class="big">🏢</div>אין עדיין מבנה ארגוני. הוסף בעל תפקיד בכיר כדי להתחיל.</div>`;
     return;
@@ -8402,7 +8688,7 @@ function renderOrgChart(){
   root.innerHTML = topLevel.map(e=>buildNode(e)).join('');
 }
 function buildNode(emp){
-  const children = state.employees.filter(e=>e.managerId===emp.id);
+  const children = state.employees.filter(e=>e.managerId===emp.id && (!window.hubHier || hubHier.canSee(e.id)));
   return `
     <div class="node-row">
       <div>
@@ -8503,7 +8789,7 @@ function addMeetingTaskRow(){
   const wrap = document.getElementById('m-tasks');
   if (!wrap) return;
   const defaultEmp = document.getElementById('m-employeeId').value;
-  const opts = state.employees.filter(isActiveEmp).map(e=>`<option value="${e.id}" ${e.id===defaultEmp?'selected':''}>${escapeHtml(e.name)}</option>`).join('');
+  const opts = state.employees.filter(e=>isActiveEmp(e) && (!window.hubHier || hubHier.canAssign(e.id))).map(e=>`<option value="${e.id}" ${e.id===defaultEmp?'selected':''}>${escapeHtml(e.name)}</option>`).join('');
   const row = document.createElement('div');
   row.className = 'm-task-row';
   row.style.cssText = 'border:1px solid var(--border); border-radius:10px; padding:12px; margin-bottom:10px;';
@@ -8525,11 +8811,13 @@ async function saveMeeting(){
   const meetingId = uid('m');
   const employeeId = document.getElementById('m-employeeId').value;
   const newTasks = [];
+  let outOfScope = false;
   Array.from(document.querySelectorAll('#m-tasks .m-task-row')).forEach(r=>{
     const tt = r.querySelector('.mt-title').value.trim();
     if (!tt) return;
     let assignees = Array.from(r.querySelector('.mt-assignees').options).filter(o=>o.selected).map(o=>o.value);
     if (!assignees.length) assignees = [employeeId];
+    if (window.hubHier && hubHier.engaged() && assignees.some(a=>!hubHier.canAssign(a))) outOfScope = true;
     newTasks.push({
       id: uid('t'), status:'none', assignedBy: state.currentUserId, title: tt,
       description: `נוצרה מסיכום הפגישה: ${title}`, assignedTo: assignees,
@@ -8537,6 +8825,7 @@ async function saveMeeting(){
       aboutEmployeeIds: [], meetingId
     });
   });
+  if (outOfScope){ alert('אפשר לשבץ משימות רק לעובדים שבהיקף שלך'); return; }
   state.meetings.push({
     id: meetingId, employeeId, title,
     date: document.getElementById('m-date').value,
@@ -8572,6 +8861,7 @@ function bindTasks(){
 }
 function taskVisibleToCurrentUser(t){
   if (t.eventId && window.hubEvents){ const r = hubEvents.canSeeTask(t); if (r !== null) return r; }
+  if (window.hubHier && hubHier.engaged()){ const hr = hubHier.taskVisible(t); if (hr !== null) return hr; }
   if (!t.aboutEmployeeIds || !t.aboutEmployeeIds.length) return true;
   if ((t.assignedTo||[]).includes(state.currentUserId)) return true;
   if (t.assignedBy === state.currentUserId) return true;
@@ -8621,8 +8911,9 @@ function renderTasks(){
   list.innerHTML = items.map(t=>taskRowHtml(t)).join('');
 }
 function employeeCheckboxList(idPrefix, selectedIds){
+  const pool = (window.hubHier && hubHier.engaged()) ? state.employees.filter(e=>hubHier.canAssign(e.id) || selectedIds.includes(e.id)) : state.employees;
   return `<div class="checkbox-list" id="${idPrefix}-list">
-    ${state.employees.filter(e=>isActiveEmp(e) || selectedIds.includes(e.id)).map(e=>`<label class="checkbox-row"><input type="checkbox" value="${e.id}" ${selectedIds.includes(e.id)?'checked':''}> ${escapeHtml(e.name)} — ${escapeHtml(e.role||'')}${isActiveEmp(e)?'':' (לא פעיל)'}</label>`).join('')}
+    ${pool.filter(e=>isActiveEmp(e) || selectedIds.includes(e.id)).map(e=>`<label class="checkbox-row"><input type="checkbox" value="${e.id}" ${selectedIds.includes(e.id)?'checked':''}> ${escapeHtml(e.name)} — ${escapeHtml(e.role||'')}${isActiveEmp(e)?'':' (לא פעיל)'}</label>`).join('')}
   </div>`;
 }
 function readCheckedIds(idPrefix){
@@ -8666,6 +8957,11 @@ async function saveTask(existingId){
   if (!title){ alert('נא להזין כותרת'); return; }
   const assignedTo = readCheckedIds('t-assignedTo');
   if (!assignedTo.length){ alert('נא לבחור לפחות עובד אחד להקצאה'); return; }
+  if (window.hubHier && hubHier.engaged()){
+    const prev = existingId ? (((state.tasks.find(t=>t.id===existingId)||{}).assignedTo)||[]) : [];
+    const bad = assignedTo.filter(id=>!prev.includes(id) && !hubHier.canAssign(id));
+    if (bad.length){ alert('אפשר לשבץ משימות רק לעובדים שבהיקף שלך. מחוץ להיקף: ' + bad.map(empName).join(', ')); return; }
+  }
   const data = {
     title,
     description: document.getElementById('t-description').value.trim(),
@@ -9097,6 +9393,7 @@ async function deletePosting(id){
 function positionVisibleToCurrentUser(position){
   const me = state.currentUserId;
   if (hasFullDataAccess(me)) return true;
+  if (window.hubHier && hubHier.engaged(me) && hubHier.posVisible(position, me)) return true;
   const cur = position.currentAppointment || {};
   if (cur.linkedEmployeeId === me) return true;
   const dept = position.registrationUnit;
@@ -9408,6 +9705,7 @@ function getIndustryHeadIds(name){
 function convergenceVisibleToCurrentUser(record){
   const me = state.currentUserId;
   if (hasFullDataAccess(me)) return true;
+  if (window.hubHier && hubHier.engaged(me) && hubHier.convVisible(record, me)) return true;
   if (record.industry && canAccess('conv:industry:' + record.industry, me)) return true;
   if (record.mador && canAccess('conv:mador:' + record.mador, me)) return true;
   return false;
@@ -9670,6 +9968,7 @@ function bindAttendance(){
 function visibleEmployeesForAttendance(){
   // top-most manager (no managerId) sees everyone; "צפייה עצמית" sees only self; every other manager sees self + subordinates
   const me = state.currentUserId;
+  if (window.hubHier && hubHier.engaged(me)) return hubHier.visibleEmployees(state.employees).filter(isActiveEmp);
   const isTopManager = state.employees.some(e=>e.id===me && !e.managerId) && !isSelfViewOnly(me);
   if (isTopManager) return state.employees.filter(isActiveEmp);
   const ids = visibleEmployeeIdsForCurrentUser();
@@ -10699,9 +10998,10 @@ function incFilterValues(){
   return {q: g('incSearch').trim().toLowerCase(), name: g('incFName'), code: g('incFCode'), ind: g('incFIndustry'), mad: g('incFMador'),
           ent: g('incFEntered'), min: g('incFMin'), max: g('incFMax'), date: g('incFDate')};
 }
+function incBase(){ return window.hubHier ? state.incentives.filter(i=>hubHier.incVisible(i)) : state.incentives; }
 function incFiltered(){
   const f = incFilterValues();
-  return state.incentives.filter(i=>{
+  return incBase().filter(i=>{
     const d = incDerived(i);
     if (f.name && i.name !== f.name) return false;
     if (f.code && (i.code || '') !== f.code) return false;
@@ -10740,7 +11040,7 @@ function renderIncentives(){
   const fill = (id, label, key)=>{
     const sel = document.getElementById(id); if (!sel) return;
     const cur = sel.value;
-    const vals = Array.from(new Set(state.incentives.map(i=>i[key]).filter(Boolean))).sort((a,b)=>String(a).localeCompare(String(b),'he'));
+    const vals = Array.from(new Set(incBase().map(i=>i[key]).filter(Boolean))).sort((a,b)=>String(a).localeCompare(String(b),'he'));
     sel.innerHTML = `<option value="">${label}</option>` + vals.map(v=>`<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join('');
     sel.value = vals.includes(cur) ? cur : '';
   };
@@ -10751,7 +11051,7 @@ function renderIncentives(){
   const withVal = list.filter(i=>i.gross !== null && i.gross !== undefined && i.gross !== '');
   const avg = withVal.length ? total / withVal.length : 0, max = withVal.length ? Math.max(...withVal.map(i=>Number(i.gross))) : 0;
   const summary = document.getElementById('incSummary');
-  if (summary) summary.innerHTML = `<b>סה"כ שווי ברוטו: ${fmtMoney(total)}</b> · ${list.length} תמריצים מוצגים (מתוך ${state.incentives.length}) · ממוצע: ${fmtMoney(avg)} · מקסימום: ${fmtMoney(max)} · הוזנו: ${list.filter(i=>i.entered).length}`;
+  if (summary) summary.innerHTML = `<b>סה"כ שווי ברוטו: ${fmtMoney(total)}</b> · ${list.length} תמריצים מוצגים (מתוך ${incBase().length}) · ממוצע: ${fmtMoney(avg)} · מקסימום: ${fmtMoney(max)} · הוזנו: ${list.filter(i=>i.entered).length}`;
   const by = (document.getElementById('incGroupBy') || {}).value || '';
   const gEl = document.getElementById('incGroups');
   if (gEl){
@@ -10765,7 +11065,7 @@ function renderIncentives(){
     }
   }
   if (!list.length){
-    tbody.innerHTML = `<tr><td colspan="14"><div class="empty-state"><div class="big">🎁</div>${state.incentives.length ? 'אין תמריצים התואמים לסינון' : 'עדיין לא הוזנו תמריצים'}</div></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="14"><div class="empty-state"><div class="big">🎁</div>${incBase().length ? 'אין תמריצים התואמים לסינון' : 'עדיין לא הוזנו תמריצים'}</div></td></tr>`;
     return;
   }
   tbody.innerHTML = list.map(i=>{
