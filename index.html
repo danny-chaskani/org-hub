@@ -2070,7 +2070,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
   }
 
   /* ---- record metadata (stage 2) ---- */
-  var META_COLLECTIONS = ['employees', 'meetings', 'tasks', 'postings', 'positions', 'convergence', 'attendance', 'attendanceRequests', 'infoItems', 'contactRoles', 'incentives', 'users', 'grants', 'notifications', 'orgUnits', 'roles'];
+  var META_COLLECTIONS = ['employees', 'meetings', 'tasks', 'postings', 'positions', 'convergence', 'attendance', 'attendanceRequests', 'infoItems', 'contactRoles', 'incentives', 'users', 'grants', 'notifications', 'orgUnits', 'roles', 'syncChanges', 'syncBatches', 'hqDomains', 'events', 'eventStakeholders', 'abroadForms', 'conflictFindings', 'conflictExceptions', 'conflictSubs'];
   var META_FIELDS = ['rev', 'updatedAt', 'updatedBy'];
   var NOISE_FIELDS = { users: ['lastLoginAt'] };   /* changes that must not count as an edit */
   function hasMeta(name){ return META_COLLECTIONS.indexOf(name) > -1; }
@@ -2362,10 +2362,19 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     return value;
   }
 
+  /* ---- center layer (round 4): a center user's writes to a synced collection become private changes, and their reads show main + those changes ---- */
+  var interceptors = {}, overlays = {}, privateFlag = null;
+  function setInterceptor(name, fn){ interceptors[name] = fn; }
+  function setOverlay(name, fn){ overlays[name] = fn; }
+  function layerActive(name){ return !!scope && scope.kind === 'center' && !!adapter().peekRaw; }
+  function wasPrivate(name){ var r = privateFlag === name; if (r) privateFlag = null; return r; }
+
   /* ---- reads and writes of a named key ---- */
   function get(name, fallback){
     return adapter().getRaw(name).then(function(raw){
-      return raw === null || raw === undefined ? fallback : scopeFilter(name, JSON.parse(raw));
+      if (raw === null || raw === undefined) return fallback;
+      var v = scopeFilter(name, JSON.parse(raw));
+      return overlays[name] && layerActive(name) ? overlays[name](v, scope) : v;
     }).catch(function(){ return fallback; });
   }
   /* validators: fn(newValue, oldValue) returns an error text to refuse the write (used for identifiers that must stay unique) */
@@ -2380,6 +2389,12 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
   /* resolves true when the value was saved, false when the browser refused (the failure is reported to the user) */
   function set(name, value){
     var a = adapter();
+    if (interceptors[name] && layerActive(name) && Array.isArray(value)){
+      return Promise.resolve(interceptors[name](value, scope)).then(function(ok){
+        if (ok){ privateFlag = name; emit('change', { name: name, value: value, changes: null, private: true }); }
+        return !!ok;
+      }, function(e){ return fail(name, e, value); });
+    }
     var raw, changes = null, full = value;
     try{
       full = prepareWrite(name, value);
@@ -2577,7 +2592,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     adapterName: function(){ return adapter().name; },
     META_COLLECTIONS: META_COLLECTIONS,
     openDb: openDb, idbTx: idbTx, audit: audit, blobs: blobs,
-    setScope: setScope, getScope: getScope, scopedNames: SCOPED, peekAll: peekJson, addValidator: addValidator, ensureDefaultCenters: ensureDefaultCenters,
+    setScope: setScope, getScope: getScope, setInterceptor: setInterceptor, setOverlay: setOverlay, wasPrivate: wasPrivate, visibleMain: function(name){ return scopeFilter(name, peekJson(name) || []); }, scopedNames: SCOPED, peekAll: peekJson, addValidator: addValidator, ensureDefaultCenters: ensureDefaultCenters,
     schemaVersion: schemaVersion, latestSchema: latestSchema,
     registerMigration: registerMigration, migrate: migrate,
     migrationState: function(){ return migrationState; },
@@ -3061,9 +3076,9 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
   'use strict';
   var el = function(id){ return document.getElementById(id); };
   var esc = function(s){ return typeof escapeHtml === 'function' ? escapeHtml(s) : String(s); };
-  var TYPE = { employees:'עובדים', meetings:'סיכומי פגישות', tasks:'משימות', postings:'שיבוצים', positions:'תקנים', convergence:'התכנסות', attendance:'נוכחות', attendanceRequests:'בקשות נוכחות', infoItems:'מידע למנהלים', contactRoles:'דף קשר', incentives:'תמריצים', users:'משתמשים', grants:'הרשאות', orgUnits:'מרכזים ויחידות', unitMemberships:'היסטוריית שיוך', notifications:'התראות', system:'מערכת' };
-  var ACTION = { create:'נוצר', update:'עודכן', delete:'נמחק', 'backup-export':'ייצוא גיבוי', restore:'שחזור' };
-  var SOURCE = { ui:'ממשק', 'import':'ייבוא', migration:'שדרוג נתונים' };
+  var TYPE = { syncChanges:'שינויי סנכרון', syncBatches:'קבוצות סנכרון', hqDomains:'תחומי אחריות מטה', employees:'עובדים', meetings:'סיכומי פגישות', tasks:'משימות', postings:'שיבוצים', positions:'תקנים', convergence:'התכנסות', attendance:'נוכחות', attendanceRequests:'בקשות נוכחות', infoItems:'מידע למנהלים', contactRoles:'דף קשר', incentives:'תמריצים', users:'משתמשים', grants:'הרשאות', orgUnits:'מרכזים ויחידות', unitMemberships:'היסטוריית שיוך', notifications:'התראות', system:'מערכת' };
+  var ACTION = { create:'נוצר', update:'עודכן', delete:'נמחק', 'backup-export':'ייצוא גיבוי', restore:'שחזור', 'sync-submit':'שליחת סנכרון', 'sync-approve':'אישור סנכרון', 'sync-reject':'דחיית סנכרון', 'sync-review':'סנכרון לבדיקה', 'sync-discard':'ביטול שינוי פרטי', 'sync-reopen':'החזרה לעריכה', 'sync-domains':'תחומי אחריות מטה' };
+  var SOURCE = { ui:'ממשק', 'import':'ייבוא', migration:'שדרוג נתונים', sync:'סנכרון', rule:'כלל אוטומטי' };
   var FIELD = { name:'שם', role:'תפקיד', department:'מרכז', industry:'ענף', mador:'מדור', team:'צוות', ramad:'רמ"ד', rank:'רמת הרשאה', level:'זוטר/מובהק', serviceType:'סוג שירות', managerId:'מנהל ישיר', email:'אימייל', phone:'טלפון', active:'פעיל', title:'כותרת', status:'סטטוס', priority:'עדיפות', dueDate:'תאריך יעד', description:'תיאור', assignedTo:'מוקצה ל', jobText:'מלל משרה', serialNumber:'מס\' תקן', counterStatus:'מונה', freezeStatus:'הקפאה', currentAppointment:'מינוי נוכחי', futureAppointment:'מינוי עתידי', firstName:'שם פרטי', lastName:'שם משפחה', releaseDate:'תאריך שחרור', entryDate:'כניסה', exitDate:'יציאה', starred:'רידוד', gross:'שווי ברוטו', code:'קוד', entered:'הוזן', notes:'הערות', content:'תוכן', topic:'נושא', file:'קובץ', comments:'תגובות', summary:'סיכום', date:'תאריך', requestedStatus:'סטטוס מבוקש', note:'הערה', roleTitle:'תפקיד', holderName:'שם התפקידן', responsibilities:'תחומי אחריות' };
   var PAGE = 100, offset = 0, loaded = [];
 
@@ -3144,8 +3159,15 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
 
   async function all(){ var a = await DataStore.get(KEY, []); return Array.isArray(a) ? a : []; }
 
-  /* creates a notification; when dedupeKey is given, an open one with the same key for the same recipient is not duplicated */
-  async function add(spec){
+  /* creates a notification; when dedupeKey is given, an open one with the same key for the same recipient is not duplicated.
+     Calls are queued: two notifications created at the same moment must not overwrite each other. */
+  var queue = Promise.resolve();
+  function add(spec){
+    var run = queue.then(function(){ return addNow(spec); });
+    queue = run.catch(function(){});
+    return run;
+  }
+  async function addNow(spec){
     if (!spec || !spec.recipientId || !spec.title) return null;
     var list = await all();
     if (spec.dedupeKey && list.some(function(n){ return n.recipientId === spec.recipientId && n.dedupeKey === spec.dedupeKey && isPending(n); })) return null;
@@ -3214,7 +3236,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
       return '<div class="notif-item ' + (n.state === 'unread' ? 'unread' : '') + '" data-nid="' + esc(n.id) + '">'
         + '<div class="notif-head"><span class="tag">' + esc(KIND[n.kind] || n.kind) + '</span><span class="notif-time">' + esc(when(n.createdAt)) + '</span></div>'
         + '<div class="notif-title">' + esc(n.title) + '</div>' + (n.body ? '<div class="notif-body">' + esc(n.body) + '</div>' : '')
-        + (n.state === 'done' ? '<div class="notif-time">טופל ב-' + esc(when(n.doneAt)) + '</div>' : '<div class="notif-actions">' + (n.state === 'unread' ? '<button class="ghost" data-nact="read" type="button">סמן כנקרא</button>' : '') + '<button class="primary" data-nact="done" type="button">טופל</button></div>')
+        + (n.state === 'done' ? '<div class="notif-time">טופל ב-' + esc(when(n.doneAt)) + '</div>' : '<div class="notif-actions">' + (n.payload && n.payload.open && window.hubNotifyHandlers && hubNotifyHandlers[n.payload.open] ? '<button class="primary" data-nact="open" type="button">פתח</button>' : '') + (n.state === 'unread' ? '<button class="ghost" data-nact="read" type="button">סמן כנקרא</button>' : '') + '<button class="' + (n.payload && n.payload.open ? 'ghost' : 'primary') + '" data-nact="done" type="button">טופל</button></div>')
         + '</div>';
     }).join('');
   }
@@ -3243,6 +3265,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     var b = e.target.closest('[data-nact]');
     if (!b || !el('notif-list')) return;
     var act = b.getAttribute('data-nact'), item = b.closest('.notif-item'), id = item && item.getAttribute('data-nid');
+    if (act === 'open'){ var nn = (await all()).find(function(x){ return x.id === id; }); if (nn){ await markRead(id); var hh = window.hubNotifyHandlers && hubNotifyHandlers[nn.payload && nn.payload.open]; if (hh) hh(nn.payload); } return; }
     if (act === 'read') await markRead(id);
     else if (act === 'done') await markDone(id);
     else if (act === 'allread') await markAllRead(me());
@@ -3350,6 +3373,15 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     if (window.hubRoles) await hubRoles.reload();
   };
   window.hubClearScope = function(){ DataStore.setScope(null); };
+  /* before a sign-in is checked: the previous user's limited data must not stay in memory (a center user signing out and another user signing in on the same page) */
+  window.hubReloadUnscoped = async function(){
+    DataStore.setScope(null);
+    if (typeof state === 'undefined') return;
+    for (var i = 0; i < DataStore.scopedNames.length; i++){
+      var n = DataStore.scopedNames[i];
+      if (Object.prototype.hasOwnProperty.call(state, n)) state[n] = await DataStore.get(n, state[n]);
+    }
+  };
   window.hubScopeLabel = function(u){
     if (!u || u.isSuper || !u.scope) return '';
     if (u.scope.kind === 'hq') return 'מטה';
@@ -5407,11 +5439,454 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
 })();
 </script>
 <script>
+/* ================================================================
+   Center - HQ sync (round 4, stage 12).
+   - a center user's edits of a synced collection (today: convergence) are PRIVATE changes (collection "syncChanges"):
+     the main data is untouched, and the center sees "main + my changes". HQ sees only the main data.
+   - "sync with HQ" / "sync with everyone" shows the center the gaps against main, then submits the changes as a batch
+   - the HQ users that own the domain (hqDomains) get a notification and decide per record: approve / reject / under review;
+     a domain nobody owns goes to the system user. "With everyone": everyone who may see the data sees the pending layer, only the owner decides
+   - the center sees the status of every record it sent; every step is written to the activity log
+   The entity table below is the only place that knows about convergence, so another collection is one more entry.
+   ================================================================ */
+(function(){
+  'use strict';
+  var el = function(id){ return document.getElementById(id); };
+  var esc = function(s){ return typeof escapeHtml === 'function' ? escapeHtml(s) : String(s); };
+  var KEY_C = 'syncChanges', KEY_B = 'syncBatches', KEY_D = 'hqDomains';
+  var DOMAINS = { positions: 'תקנים', convergence: 'התכנסות', incentives: 'תמריצים' };
+  var STATUS = { 'private': 'פרטי, טרם נשלח', submitted: 'ממתין לאישור המטה', approved: 'אושר', rejected: 'נדחה', review: 'בבדיקה' };
+  var STATUS_CLS = { 'private': '', submitted: 'pending', approved: 'approved', rejected: 'rejected', review: 'pending' };
+  var OPEN = ['private', 'submitted', 'review'], LOCKED = ['submitted', 'review'];
+  var OPS = { create: 'רשומה חדשה', update: 'עדכון', 'delete': 'מחיקה' };
+  var ENTITIES = {
+    convergence: {
+      domain: 'convergence', label: 'ההתכנסות', tab: 'convergence',
+      title: function(r){ return ((r.firstName || '') + ' ' + (r.lastName || '')).trim() || String(r.id); },
+      fields: { firstName: 'שם פרטי', lastName: 'שם משפחה', role: 'תפקיד', level: 'זוטר/מובהק', industry: 'ענף', mador: 'מדור', releaseDate: 'תאריך שחרור', entryDate: 'כניסה', exitDate: 'יציאה', starred: 'סימון ★', employeeId: 'קישור לעובד', centerId: 'מרכז' },
+      access: function(emp, r){ return hasFullDataAccess(emp.id) || (r.industry && canAccess('conv:industry:' + r.industry, emp.id)) || (r.mador && canAccess('conv:mador:' + r.mador, emp.id)); }
+    }
+  };
+  var SKIP = { rev: 1, updatedAt: 1, updatedBy: 1 };
+
+  /* ---------- helpers ---------- */
+  function canon(v){
+    if (Array.isArray(v)) return '[' + v.map(canon).join(',') + ']';
+    if (v && typeof v === 'object') return '{' + Object.keys(v).sort().map(function(k){ return JSON.stringify(k) + ':' + canon(v[k]); }).join(',') + '}';
+    return JSON.stringify(v === undefined ? null : v);
+  }
+  function strip(r){ var o = {}; Object.keys(r || {}).forEach(function(k){ if (!SKIP[k] && k.indexOf('_sync') !== 0) o[k] = r[k]; }); return o; }
+  function same(a, b){ return canon(strip(a)) === canon(strip(b)); }
+  function newId(){ return 'sc' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
+  function all(name){ var a = DataStore.peekAll(name); return Array.isArray(a) ? a : []; }
+  function me(){ return state.users.find(function(u){ return u.id === state.authUserId; }) || null; }
+  function userById(id){ return state.users.find(function(u){ return u.id === id; }) || null; }
+  function centerName(id){ var c = all('orgUnits').find(function(u){ return u.id === id; }); return c ? c.name : '—'; }
+  function scopeNow(){ var s = DataStore.getScope(); return s && s.kind === 'center' ? s : null; }
+  function ent(c){ return ENTITIES[c.entityType]; }
+  function titleOf(c){ var e = ent(c); return e ? e.title(c.after || c.before || {}) : c.entityId; }
+  function fieldLabel(c, k){ var e = ent(c); return (e && e.fields[k]) || k; }
+  function shortVal(v){ if (v === undefined || v === null || v === '') return '—'; if (v === true) return 'כן'; if (v === false) return 'לא'; var s = typeof v === 'string' ? v : JSON.stringify(v); return s.length > 40 ? s.slice(0, 37) + '…' : s; }
+  function logEvent(action, details){ try{ return DataStore.audit.logEvent(action, details); }catch(e){ return null; } }
+
+  /* ---------- who is responsible for a domain ---------- */
+  function supers(){ return state.users.filter(function(u){ return u.isSuper && u.active !== false; }); }
+  function domainOwners(domain){
+    var owned = all(KEY_D).filter(function(d){ return d.domain === domain; }).map(function(d){ return userById(d.userId); })
+      .filter(function(u){ return u && u.active !== false && u.scope && u.scope.kind === 'hq'; });
+    return owned.length ? owned : supers();
+  }
+  function canDecide(u, domain){ return !!u && u.active !== false && (u.isSuper || domainOwners(domain).some(function(o){ return o.id === u.id; })); }
+  /* may this user see the change at all? */
+  function userMaySee(u, c){
+    if (!u || u.active === false) return false;
+    if (u.isSuper) return true;
+    var sc = u.scope || null;
+    if (sc && sc.kind === 'center') return sc.centerId === c.centerId;
+    if (canDecide(u, c.domain)) return c.status !== 'private';
+    if (c.visibility !== 'all' || c.status === 'private') return false;
+    var emp = empById(u.employeeId), e = ent(c); if (!emp || !e) return false;
+    return !!canAccess('tab:' + e.tab, emp.id) && !!e.access(emp, c.after || c.before || {});
+  }
+
+  /* ---------- the private layer: write interception and read overlay ---------- */
+  function mineFor(entity, centerId){ return all(KEY_C).filter(function(c){ return c.entityType === entity && c.centerId === centerId && OPEN.indexOf(c.status) > -1; }); }
+  async function intercept(entity, value, scope){
+    var cid = scope.centerId, def = ENTITIES[entity], main = all(entity), mainMap = {}, mine = mineFor(entity, cid), byEnt = {}, refused = [];
+    main.forEach(function(r){ mainMap[r.id] = r; });
+    mine.forEach(function(c){ byEnt[c.entityId] = c; });
+    var drop = {}, put = {}, incoming = {}, actor = state.authUserId, now = new Date().toISOString();
+    value.forEach(function(rec){
+      if (!rec || rec.id === undefined) return;
+      incoming[rec.id] = true;
+      var nr = strip(rec), mr = mainMap[rec.id], ch = byEnt[rec.id];
+      if (!mr && !ch){                                              /* a new record */
+        nr.centerId = cid;
+        put[rec.id] = { id: newId(), entityType: entity, entityId: rec.id, op: 'create', baseRev: 0, before: null, after: nr, centerId: cid, domain: def.domain, status: 'private', createdAt: now, createdBy: actor, label: def.title(nr) };
+        return;
+      }
+      var effective = ch ? (ch.op === 'delete' ? null : ch.after) : strip(mr);
+      if (effective && canon(nr) === canon(effective)) return;      /* unchanged */
+      if (ch && LOCKED.indexOf(ch.status) > -1){ refused.push(def.title(nr)); return; }
+      if (ch){
+        if (ch.op === 'update' && mr && canon(nr) === canon(strip(mr))){ drop[ch.id] = true; return; }   /* edited back to the main value */
+        var c2 = Object.assign({}, ch, { after: nr, label: def.title(nr), op: ch.op === 'delete' ? 'update' : ch.op }); put[rec.id] = c2; return;
+      }
+      put[rec.id] = { id: newId(), entityType: entity, entityId: rec.id, op: 'update', baseRev: mr.rev || 1, before: strip(mr), after: nr, centerId: cid, domain: def.domain, status: 'private', createdAt: now, createdBy: actor, label: def.title(nr) };
+    });
+    /* records that were visible and are gone from the new list were deleted */
+    var seen = {};
+    DataStore.visibleMain(entity).forEach(function(r){ seen[r.id] = r; });
+    mine.forEach(function(c){ if (c.op === 'create') seen[c.entityId] = c.after; });
+    Object.keys(seen).forEach(function(id){
+      if (incoming[id]) return;
+      var ch = byEnt[id], mr = mainMap[id];
+      if (ch && ch.op === 'delete') return;
+      if (ch && LOCKED.indexOf(ch.status) > -1){ refused.push(def.title(seen[id])); return; }
+      if (ch && ch.op === 'create'){ drop[ch.id] = true; return; }
+      if (!mr) return;
+      var del = { id: ch ? ch.id : newId(), entityType: entity, entityId: id, op: 'delete', baseRev: mr.rev || 1, before: strip(mr), after: null, centerId: cid, domain: def.domain, status: 'private', createdAt: now, createdBy: actor, label: def.title(mr) };
+      put[id] = ch ? Object.assign({}, ch, del) : del;
+    });
+    if (refused.length){
+      if (window.hubShowError) hubShowError('הרשומה ממתינה להחלטת המטה', 'אי אפשר לערוך או למחוק עכשיו: ' + refused.join(', ') + '. אחרי שהמטה יחליט (אישור, דחייה או בדיקה) אפשר להמשיך.');
+      return false;
+    }
+    var all0 = all(KEY_C), next = all0.filter(function(c){ return !drop[c.id] && !(c.entityType === entity && put[c.entityId] && put[c.entityId].id === c.id); });
+    Object.keys(put).forEach(function(k){ next.push(put[k]); });
+    if (next.length === all0.length && !Object.keys(put).length && !Object.keys(drop).length) return true;
+    return !!(await DataStore.set(KEY_C, next));
+  }
+  function overlay(entity){
+    return function(list, scope){
+      var chs = mineFor(entity, scope.centerId);
+      if (!chs.length) return list;
+      var by = {}; chs.forEach(function(c){ by[c.entityId] = c; });
+      var out = [];
+      list.forEach(function(r){
+        var c = by[r.id]; if (!c){ out.push(r); return; }
+        if (c.op === 'delete') return;
+        out.push(Object.assign({}, r, c.after, { _syncState: c.status, _syncChangeId: c.id }));
+      });
+      chs.forEach(function(c){ if (c.op === 'create') out.push(Object.assign({}, c.after, { id: c.entityId, _syncState: c.status, _syncChangeId: c.id })); });
+      return out;
+    };
+  }
+  Object.keys(ENTITIES).forEach(function(k){
+    DataStore.setInterceptor(k, function(value, scope){ return intercept(k, value, scope); });
+    DataStore.setOverlay(k, overlay(k));
+  });
+
+  /* ---------- small UI helpers ---------- */
+  function tag(rec){
+    var s = rec && rec._syncState; if (!s) return '';
+    var short = { 'private': 'פרטי', submitted: 'ממתין', review: 'בבדיקה', rejected: 'נדחה' }[s]; if (!short) return '';
+    return ' <span class="req-status ' + (STATUS_CLS[s] || '') + '" title="' + esc(STATUS[s]) + '" style="font-size:11px;">' + short + '</span>';
+  }
+  function isLocked(entity, id){
+    var sc = scopeNow(); if (!sc) return false;
+    return mineFor(entity, sc.centerId).some(function(c){ return c.entityId === id && LOCKED.indexOf(c.status) > -1; });
+  }
+  function mainRecord(c){ return all(c.entityType).find(function(r){ return r.id === c.entityId; }) || null; }
+  function changedSinceBase(c){ var m = mainRecord(c); return !!m && c.op !== 'create' && (m.rev || 1) > (c.baseRev || 1); }
+  /* fields where the center's version differs from what it started from */
+  function fieldDiff(c){
+    var b = c.before || {}, a = c.after || {}, out = [], seen = {};
+    Object.keys(b).concat(Object.keys(a)).forEach(function(k){
+      if (seen[k] || SKIP[k] || k.indexOf('_sync') === 0) return; seen[k] = 1;
+      if (canon(b[k]) !== canon(a[k])) out.push({ k: k, before: b[k], after: a[k] });
+    });
+    return out;
+  }
+  function diffHtml(c){
+    if (c.op === 'create') return '<div class="locked-note" style="display:block;">' + Object.keys(c.after || {}).filter(function(k){ return !SKIP[k] && c.after[k] !== '' && c.after[k] !== undefined && k !== 'id' && k !== 'centerId' && k.indexOf('_sync') !== 0; }).map(function(k){ return '<b>' + esc(fieldLabel(c, k)) + '</b>: ' + esc(shortVal(c.after[k])); }).join(' · ') + '</div>';
+    if (c.op === 'delete') return '<div class="locked-note" style="display:block;">הרשומה תימחק מהראשי.</div>';
+    var d = fieldDiff(c);
+    return '<div class="table-scroll"><table><thead><tr><th>שדה</th><th>ראשי (בבסיס)</th><th>הגרסה של המרכז</th></tr></thead><tbody>'
+      + (d.map(function(x){ return '<tr><td>' + esc(fieldLabel(c, x.k)) + '</td><td>' + esc(shortVal(x.before)) + '</td><td><b>' + esc(shortVal(x.after)) + '</b></td></tr>'; }).join('') || '<tr><td colspan="3">אין הבדלים</td></tr>') + '</tbody></table></div>';
+  }
+  function statusTag(c){ return '<span class="req-status ' + (STATUS_CLS[c.status] || '') + '">' + esc(STATUS[c.status] || c.status) + '</span>'; }
+
+  /* ---------- the center side: preview, submit, my statuses ---------- */
+  function myPrivate(){ var sc = scopeNow(); return sc ? mineFor('convergence', sc.centerId).filter(function(c){ return c.status === 'private'; }) : []; }
+  function openSubmit(vis){
+    var sc = scopeNow(); if (!sc) return;
+    var list = myPrivate();
+    if (!list.length){ openModal('<h3>סנכרון</h3><div class="empty-state">אין שינויים פרטיים לשלוח.</div><div class="modal-actions"><button class="ghost" onclick="closeModal()" type="button">סגור</button></div>'); return; }
+    var who = vis === 'all' ? 'כל מי שמורשה לראות את הנתון יראה אותם כשכבה "ממתין לאישור המטה". רק אחראי התחום במטה יכול לאשר.' : 'רק המטה יראה אותם.';
+    openModal('<h3>סנכרון ' + (vis === 'all' ? 'עם כולם' : 'עם המטה') + '</h3>'
+      + '<div class="locked-note">אלה ' + list.length + ' השינויים של ' + esc(centerName(sc.centerId)) + ' מול המידע הראשי. ' + who + ' הם לא ייכנסו לראשי עד שהמטה יאשר.</div>'
+      + list.map(function(c){
+        return '<div class="request-item"><div class="rh"><div><div class="r-title">' + esc(c.label || titleOf(c)) + '</div><div class="r-meta"><span>' + esc(OPS[c.op]) + '</span>'
+          + (changedSinceBase(c) ? '<span class="danger-txt">שים לב: הרשומה בראשי השתנתה מאז שהתחלת לערוך. המטה יתבקש להכריע.</span>' : '') + '</div></div></div>' + diffHtml(c) + '</div>';
+      }).join('')
+      + '<div class="field"><label>הערה למטה (אופציונלי)</label><textarea id="sy-note"></textarea></div>'
+      + '<div class="modal-actions"><button class="primary" type="button" data-sy="submit" data-vis="' + vis + '">שלח ' + list.length + ' שינויים</button><button class="ghost" onclick="closeModal()" type="button">ביטול</button></div>', true);
+  }
+  async function notifyDomain(domain, spec){
+    var out = [];
+    for (var i = 0; i < domainOwners(domain).length; i++){ var u = domainOwners(domain)[i]; out.push(await hubNotify.add(Object.assign({}, spec, { recipientId: u.id, domain: domain }))); }
+    return out.filter(Boolean);
+  }
+  async function submit(vis, note){
+    var sc = scopeNow(), u = me(); if (!sc || !u) return 0;
+    var list = myPrivate(); if (!list.length) return 0;
+    var now = new Date().toISOString(), batch = { id: 'sb' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), centerId: sc.centerId, scope: vis, submittedBy: u.id, submittedAt: now, changeIds: list.map(function(c){ return c.id; }), status: 'open', note: note || '' };
+    var ids = {}; list.forEach(function(c){ ids[c.id] = 1; });
+    var next = all(KEY_C).map(function(c){ return ids[c.id] ? Object.assign({}, c, { status: 'submitted', visibility: vis, batchId: batch.id, submittedAt: now, submittedBy: u.id, note: note || '' }) : c; });
+    if (!(await DataStore.set(KEY_C, next))) return 0;
+    await DataStore.set(KEY_B, all(KEY_B).concat([batch]));
+    var byDomain = {}; list.forEach(function(c){ (byDomain[c.domain] = byDomain[c.domain] || []).push(c); });
+    var cname = centerName(sc.centerId);
+    for (var d in byDomain){
+      await notifyDomain(d, { kind: 'sync-review', title: 'מרכז ' + cname + ' עדכן את ' + ((ENTITIES[byDomain[d][0].entityType] || {}).label || DOMAINS[d]) + '. אלה השינויים', body: byDomain[d].length + ' רשומות מחכות להחלטה: ' + byDomain[d].slice(0, 4).map(function(c){ return c.label; }).join(', ') + (byDomain[d].length > 4 ? '…' : ''), payload: { open: 'sync-review', batchId: batch.id }, dedupeKey: 'sync:' + batch.id + ':' + d });
+    }
+    logEvent('sync-submit', { label: 'סנכרון ' + (vis === 'all' ? 'עם כולם' : 'עם המטה') + ' · ' + cname + ' · ' + list.length + ' שינויים', centerId: sc.centerId, batchId: batch.id, visibility: vis, count: list.length, domains: Object.keys(byDomain), records: list.map(function(c){ return c.label + ' (' + OPS[c.op] + ')'; }) });
+    return list.length;
+  }
+  function openMine(){
+    var sc = scopeNow(); if (!sc) return;
+    var list = all(KEY_C).filter(function(c){ return c.centerId === sc.centerId; }).sort(function(a, b){ return (b.submittedAt || b.createdAt || '') < (a.submittedAt || a.createdAt || '') ? -1 : 1; });
+    var rows = list.map(function(c){
+      var by = c.decidedBy ? userById(c.decidedBy) : null;
+      var act = c.status === 'private' ? '<button class="ghost" type="button" data-sy="discard" data-id="' + esc(c.id) + '">בטל שינוי</button>'
+        : c.status === 'rejected' ? '<button class="ghost" type="button" data-sy="reopen" data-id="' + esc(c.id) + '">החזר לעריכה פרטית</button>' : '';
+      return '<tr><td>' + esc(c.label || titleOf(c)) + '</td><td>' + esc(OPS[c.op]) + '</td><td>' + statusTag(c) + (c.visibility === 'all' && LOCKED.indexOf(c.status) > -1 ? ' <span class="tag">גלוי לכולם</span>' : '') + '</td><td>' + esc(c.submittedAt ? new Date(c.submittedAt).toLocaleString('he-IL') : '—') + '</td><td>'
+        + (c.decidedAt ? esc((by ? by.username : '') + ' · ' + new Date(c.decidedAt).toLocaleDateString('he-IL')) + (c.decisionNote ? '<div class="locked-note" style="display:block;">' + esc(c.decisionNote) + '</div>' : '') : '—') + '</td><td>' + act + '</td></tr>';
+    }).join('') || '<tr><td colspan="6">עדיין לא נעשו שינויים.</td></tr>';
+    openModal('<h3>הסטטוס של הסנכרונים של ' + esc(centerName(sc.centerId)) + '</h3><div class="table-scroll"><table><thead><tr><th>רשומה</th><th>סוג</th><th>סטטוס</th><th>נשלח</th><th>החלטה</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div><div class="modal-actions"><button class="ghost" type="button" data-sy="log">יומן סנכרון</button><button class="ghost" onclick="closeModal()" type="button">סגור</button></div>', true);
+  }
+  async function discard(id){
+    var c = all(KEY_C).find(function(x){ return x.id === id; }); if (!c || c.status !== 'private') return;
+    await DataStore.set(KEY_C, all(KEY_C).filter(function(x){ return x.id !== id; }));
+    logEvent('sync-discard', { label: 'ביטול שינוי פרטי: ' + c.label, centerId: c.centerId, changeId: id });
+    await reloadState();
+  }
+  async function reopen(id){
+    var c = all(KEY_C).find(function(x){ return x.id === id; }); if (!c || c.status !== 'rejected') return;
+    var m = mainRecord(c), dupe = all(KEY_C).some(function(x){ return x.id !== id && x.entityType === c.entityType && x.entityId === c.entityId && OPEN.indexOf(x.status) > -1; });
+    if (dupe){ alert('לרשומה הזו כבר יש שינוי פתוח'); return; }
+    var n = Object.assign({}, c, { status: 'private', baseRev: m ? (m.rev || 1) : 0, before: m ? strip(m) : null, decidedBy: null, decidedAt: null, visibility: null, batchId: null });
+    await DataStore.set(KEY_C, all(KEY_C).map(function(x){ return x.id === id ? n : x; }));
+    logEvent('sync-reopen', { label: 'החזרה לעריכה פרטית: ' + c.label, centerId: c.centerId, changeId: id });
+    await reloadState();
+  }
+  async function reloadState(){
+    state.convergence = await storeGet('convergence', state.convergence);
+    if (typeof renderConvergence === 'function') renderConvergence();
+    if (typeof renderConvFilterOptions === 'function') renderConvFilterOptions();
+  }
+
+  /* ---------- the HQ side: decide per record ---------- */
+  function pendingFor(u){
+    return all(KEY_C).filter(function(c){ return LOCKED.indexOf(c.status) > -1 && userMaySee(u, c); });
+  }
+  /* fields where both sides changed the same field differently: the HQ has to choose */
+  function conflictsOf(c){
+    var m = mainRecord(c); if (!m || c.op === 'create') return [];
+    if ((m.rev || 1) <= (c.baseRev || 1)) return [];
+    if (c.op === 'delete') return [{ k: '_delete', before: c.before, center: null, main: strip(m) }];
+    return fieldDiff(c).filter(function(x){ return canon(m[x.k]) !== canon(x.before) && canon(m[x.k]) !== canon(x.after); }).map(function(x){ return { k: x.k, before: x.before, center: x.after, main: m[x.k] }; });
+  }
+  function reviewCard(c, u, canDo){
+    var by = userById(c.submittedBy), cf = conflictsOf(c);
+    var h = '<div class="request-item" data-sy-card="' + esc(c.id) + '"><div class="rh"><div><div class="r-title">' + esc(c.label || titleOf(c)) + ' · ' + esc(OPS[c.op]) + '</div><div class="r-meta"><span>מרכז: ' + esc(centerName(c.centerId)) + '</span><span>נשלח ע"י ' + esc(by ? by.username : '—') + ' ב-' + esc(c.submittedAt ? new Date(c.submittedAt).toLocaleString('he-IL') : '') + '</span><span>' + (c.visibility === 'all' ? 'גלוי לכולם' : 'גלוי למטה בלבד') + '</span></div></div>' + statusTag(c) + '</div>';
+    if (c.note) h += '<div class="r-note">הערת המרכז: ' + esc(c.note) + '</div>';
+    h += diffHtml(c);
+    if (cf.length){
+      h += '<div class="dup-err" role="alert"><b>התנגשות.</b> הרשומה בראשי השתנתה מאז שהמרכז התחיל לערוך. בחר את הערך לכל שדה:'
+        + '<div class="table-scroll"><table><thead><tr><th>שדה</th><th>בסיס</th><th>המרכז</th><th>ראשי נוכחי</th><th>בחירה</th></tr></thead><tbody>'
+        + cf.map(function(x){
+          if (x.k === '_delete') return '<tr><td>מחיקה</td><td colspan="3">הרשומה עודכנה בראשי אחרי שהמרכז ביקש למחוק אותה</td><td>' + (canDo ? '<select data-sy-pick="_delete"><option value="main">השאר את הרשומה בראשי</option><option value="center">מחק בכל זאת</option></select>' : '') + '</td></tr>';
+          return '<tr><td>' + esc(fieldLabel(c, x.k)) + '</td><td>' + esc(shortVal(x.before)) + '</td><td>' + esc(shortVal(x.center)) + '</td><td>' + esc(shortVal(x.main)) + '</td><td>' + (canDo ? '<select data-sy-pick="' + esc(x.k) + '"><option value="">— בחר —</option><option value="center">ערך המרכז</option><option value="main">הערך בראשי</option></select>' : '') + '</td></tr>';
+        }).join('') + '</tbody></table></div></div>';
+    }
+    if (canDo){
+      h += '<div class="field"><label>הערה למרכז</label><input type="text" data-sy-note="' + esc(c.id) + '"></div>'
+        + '<div class="r-actions"><button class="primary" type="button" data-sy="approve" data-id="' + esc(c.id) + '">אשר ועדכן</button> <button class="ghost danger-txt" type="button" data-sy="reject" data-id="' + esc(c.id) + '">דחה</button> '
+        + (c.status === 'review' ? '' : '<button class="ghost" type="button" data-sy="review" data-id="' + esc(c.id) + '">בבדיקה</button>') + '</div>';
+    } else h += '<div class="locked-note" style="display:block;">רק אחראי התחום (' + esc(DOMAINS[c.domain] || c.domain) + ') יכול להחליט. אתה רואה את השינוי המוצע בלבד.</div>';
+    return h + '</div>';
+  }
+  function openReview(batchId){
+    var u = me(); if (!u) return;
+    var list = pendingFor(u);
+    if (batchId) { var inBatch = list.filter(function(c){ return c.batchId === batchId; }); if (inBatch.length) list = inBatch; }
+    var deciding = list.filter(function(c){ return canDecide(u, c.domain); }), viewing = list.filter(function(c){ return !canDecide(u, c.domain); });
+    var groups = {};
+    deciding.forEach(function(c){ var k = c.centerId + '|' + (c.batchId || ''); (groups[k] = groups[k] || []).push(c); });
+    var body = Object.keys(groups).map(function(k){
+      var g = groups[k]; return '<div class="form-section-title">מרכז ' + esc(centerName(g[0].centerId)) + ' · ' + g.length + ' רשומות</div>' + g.map(function(c){ return reviewCard(c, u, true); }).join('');
+    }).join('') || '<div class="empty-state">אין בקשות סנכרון שממתינות להחלטה שלך.</div>';
+    if (viewing.length) body += '<div class="form-section-title">עדכונים מהמרכזים (לצפייה בלבד)</div>' + viewing.map(function(c){ return reviewCard(c, u, false); }).join('');
+    openModal('<h3>בקשות סנכרון</h3>' + body + '<div class="modal-actions"><button class="ghost" type="button" data-sy="log">יומן סנכרון</button><button class="ghost" onclick="closeModal()" type="button">סגור</button></div>', true);
+  }
+  function notifyUsers(users, spec){
+    return users.reduce(function(p, u){ return p.then(function(){ return hubNotify.add(Object.assign({}, spec, { recipientId: u.id })); }); }, Promise.resolve());
+  }
+  /* returns '' or an error text */
+  async function decide(id, decision, note, picks){
+    var u = me(), c = all(KEY_C).find(function(x){ return x.id === id; });
+    if (!u || !c) return 'השינוי לא נמצא';
+    if (LOCKED.indexOf(c.status) < 0) return 'ההחלטה כבר התקבלה';
+    if (!canDecide(u, c.domain)) return 'רק אחראי התחום יכול להחליט';
+    var def = ENTITIES[c.entityType], now = new Date().toISOString(), title = c.label || titleOf(c);
+    if (decision === 'approve'){
+      var cf = conflictsOf(c), main = (await DataStore.get(c.entityType, [])).slice(), idx = main.findIndex(function(r){ return r.id === c.entityId; });
+      var skipDelete = false;
+      for (var i = 0; i < cf.length; i++){ if (!picks || !picks[cf[i].k]) return 'יש להכריע בכל שדה בהתנגשות לפני האישור'; }
+      if (c.op === 'create'){
+        if (idx >= 0) return 'רשומה במזהה הזה כבר קיימת בראשי';
+        main.push(Object.assign({}, c.after, { id: c.entityId, centerId: c.centerId }));
+      } else if (idx < 0){ return 'הרשומה כבר לא קיימת בראשי';
+      } else if (c.op === 'delete'){
+        if (picks && picks._delete === 'main') skipDelete = true; else main.splice(idx, 1);
+      } else {
+        var rec = Object.assign({}, main[idx]);
+        fieldDiff(c).forEach(function(x){ if (picks && picks[x.k] === 'main') return; rec[x.k] = x.after; });
+        main[idx] = rec;
+      }
+      var prevSrc = DataStore.audit.getSource(); DataStore.audit.setSource('sync');
+      var ok = false; try{ ok = await DataStore.set(c.entityType, main); } finally { DataStore.audit.setSource(prevSrc); }
+      if (!ok) return 'הכתיבה לראשי נכשלה';
+      c.status = 'approved'; if (skipDelete) note = ((note || '') + ' (הרשומה נשארה בראשי)').trim();
+    } else if (decision === 'reject') c.status = 'rejected';
+    else if (decision === 'review') c.status = 'review';
+    else return 'פעולה לא מוכרת';
+    c.decisionNote = note || '';                                   /* the note of the latest decision */
+    c.decidedBy = u.id; c.decidedAt = now;
+    await DataStore.set(KEY_C, all(KEY_C).map(function(x){ return x.id === id ? c : x; }));
+    var label = { approve: 'אושר', reject: 'נדחה', review: 'הועבר לבדיקה' }[decision];
+    var submitter = userById(c.submittedBy), centerUsers = state.users.filter(function(x){ return x.active !== false && x.scope && x.scope.kind === 'center' && x.scope.centerId === c.centerId; });
+    var recips = {}; if (submitter) recips[submitter.id] = submitter; centerUsers.forEach(function(x){ if (decision !== 'approve' || x.id === (submitter || {}).id) recips[x.id] = x; });
+    await notifyUsers(Object.keys(recips).map(function(k){ return recips[k]; }), { kind: 'sync-review', title: 'הסנכרון של "' + title + '" ' + label, body: (note ? 'הערת המטה: ' + note : '') + (decision === 'reject' ? ' השינוי בוטל והרשומה חזרה לערך הראשי.' : ''), payload: { open: 'sync-mine' } });
+    if (decision === 'reject' && c.visibility === 'all'){      /* everyone who saw the layer is told it is gone */
+      var viewers = state.users.filter(function(x){ return !recips[x.id] && x.id !== u.id && userMaySee(x, Object.assign({}, c, { status: 'submitted' })); });
+      await notifyUsers(viewers, { kind: 'sync-review', title: 'השינוי בוטל: ' + title, body: 'המטה דחה את העדכון של מרכז ' + centerName(c.centerId) + '. הרשומה נשארת כפי שהייתה.' });
+    }
+    logEvent('sync-' + (decision === 'approve' ? 'approve' : decision === 'reject' ? 'reject' : 'review'), { label: title + ' · ' + label + ' · ' + centerName(c.centerId), centerId: c.centerId, changeId: id, batchId: c.batchId, domain: c.domain, decidedBy: u.username, note: note || '' });
+    /* the batch closes when nothing in it is waiting any more */
+    var rest = all(KEY_C).filter(function(x){ return x.batchId === c.batchId && LOCKED.indexOf(x.status) > -1; });
+    if (!rest.length && c.batchId) await DataStore.set(KEY_B, all(KEY_B).map(function(b){ return b.id === c.batchId ? Object.assign({}, b, { status: 'closed' }) : b; }));
+    if (decision === 'approve' && !scopeNow()){ state.convergence = await storeGet('convergence', state.convergence); }
+    return '';
+  }
+
+  /* ---------- activity log of the sync ---------- */
+  async function openLog(){
+    var u = me(); if (!u) return;
+    await DataStore.audit.flush();
+    var rows = (await DataStore.audit.query({ entityType: 'system', limit: 1000 })).filter(function(e){ return /^sync-/.test(e.action); });
+    var sc = u.scope && u.scope.kind === 'center' ? u.scope.centerId : null;
+    rows = rows.filter(function(e){ var d = e.after || {}; return u.isSuper || (sc ? d.centerId === sc : (!d.domain || canDecide(u, d.domain)) ); });
+    var NAME = { 'sync-submit': 'נשלח לסנכרון', 'sync-approve': 'אושר', 'sync-reject': 'נדחה', 'sync-review': 'הועבר לבדיקה', 'sync-discard': 'בוטל שינוי פרטי', 'sync-reopen': 'הוחזר לעריכה' };
+    openModal('<h3>יומן סנכרון</h3><div class="table-scroll"><table><thead><tr><th>זמן</th><th>משתמש</th><th>פעולה</th><th>פירוט</th></tr></thead><tbody>'
+      + (rows.map(function(e){ var d = e.after || {}; return '<tr><td>' + esc(new Date(e.at).toLocaleString('he-IL')) + '</td><td>' + esc(e.actorName || '—') + '</td><td>' + esc(NAME[e.action] || e.action) + '</td><td>' + esc(e.label || '') + (d.note ? '<div class="locked-note" style="display:block;">' + esc(d.note) + '</div>' : '') + '</td></tr>'; }).join('') || '<tr><td colspan="4">עדיין אין פעולות סנכרון.</td></tr>')
+      + '</tbody></table></div><div class="modal-actions"><button class="ghost" onclick="closeModal()" type="button">סגור</button></div>', true);
+  }
+
+  /* ---------- toolbar and pending layer inside the convergence tab ---------- */
+  function renderBar(){
+    var panel = el('panel-convergence'); if (!panel) return;
+    var bar = el('syncBar');
+    if (!bar){ bar = document.createElement('div'); bar.id = 'syncBar'; var head = panel.querySelector('.panel-head'); if (head) head.insertAdjacentElement('afterend', bar); else panel.prepend(bar); }
+    var u = me(); if (!u){ bar.innerHTML = ''; return; }
+    var sc = scopeNow(), h = '';
+    if (sc){
+      var priv = myPrivate().length, waiting = mineFor('convergence', sc.centerId).filter(function(c){ return LOCKED.indexOf(c.status) > -1; }).length;
+      h = '<div class="card" style="padding:12px;margin-bottom:12px;"><div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">'
+        + '<b>סנכרון עם המטה</b><span class="locked-note" style="display:inline">' + (priv ? priv + ' שינויים פרטיים שטרם נשלחו' : 'אין שינויים פרטיים') + (waiting ? ' · ' + waiting + ' ממתינים להחלטת המטה' : '') + '. השינויים שלך נראים רק למרכז שלך עד הסנכרון.</span>'
+        + '<button class="primary" type="button" data-sy="open-submit" data-vis="hq"' + (priv ? '' : ' disabled') + '>סנכרן עם המטה</button>'
+        + '<button class="ghost" type="button" data-sy="open-submit" data-vis="all"' + (priv ? '' : ' disabled') + '>סנכרן עם כולם</button>'
+        + '<button class="ghost" type="button" data-sy="mine">הסטטוס של מה ששלחתי</button><button class="ghost" type="button" data-sy="log">יומן סנכרון</button></div></div>';
+    } else {
+      var pend = pendingFor(u), deciding = pend.filter(function(c){ return canDecide(u, c.domain); });
+      if (pend.length || canDecide(u, 'convergence')){
+        h = '<div class="card" style="padding:12px;margin-bottom:12px;"><div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;"><b>עדכונים מהמרכזים</b>'
+          + '<span class="locked-note" style="display:inline">' + (deciding.length ? deciding.length + ' ממתינים להחלטה שלך' : pend.length ? pend.length + ' עדכונים ממתינים לאישור המטה (לצפייה)' : 'אין עדכונים ממתינים') + '</span>'
+          + '<button class="' + (deciding.length ? 'primary' : 'ghost') + '" type="button" data-sy="review-open">בקשות סנכרון</button><button class="ghost" type="button" data-sy="log">יומן סנכרון</button></div>'
+          + layerHtml(pend, u) + '</div>';
+      }
+    }
+    bar.innerHTML = h;
+  }
+  /* the "update from the center, waiting for HQ approval" layer: only changes the viewer may see, read-only */
+  function layerHtml(pend, u){
+    var seen = pend.filter(function(c){ return c.visibility === 'all'; });
+    if (!seen.length) return '';
+    return '<div class="table-scroll" style="margin-top:10px;"><table><thead><tr><th>רשומה</th><th>מרכז</th><th>סוג</th><th>שינוי מוצע</th><th>סטטוס</th></tr></thead><tbody>'
+      + seen.map(function(c){ return '<tr class="sync-layer-row"><td>' + esc(c.label || titleOf(c)) + ' <span class="tag">עדכון מהמרכז, ממתין לאישור המטה</span></td><td>' + esc(centerName(c.centerId)) + '</td><td>' + esc(OPS[c.op]) + '</td><td>' + (c.op === 'update' ? fieldDiff(c).map(function(x){ return esc(fieldLabel(c, x.k)) + ': ' + esc(shortVal(x.before)) + ' ← <b>' + esc(shortVal(x.after)) + '</b>'; }).join('<br>') : '—') + '</td><td>' + statusTag(c) + '</td></tr>'; }).join('')
+      + '</tbody></table></div>';
+  }
+
+  /* ---------- HQ domains card (permissions tab, system user) ---------- */
+  function domainsCard(){
+    if (!isSuperUser()) return '';
+    var hq = state.users.filter(function(u){ return u.active !== false && u.scope && u.scope.kind === 'hq'; }), assigned = all(KEY_D);
+    var rows = hq.map(function(u){
+      return '<tr><td>' + esc(u.username) + '</td>' + Object.keys(DOMAINS).map(function(d){ return '<td><input type="checkbox" data-hqd="' + esc(u.id) + '|' + d + '"' + (assigned.some(function(a){ return a.userId === u.id && a.domain === d; }) ? ' checked' : '') + '></td>'; }).join('') + '</tr>';
+    }).join('') || '<tr><td colspan="4">אין משתמשי מטה. הגדר היקף "מטה" למשתמש בלשונית המשתמשים.</td></tr>';
+    var orphan = Object.keys(DOMAINS).filter(function(d){ return !assigned.some(function(a){ return a.domain === d && hq.some(function(u){ return u.id === a.userId; }); }); });
+    return '<div class="card"><div class="panel-head" style="margin-bottom:10px;"><div><h3 style="margin:0 0 6px;">תחומי אחריות של משתמשי מטה</h3><span class="locked-note" style="display:inline">סנכרונים ובקשות מרכזים מנותבים לבעלי התחום. תחום בלי אחראי עובר למשתמש המערכת. סנכרון פעיל כרגע להתכנסות.</span></div></div>'
+      + '<div class="table-scroll"><table><thead><tr><th>משתמש מטה</th>' + Object.keys(DOMAINS).map(function(d){ return '<th>' + DOMAINS[d] + '</th>'; }).join('') + '</tr></thead><tbody>' + rows + '</tbody></table></div>'
+      + (orphan.length ? '<div class="locked-note" style="display:block;">תחומים בלי אחראי (ההתראות עוברות למשתמש המערכת): ' + orphan.map(function(d){ return DOMAINS[d]; }).join(', ') + '</div>' : '') + '</div>';
+  }
+  window.hubPermExtras = window.hubPermExtras || [];
+  window.hubPermExtras.push(domainsCard);
+
+  document.addEventListener('change', async function(e){
+    var cb = e.target.closest ? e.target.closest('[data-hqd]') : null; if (!cb || !isSuperUser()) return;
+    var p = cb.getAttribute('data-hqd').split('|'), list = all(KEY_D).slice();
+    if (cb.checked){ if (!list.some(function(a){ return a.userId === p[0] && a.domain === p[1]; })) list.push({ id: 'hd' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), userId: p[0], domain: p[1] }); }
+    else list = list.filter(function(a){ return !(a.userId === p[0] && a.domain === p[1]); });
+    await DataStore.set(KEY_D, list);
+    logEvent('sync-domains', { label: 'תחומי אחריות של משתמש מטה עודכנו: ' + ((userById(p[0]) || {}).username || '') + ' · ' + DOMAINS[p[1]] + (cb.checked ? ' נוסף' : ' הוסר') });
+    if (typeof renderPermissionsPage === 'function') renderPermissionsPage();
+  });
+
+  /* ---------- clicks ---------- */
+  document.addEventListener('click', async function(e){
+    var b = e.target.closest ? e.target.closest('[data-sy]') : null; if (!b) return;
+    var act = b.getAttribute('data-sy'), id = b.getAttribute('data-id');
+    if (act === 'open-submit') openSubmit(b.getAttribute('data-vis'));
+    else if (act === 'submit'){
+      b.disabled = true;
+      var n = await submit(b.getAttribute('data-vis'), (el('sy-note') || {}).value || '');
+      closeModal(); await reloadState(); if (window.hubNotify) hubNotify.refresh();
+      if (n) openMine();
+    }
+    else if (act === 'mine') openMine();
+    else if (act === 'discard'){ await discard(id); openMine(); }
+    else if (act === 'reopen'){ await reopen(id); openMine(); }
+    else if (act === 'log') openLog();
+    else if (act === 'review-open') openReview();
+    else if (act === 'approve' || act === 'reject' || act === 'review'){
+      var card = b.closest('[data-sy-card]'), note = card ? (card.querySelector('[data-sy-note]') || {}).value || '' : '', picks = {};
+      if (card) card.querySelectorAll('[data-sy-pick]').forEach(function(s){ if (s.value) picks[s.getAttribute('data-sy-pick')] = s.value; });
+      var err = await decide(id, act, note.trim(), picks);
+      if (err){ alert(err); return; }
+      if (window.hubNotify) hubNotify.refresh();
+      openReview(); renderBar();
+      if (typeof renderConvergence === 'function') renderConvergence();
+    }
+  });
+  window.hubNotifyHandlers = window.hubNotifyHandlers || {};
+  window.hubNotifyHandlers['sync-review'] = function(p){ closeModal(); openReview(p && p.batchId); };
+  window.hubNotifyHandlers['sync-mine'] = function(){ closeModal(); if (scopeNow()) openMine(); else openReview(); };
+  if (window.DataStore) DataStore.on('change', function(ev){ if (ev && /^(syncChanges|hqDomains)$/.test(ev.name || '')){ try{ renderBar(); }catch(x){} } });
+  document.addEventListener('click', function(e){ if (e.target.closest && e.target.closest('.tab-btn[data-tab="convergence"]')) setTimeout(renderBar, 0); });
+
+  window.hubSync = { renderBar: renderBar, tag: tag, isLocked: isLocked, submit: submit, decide: decide, pendingFor: pendingFor, domainOwners: domainOwners, canDecide: canDecide, userMaySee: userMaySee, myPrivate: myPrivate, openReview: openReview, openMine: openMine, openLog: openLog, changes: function(){ return all(KEY_C); }, conflictsOf: conflictsOf, ENTITIES: ENTITIES, DOMAINS: DOMAINS };
+})();
+</script>
+<script>
 /* ---------------- storage helpers ---------------- */
 function hasArtifactStorage(){ return typeof window !== 'undefined' && window.storage && typeof window.storage.get === 'function'; }
 async function storeSet(key, value){
   const saved = await DataStore.set(key, value);
-  if (saved && (key === 'convergence' || key === 'positions')) await captureHistory(key);
+  const priv = DataStore.wasPrivate(key);                /* a center user's change is private until synced: no history entry for the main record */
+  if (saved && !priv && (key === 'convergence' || key === 'positions')) await captureHistory(key);
+  if (!saved && key === 'convergence' && DataStore.getScope()) state.convergence = await storeGet('convergence', state.convergence);
   return saved;
 }
 function storeGet(key, fallback){ return DataStore.get(key, fallback); }
@@ -5662,6 +6137,7 @@ async function submitForcedPasswordChange(){
 }
 
 async function completeLogin(user){
+  if (window.hubReloadUnscoped) await hubReloadUnscoped();
   const emp = empById(user.employeeId);
   if (!emp){
     renderAuth('login');
@@ -6066,7 +6542,7 @@ function renderPermissionsPage(){
         ? `<div class="p-tags">${chips || '<span class="widget-empty">משתמשי על בלבד</span>'}</div>`
         : `<div class="widget-empty">הכרטיסייה פתוחה לכל המשתמשים. הגבל גישה כדי לנהל הרשאות לפי דרגה או משתמש.</div>`}
     </div>`;
-  }).join('');
+  }).join('') + (window.hubPermExtras ? window.hubPermExtras.map(f=>f()).join('') : '');
 }
 function openTabGrantModal(tab){
   openGrantModal([{key:'tab:'+tab, label:'כרטיסייה: '+TAB_LABELS[tab]}], 'tab:'+tab, 'גישה לכרטיסייה: '+TAB_LABELS[tab]);
@@ -8152,6 +8628,7 @@ function yearRatio(entryDate, exitDate){
   return diffDays / 365;
 }
 function renderConvergence(){
+  if (window.hubSync) hubSync.renderBar();
   const tbody = document.querySelector('#convTable tbody');
   const fIndustry = document.getElementById('filterConvIndustry').value;
   const fMador = document.getElementById('filterConvMador').value;
@@ -8173,7 +8650,7 @@ function renderConvergence(){
   tbody.innerHTML = items.map(c=>{
     const ratio = yearRatio(c.entryDate, c.exitDate);
     return `<tr>
-      <td>${escapeHtml(c.firstName)}</td>
+      <td>${escapeHtml(c.firstName)}${window.hubSync?hubSync.tag(c):''}</td>
       <td>${escapeHtml(c.lastName)}</td>
       <td>${escapeHtml(c.role||'—')}</td>
       <td>${c.level?`<span class="level-badge ${c.level==='מובהק'?'distinct':'junior'}">${escapeHtml(c.level)}</span>`:'—'}</td>
@@ -8270,6 +8747,7 @@ async function saveConv(existingId){
     starred: document.getElementById('c-starred').checked,
     employeeId: document.getElementById('c-employeeId').value || undefined
   };
+  if (existingId && window.hubSync && hubSync.isLocked('convergence', existingId)){ alert('הרשומה ממתינה להחלטת המטה ולכן אי אפשר לערוך אותה עכשיו'); return; }
   if (existingId){
     const idx = state.convergence.findIndex(c=>c.id===existingId);
     state.convergence[idx] = {...state.convergence[idx], ...data};
@@ -8282,12 +8760,14 @@ async function saveConv(existingId){
   renderConvergence();
 }
 async function toggleConvStar(id){
+  if (window.hubSync && hubSync.isLocked('convergence', id)){ alert('הרשומה ממתינה להחלטת המטה ולכן אי אפשר לערוך אותה עכשיו'); return; }
   const c = state.convergence.find(c=>c.id===id);
   c.starred = !c.starred;
   await storeSet('convergence', state.convergence);
   renderConvergence();
 }
 async function deleteConv(id){
+  if (window.hubSync && hubSync.isLocked('convergence', id)){ alert('הרשומה ממתינה להחלטת המטה ולכן אי אפשר למחוק אותה עכשיו'); return; }
   if (!confirm('למחוק את הרשומה?')) return;
   state.convergence = state.convergence.filter(c=>c.id!==id);
   await storeSet('convergence', state.convergence);
