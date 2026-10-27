@@ -1591,6 +1591,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
       <div><h2>דף קשר</h2><p>מדור משאבי אנוש — תחומי האחריות בחלוקה לתפקידנים</p></div>
       <div style="display:flex; gap:8px;">
         <button class="primary" onclick="openContactForm(null)">+ הוספת תפקידן</button>
+        <button class="ghost" onclick="openContactLinkReport()">קישור בעלי תפקיד</button>
         <button class="ghost" onclick="exportContacts()">ייצוא לאקסל</button>
       </div>
     </div>
@@ -5642,9 +5643,17 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
   function isManagerUser(u){
     var emp = empAny(u.employeeId); if (!emp) return false;
     if (window.hubHier && hubHier.engaged(emp.id)){ var sc = hubHier.scopeFor(emp.id); return !!sc && (sc.all || sc.level !== 'none' || !!sc.domainOnly); }
-    return hasFullDataAccess(emp.id) || getSubordinateIds(emp.id).length > 0 || hasRank(emp.id);
+    var all0 = DataStore.peekAll('employees'); all0 = Array.isArray(all0) ? all0 : state.employees;
+    return RANKS.includes(emp.rank) || all0.some(function(x){ return x.managerId === emp.id; });
   }
-  function recipientsFor(entity, centerId, list, viewerId){
+  /* the screen of a center user holds only the employees of the center: access of the other users is judged on the whole data */
+  function withAllEmployees(fn){
+    var full = DataStore.peekAll('employees'), keep = state.employees; if (!Array.isArray(full)) return fn();
+    state.employees = full;
+    try{ return fn(); } finally { state.employees = keep; }
+  }
+  function recipientsFor(entity, centerId, list, viewerId){ return withAllEmployees(function(){ return recipientsInner(entity, centerId, list, viewerId); }); }
+  function recipientsInner(entity, centerId, list, viewerId){
     var def = ENTITIES[entity], out = [], seen = {}; if (viewerId === undefined){ var m0 = me(); viewerId = m0 ? m0.id : null; }
     function add(u, role, locked){ if (!u || u.active === false || seen[u.id] || u.id === viewerId) return; seen[u.id] = 1; out.push({ user: u, role: role, locked: !!locked }); }
     var owners = all(KEY_D).filter(function(d){ return d.domain === def.domain; }).map(function(d){ return userById(d.userId); }).filter(function(u){ return u && u.active !== false && u.scope && u.scope.kind === 'hq'; });
@@ -5761,14 +5770,14 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
      is left to approve and no stale value comes back with an approval. Each batch is written to the sync log. ---- */
   var derivedDepth = 0;
   async function derived(fn){
-    var prev = DataStore.audit.getSource(); derivedDepth++; DataStore.audit.setSource('derived');
-    try{ return await fn(); } finally { derivedDepth--; DataStore.audit.setSource(prev); }
+    var prev = DataStore.audit.getSource(), prevH = historySource; derivedDepth++; DataStore.audit.setSource('derived'); historySource = 'שינוי נגזר מכרטיס עובד';
+    try{ return await fn(); } finally { derivedDepth--; DataStore.audit.setSource(prev); historySource = prevH; }
   }
   async function applyDerived(entity, value, scope){
     var cid = scope.centerId, def = ENTITIES[entity], main = all(entity).slice(), mine = mineFor(entity, cid), byEnt = {}, mi = {};
     mine.forEach(function(c){ byEnt[c.entityId] = c; }); main.forEach(function(r, i){ mi[r.id] = i; });
     var chs = all(KEY_C).slice(), ci = {}; chs.forEach(function(c, i){ ci[c.id] = i; });
-    var mainChanged = false, chChanged = false, touched = [], fields = {}, bumped = [];
+    var mainChanged = false, chChanged = false, touched = [], fields = {}, bumped = [], hist = [];
     value.forEach(function(rec){
       if (!rec || rec.id === undefined) return;
       var ch = byEnt[rec.id], i = mi[rec.id], mr = i !== undefined ? main[i] : null;
@@ -5779,7 +5788,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
       if (!n) return;
       var prevRev = mr ? (mr.rev || 1) : 0;
       function put(o){ var x = Object.assign({}, o); Object.keys(delta).forEach(function(k){ setK(x, k, delta[k]); }); return x; }
-      if (mr){ main[i] = put(mr); mainChanged = true; }
+      if (mr){ main[i] = put(mr); mainChanged = true; hist.push({ id: mr.id, before: mr, after: main[i] }); }
       if (ch){
         var c2 = Object.assign({}, ch); c2.after = put(ch.after); if (c2.before) c2.before = put(ch.before);
         chs[ci[ch.id]] = c2; chChanged = true;
@@ -5794,6 +5803,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
       bumped.forEach(function(b){ chs[ci[b.id]] = Object.assign({}, chs[ci[b.id]], { baseRev: rev[b.entityId] || chs[ci[b.id]].baseRev }); });
     }
     if (chChanged) await DataStore.set(KEY_C, chs);
+    if (hist.length && typeof hubHistoryAdd === 'function') await hubHistoryAdd(entity, hist);
     logEvent('sync-derived', { label: 'עדכון שנגזר מכרטיס העובד (' + Object.keys(fields).map(function(k){ return (def.fields[k] || k); }).join(', ') + '): ' + touched.slice(0, 4).join(', ') + (touched.length > 4 ? ' ועוד ' + (touched.length - 4) : ''), centerId: cid, domain: def.domain, count: touched.length });
     return true;
   }
@@ -7372,6 +7382,9 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
       data.ramadSource = txt ? 'manual' : undefined;
     } else { data.ramad = d.name; data.ramadSource = 'derived'; }
   }
+  function unitInfo(id){ var u = id ? C().byId[id] : null; if (!u) return null; var h = u.headEmployeeId ? C().emps[u.headEmployeeId] : null; return { id: u.id, name: u.name, kind: u.kind, headLabel: KIND_HEAD[u.kind] || 'ראש יחידה', head: h || null, path: chainOfUnit(u.id).map(function(x){ return x.name; }).join(' › ') }; }
+  function chainOfUnit(id){ var out = [], cur = id ? C().byId[id] : null, g = 0; while (cur && g++ < 8){ out.unshift(cur); cur = cur.parentId ? C().byId[cur.parentId] : null; } return out; }
+  function allUnits(){ return C().units.filter(function(u){ return u.active !== false; }); }
   function chainHtml(e){
     var h = headsOf(e), row = function(l, x){ return '<div><div class="lbl3">' + l + '</div>' + esc(x && x.headName ? x.headName : '—') + '</div>'; };
     return row('ראש צוות', h.team) + row('ראש ענף (רע"ן)', h.branch) + row('ראש מרכז', h.center);
@@ -7482,7 +7495,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
   });
 
   window.hubHier = {
-    isRegular: isRegular, hidden: hidden, exposed: exposed, EMP_FIELDS: EMP_FIELDS, maskEmployeeRows: maskEmployeeRows, regularLayerOk: regularLayerOk, widgetOk: widgetOk, withScopedState: withScopedState, REG_HIDDEN_TABS: REG_HIDDEN_TABS,
+    unitInfo: unitInfo, allUnits: allUnits, isRegular: isRegular, hidden: hidden, exposed: exposed, EMP_FIELDS: EMP_FIELDS, maskEmployeeRows: maskEmployeeRows, regularLayerOk: regularLayerOk, widgetOk: widgetOk, withScopedState: withScopedState, REG_HIDDEN_TABS: REG_HIDDEN_TABS,
     ramadDerived: ramadDerived, ramadEffective: ramadEffective, ramadMismatch: ramadMismatch, ramadSameAsDerived: ramadSameAsDerived, syncRamad: syncRamad,
     ramadFieldHtml: ramadFieldHtml, ramadApply: ramadApply, chainHtml: chainHtml, openRamadReport: openRamadReport,
     engaged: engaged, isAll: isAll, unitEmployees: unitEmployees, isDomainOnly: isDomainOnly, ownsDomain: ownsDomain, domainTabAccess: domainTabAccess, ownedBy: ownedBy, recCenter: recCenter, owns: owns, DOMAIN_KEYS: DOMAIN_KEYS, DOMAIN_LABEL: DOMAIN_LABEL, modeOf: modeOf, scopeFor: scopeFor, canSee: canSee, visibleEmployees: visibleEmployees, subordinateIds: subordinateIds,
@@ -8653,6 +8666,19 @@ const HISTORY_MAX = 1000;
 let historyReady = false;
 let historySource = '';
 const historyBaseline = {convergence: {}, positions: {}};
+const DERIVED_SRC = 'שינוי נגזר מכרטיס עובד';
+/* history entries written directly (a center user's derived update goes to main without passing the screen state) */
+async function hubHistoryAdd(domain, items){
+  const cfg = HISTORY_DOMAINS[domain]; if (!cfg || !historyReady) return;
+  const at = new Date().toISOString(), u = state.users.find(x=>x.id===state.authUserId), byName = u ? `${empName(state.currentUserId)} (${u.username})` : 'מערכת';
+  const entries = items.map(it=>{
+    const before = JSON.parse(JSON.stringify(it.before)), after = JSON.parse(JSON.stringify(it.after));
+    return {id: uid('h'), at, byName, source: DERIVED_SRC, derived: true, action:'update', recordId: it.id, label: cfg.label(after), before, after, changes: historyDiff(cfg, before, after)};
+  }).filter(e=>e.changes.length);
+  if (!entries.length) return;
+  state.history[domain] = (state.history[domain] || []).concat(entries).slice(-HISTORY_MAX);
+  await storeSet(cfg.histKey, state.history[domain]);
+}
 function hnorm(v){ return v == null ? '' : String(v); }
 function occupantLabelOf(d){
   const c = (d && d.currentAppointment) || {};
@@ -8757,7 +8783,7 @@ async function captureHistory(domain){
   });
   if (!entries.length) return;
   entries.forEach(e=>{
-    e.id = uid('h'); e.at = at; e.byName = byName; e.source = src;
+    e.id = uid('h'); e.at = at; e.byName = byName; e.source = src; if (src === DERIVED_SRC) e.derived = true;
     if (historySource === 'שחזור גרסה') e.restored = true;
   });
   state.history[domain] = (state.history[domain] || []).concat(entries).slice(-HISTORY_MAX);
@@ -8796,7 +8822,7 @@ function historyEntryHtml(domain, e){
   return `<div class="request-item">
     <div class="rh">
       <div><div class="r-title">${escapeHtml(e.label)}</div>
-        <div class="r-meta"><span>${escapeHtml(new Date(e.at).toLocaleString('he-IL'))}</span><span>ע"י ${escapeHtml(e.byName)}</span>${e.source?`<span>${escapeHtml(e.source)}</span>`:''}</div></div>
+        <div class="r-meta"><span>${escapeHtml(new Date(e.at).toLocaleString('he-IL'))}</span><span>ע"י ${escapeHtml(e.byName)}</span>${e.source?`<span${e.derived?' class="tag"':''}>${escapeHtml(e.source)}</span>`:''}</div></div>
       <span class="req-status ${cls}">${actionLabel}</span>
     </div>
     <div style="margin-top:8px;">${lines}</div>
@@ -11765,25 +11791,36 @@ function exportDashboardSheet(){
 
 /* ================= DASHBOARD TAB ================= */
 /* ================= CONTACTS (דף קשר — מדור משאבי אנוש) ================= */
+/* the holder of a role is a link: to an employee (name, phone and mail follow the employee) or to a unit (the head of the unit, whoever it is now) */
+function contactHolder(c){
+  if (c.unitId){
+    const u = window.hubHier ? hubHier.unitInfo(c.unitId) : null;
+    if (!u) return {name:'(היחידה לא קיימת)', label:'', emp:null, linked:true};
+    return {name: u.head ? u.head.name : '(אין ראש יחידה)', label: u.headLabel + ' ' + u.name, emp: u.head, linked:true};
+  }
+  if (c.employeeId){ const e = empById(c.employeeId); return {name: e ? e.name : '(עובד שנמחק)', label:'', emp:e||null, linked:true}; }
+  return {name: c.holderName || '', label:'', emp:null, linked:false};
+}
 function renderContacts(){
   const grid = document.getElementById('contactsGrid');
   if (!grid) return;
   const q = (document.getElementById('contactsSearch').value || '').trim().toLowerCase();
-  let items = state.contactRoles.slice();
-  if (q) items = items.filter(c => [c.roleTitle, c.holderName, c.responsibilities, c.notes].join(' ').toLowerCase().includes(q));
-  items.sort((a,b)=> (a.roleTitle||'').localeCompare(b.roleTitle||'','he'));
+  let items = state.contactRoles.map(c=>({c, h: contactHolder(c)}));
+  if (q) items = items.filter(x => [x.c.roleTitle, x.h.name, x.h.label, x.c.responsibilities, x.c.notes].join(' ').toLowerCase().includes(q));
+  items.sort((a,b)=> (a.c.roleTitle||'').localeCompare(b.c.roleTitle||'','he'));
   if (!items.length){
     grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;"><div class="big">☎️</div>${q ? 'לא נמצאו תפקידנים התואמים לחיפוש' : 'עדיין לא הוגדרו תפקידנים במדור משאבי אנוש. לחץ על "הוספת תפקידן" כדי להתחיל.'}</div>`;
     return;
   }
-  grid.innerHTML = items.map(c=>{
+  grid.innerHTML = items.map(({c, h})=>{
     const resp = (c.responsibilities||'').split('\n').map(s=>s.trim()).filter(Boolean);
+    const phone = c.phone || (h.emp && h.emp.phone) || '', email = c.email || (h.emp && h.emp.email) || '';
     return `<div class="posting-card">
       <div class="ph"><div class="p-title">${escapeHtml(c.roleTitle)}</div></div>
-      <div class="p-tags"><span class="tag">👤 ${escapeHtml(c.holderName||'—')}</span></div>
+      <div class="p-tags"><span class="tag">👤 ${escapeHtml(h.name||'—')}</span>${h.label?`<span class="tag">${escapeHtml(h.label)}</span>`:''}${h.linked?'':'<span class="tag" title="שם שנשמר כטקסט. אפשר לקשר לעובד או ליחידה">לא מקושר</span>'}</div>
       <div class="contact-line">
-        ${c.phone?`<a href="tel:${escapeHtml(c.phone)}">📞 ${escapeHtml(c.phone)}</a>`:''}
-        ${c.email?`<a href="mailto:${escapeHtml(c.email)}">✉️ ${escapeHtml(c.email)}</a>`:''}
+        ${phone?`<a href="tel:${escapeHtml(phone)}">📞 ${escapeHtml(phone)}</a>`:''}
+        ${email?`<a href="mailto:${escapeHtml(email)}">✉️ ${escapeHtml(email)}</a>`:''}
       </div>
       ${resp.length?`<div class="p-section"><div style="font-size:11.5px; font-weight:700; color:var(--text-dim);">תחומי אחריות</div><ul class="resp-list">${resp.map(r=>`<li>${escapeHtml(r)}</li>`).join('')}</ul></div>`:''}
       ${c.notes?`<div class="p-section"><div class="p-desc">${escapeHtml(c.notes)}</div></div>`:''}
@@ -11794,20 +11831,28 @@ function renderContacts(){
     </div>`;
   }).join('');
 }
+function contactUnitOptions(sel){
+  const us = window.hubHier ? hubHier.allUnits() : [];
+  return us.map(u=>{ const i = hubHier.unitInfo(u.id); return `<option value="${escapeHtml(u.id)}" ${u.id===sel?'selected':''}>${escapeHtml(i.path)}${i.head?' — '+escapeHtml(i.head.name):' — (אין ראש)'}</option>`; }).join('');
+}
 function openContactForm(id){
-  const c = id ? state.contactRoles.find(x=>x.id===id) : {roleTitle:'', holderName:'', employeeId:'', phone:'', email:'', responsibilities:'', notes:''};
+  const c = id ? state.contactRoles.find(x=>x.id===id) : {roleTitle:'', employeeId:'', unitId:'', phone:'', email:'', responsibilities:'', notes:''};
   if (!c) return;
-  const opts = state.employees.map(e=>`<option value="${e.id}" data-name="${escapeHtml(e.name)}" data-phone="${escapeHtml(e.phone||'')}" data-email="${escapeHtml(e.email||'')}" ${e.id===c.employeeId?'selected':''}>${escapeHtml(e.name)} — ${escapeHtml(e.role||'')}</option>`).join('');
+  const kind = c.unitId ? 'unit' : 'employee';
+  const opts = state.employees.map(e=>`<option value="${e.id}" ${e.id===c.employeeId?'selected':''}>${escapeHtml(e.name)} — ${escapeHtml(e.role||'')}</option>`).join('');
   openModal(`
     <h3>${id?'עריכת תפקידן':'תפקידן חדש — משאבי אנוש'}</h3>
     <div class="field"><label>תפקיד / תחום (למשל: שכר, גיוס, קליטה)</label><input type="text" id="ct-roleTitle" value="${escapeHtml(c.roleTitle)}"></div>
-    <div class="field"><label>קישור לעובד קיים (אופציונלי — ימלא שם וטלפון ואימייל)</label>
-      <select id="ct-employeeId" onchange="onContactEmployeeChange()"><option value="">— ללא קישור —</option>${opts}</select>
+    <div class="field"><label>מי בעל התפקיד</label>
+      <label class="checkbox-row"><input type="radio" name="ct-kind" value="employee" ${kind==='employee'?'checked':''} onchange="onContactKindChange()"> עובד מסוים</label>
+      <label class="checkbox-row"><input type="radio" name="ct-kind" value="unit" ${kind==='unit'?'checked':''} onchange="onContactKindChange()"> ראש יחידה (מי שמכהן כראש היחידה כרגע)</label>
     </div>
-    <div class="field"><label>שם התפקידן</label><input type="text" id="ct-holderName" value="${escapeHtml(c.holderName)}"></div>
+    <div class="field" id="ct-emp-wrap" style="${kind==='employee'?'':'display:none;'}"><label>העובד</label><select id="ct-employeeId"><option value="">— בחר עובד —</option>${opts}</select></div>
+    <div class="field" id="ct-unit-wrap" style="${kind==='unit'?'':'display:none;'}"><label>היחידה</label><select id="ct-unitId"><option value="">— בחר יחידה —</option>${contactUnitOptions(c.unitId)}</select></div>
+    <div class="locked-note">השם נגזר מהעובד או מראש היחידה ולא נשמר כטקסט, כך שהחלפת ראש יחידה או שינוי שם מתעדכנים לבד. טלפון ואימייל נלקחים מכרטיס העובד, אלא אם הוזנו כאן ערכים משלו (למשל תיבת דואר משותפת).</div>
     <div class="grid2">
-      <div class="field"><label>טלפון</label><input type="tel" id="ct-phone" value="${escapeHtml(c.phone)}"></div>
-      <div class="field"><label>אימייל</label><input type="email" id="ct-email" value="${escapeHtml(c.email)}"></div>
+      <div class="field"><label>טלפון של התפקיד (אופציונלי)</label><input type="tel" id="ct-phone" value="${escapeHtml(c.phone)}"></div>
+      <div class="field"><label>אימייל של התפקיד (אופציונלי)</label><input type="email" id="ct-email" value="${escapeHtml(c.email)}"></div>
     </div>
     <div class="field"><label>תחומי אחריות (שורה לכל תחום)</label><textarea id="ct-responsibilities" style="min-height:130px;">${escapeHtml(c.responsibilities)}</textarea></div>
     <div class="field"><label>הערות</label><textarea id="ct-notes">${escapeHtml(c.notes)}</textarea></div>
@@ -11817,21 +11862,18 @@ function openContactForm(id){
     </div>
   `, true);
 }
-function onContactEmployeeChange(){
-  const sel = document.getElementById('ct-employeeId');
-  if (!sel.value) return;
-  const opt = sel.options[sel.selectedIndex];
-  document.getElementById('ct-holderName').value = opt.getAttribute('data-name') || '';
-  document.getElementById('ct-phone').value = opt.getAttribute('data-phone') || '';
-  document.getElementById('ct-email').value = opt.getAttribute('data-email') || '';
+function onContactKindChange(){
+  const k = (document.querySelector('input[name="ct-kind"]:checked') || {}).value;
+  document.getElementById('ct-emp-wrap').style.display = k === 'employee' ? '' : 'none';
+  document.getElementById('ct-unit-wrap').style.display = k === 'unit' ? '' : 'none';
 }
 async function saveContact(existingId){
   const roleTitle = document.getElementById('ct-roleTitle').value.trim();
-  const holderName = document.getElementById('ct-holderName').value.trim();
-  if (!roleTitle || !holderName){ alert('נא להזין תפקיד ושם תפקידן'); return; }
+  const kind = (document.querySelector('input[name="ct-kind"]:checked') || {}).value || 'employee';
+  const employeeId = kind === 'employee' ? document.getElementById('ct-employeeId').value : '', unitId = kind === 'unit' ? document.getElementById('ct-unitId').value : '';
+  if (!roleTitle || !(employeeId || unitId)){ alert('נא להזין תפקיד ולבחור עובד או יחידה'); return; }
   const data = {
-    roleTitle, holderName,
-    employeeId: document.getElementById('ct-employeeId').value || '',
+    roleTitle, employeeId, unitId,
     phone: document.getElementById('ct-phone').value.trim(),
     email: document.getElementById('ct-email').value.trim(),
     responsibilities: document.getElementById('ct-responsibilities').value.trim(),
@@ -11839,13 +11881,46 @@ async function saveContact(existingId){
   };
   if (existingId){
     const idx = state.contactRoles.findIndex(x=>x.id===existingId);
-    state.contactRoles[idx] = {...state.contactRoles[idx], ...data};
+    const merged = {...state.contactRoles[idx], ...data}; delete merged.holderName;
+    state.contactRoles[idx] = merged;
   } else {
     state.contactRoles.push({id: uid('ct'), ...data});
   }
   await storeSet('contactRoles', state.contactRoles);
   closeModal();
   renderContacts();
+}
+/* existing rows that hold a name as text: suggest the employee or the unit head with that name, nothing changes without a choice */
+function contactLinkRows(){
+  const norm = x => String(x||'').replace(/\s+/g,' ').trim();
+  return state.contactRoles.filter(c=>!c.unitId && (!c.employeeId || (c.holderName && norm(c.holderName) !== norm((empById(c.employeeId)||{}).name)))).map(c=>{
+    const name = norm(c.holderName);
+    const emps = c.employeeId ? [empById(c.employeeId)].filter(Boolean) : state.employees.filter(e=>norm(e.name) === name);
+    const units = window.hubHier ? hubHier.allUnits().filter(u=>{ const i = hubHier.unitInfo(u.id); return i.head && norm(i.head.name) === name; }) : [];
+    return {c, emps, units};
+  });
+}
+let lastContactRows = [];
+function openContactLinkReport(msg){
+  lastContactRows = contactLinkRows();
+  const body = lastContactRows.map((r,i)=>{
+    const opts = '<option value="">דלג</option>' + (r.c.employeeId && r.emps.length ? '<option value="clear">השאר את הקישור לעובד ומחק את הטקסט</option>' : r.emps.map(e=>`<option value="e:${e.id}">קשר לעובד: ${escapeHtml(e.name)} — ${escapeHtml(e.role||'')}</option>`).join(''))
+      + r.units.map(u=>{ const inf = hubHier.unitInfo(u.id); return `<option value="u:${u.id}">קשר ל${escapeHtml(inf.headLabel)} ${escapeHtml(inf.path)}</option>`; }).join('');
+    return `<tr><td>${escapeHtml(r.c.roleTitle)}</td><td>${escapeHtml(r.c.holderName||'')}${r.c.employeeId?'<div class="locked-note" style="margin:0">מקושר לעובד אחר: '+escapeHtml((empById(r.c.employeeId)||{}).name||'')+'</div>':''}</td><td><select data-cl="${i}">${opts}</select></td><td>${!r.emps.length && !r.units.length ? 'לא נמצאה התאמה. עריכה ידנית' : ''}</td></tr>`;
+  }).join('') || '<tr><td colspan="4">כל בעלי התפקידים מקושרים.</td></tr>';
+  openModal(`<h3>קישור בעלי תפקיד לעובד או ליחידה</h3><div class="locked-note">בעלי תפקיד שנשמרו כטקסט. לכל שורה מוצעים עובד או ראש יחידה בעלי אותו שם. שום שורה לא משתנה בלי בחירה, ושורה בלי התאמה נערכת ידנית.</div><div class="table-scroll"><table><thead><tr><th>תפקיד</th><th>שם שנשמר</th><th>החלטה</th><th></th></tr></thead><tbody>${body}</tbody></table></div><div class="locked-note" id="cl-msg">${escapeHtml(msg||'')}</div><div class="modal-actions"><button class="primary" type="button" onclick="applyContactLinks()">החל על הבחירות</button><button class="ghost" onclick="closeModal()" type="button">סגור</button></div>`, true);
+}
+async function applyContactLinks(){
+  let n = 0;
+  lastContactRows.forEach((r,i)=>{
+    const v = (document.querySelector('[data-cl="'+i+'"]')||{}).value; if (!v) return;
+    const c = state.contactRoles.find(x=>x.id===r.c.id); if (!c) return;
+    if (v.startsWith('e:')){ c.employeeId = v.slice(2); c.unitId = ''; delete c.holderName; n++; }
+    else if (v.startsWith('u:')){ c.unitId = v.slice(2); c.employeeId = ''; delete c.holderName; n++; }
+    else if (v === 'clear'){ delete c.holderName; n++; }
+  });
+  if (n) await storeSet('contactRoles', state.contactRoles);
+  renderContacts(); openContactLinkReport(n + ' שורות עודכנו.');
 }
 async function deleteContact(id){
   if (!confirm('למחוק את התפקידן מדף הקשר?')) return;
@@ -11855,7 +11930,7 @@ async function deleteContact(id){
 }
 function exportContacts(){
   const rows = state.contactRoles.map(c=>({
-    'תפקיד': c.roleTitle, 'תפקידן': c.holderName, 'טלפון': c.phone, 'אימייל': c.email,
+    'תפקיד': c.roleTitle, 'תפקידן': contactHolder(c).name, 'טלפון': c.phone || (contactHolder(c).emp||{}).phone || '', 'אימייל': c.email || (contactHolder(c).emp||{}).email || '',
     'תחומי אחריות': (c.responsibilities||'').split('\n').map(s=>s.trim()).filter(Boolean).join('; '),
     'הערות': c.notes
   }));
