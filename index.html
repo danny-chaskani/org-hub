@@ -2070,7 +2070,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
   }
 
   /* ---- record metadata (stage 2) ---- */
-  var META_COLLECTIONS = ['employees', 'meetings', 'tasks', 'postings', 'positions', 'convergence', 'attendance', 'attendanceRequests', 'infoItems', 'contactRoles', 'incentives', 'users', 'grants', 'notifications', 'orgUnits', 'roles', 'syncChanges', 'syncBatches', 'hqDomains', 'events', 'eventStakeholders', 'abroadForms', 'conflictFindings', 'conflictExceptions', 'conflictSubs'];
+  var META_COLLECTIONS = ['employees', 'meetings', 'tasks', 'postings', 'positions', 'convergence', 'attendance', 'attendanceRequests', 'infoItems', 'contactRoles', 'incentives', 'users', 'grants', 'notifications', 'orgUnits', 'roles', 'syncChanges', 'syncBatches', 'hqDomains', 'events', 'eventStakeholders', 'abroadForms', 'conflictFindings', 'conflictExceptions', 'conflictSubs', 'responsibilities'];
   var META_FIELDS = ['rev', 'updatedAt', 'updatedBy'];
   var NOISE_FIELDS = { users: ['lastLoginAt'] };   /* changes that must not count as an edit */
   function hasMeta(name){ return META_COLLECTIONS.indexOf(name) > -1; }
@@ -3016,7 +3016,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
           return '<tr><td>' + esc(m.id) + '</td><td>' + esc(m.title) + '</td><td>' + esc(new Date(m.at).toLocaleString('he-IL')) + '</td><td>' + n + '</td></tr>'; }).join('') + '</tbody></table></div>' : '<div class="locked-note">עדיין לא בוצעו שדרוגי נתונים.</div>';
       });
     }
-    function referencedIds(){ var refs = {}; var g = function(n){ try{ return JSON.parse(localStorage.getItem(PREFIX + n) || 'null'); }catch(e){ return null; } }; (g('infoItems') || []).forEach(function(i){ if (i && i.file && i.file.fileId) refs[i.file.fileId] = 1; }); (g('attendanceRequests') || []).forEach(function(r){ if (r && r.file && r.file.fileId) refs[r.file.fileId] = 1; }); (g('tasks') || []).forEach(function(t){ ((t && t.comments) || []).forEach(function(c){ if (c && c.file && c.file.fileId) refs[c.file.fileId] = 1; }); }); return refs; }
+    function referencedIds(){ var refs = {}; var g = function(n){ try{ return JSON.parse(localStorage.getItem(PREFIX + n) || 'null'); }catch(e){ return null; } }; (g('infoItems') || []).forEach(function(i){ if (i && i.file && i.file.fileId) refs[i.file.fileId] = 1; }); (g('attendanceRequests') || []).forEach(function(r){ if (r && r.file && r.file.fileId) refs[r.file.fileId] = 1; }); (g('tasks') || []).forEach(function(t){ ((t && t.comments) || []).forEach(function(c){ if (c && c.file && c.file.fileId) refs[c.file.fileId] = 1; }); }); (g('abroadForms') || []).forEach(function(f){ if (f && f.file && f.file.fileId) refs[f.file.fileId] = 1; ((f && f.history) || []).forEach(function(h){ if (h && h.file && h.file.fileId) refs[h.file.fileId] = 1; }); }); return refs; }
     window.hubReferencedFileIds = referencedIds;
     if (window.DataStore && DataStore.blobs){ DataStore.blobs.list().then(function(list){ var refs = referencedIds(), sz = list.reduce(function(s, b){ return s + b.size; }, 0), orph = list.filter(function(b){ return !refs[b.id]; }).length; var box = el('health-files'); if (box) box.textContent = 'קבצים מצורפים באחסון הדפדפן (IndexedDB): ' + list.length + ', ' + (sz / 1048576).toFixed(2) + ' MB' + (orph ? ', מתוכם ' + orph + ' יתומים (שאף רשומה לא מפנה אליהם)' : '') + '.'; }); }
     el('health-attach').textContent = a.n ? ('קבצים בתוך הנתונים (פורמט ישן): ' + a.n + ', ' + fmtKb(a.chars) + ' ק"ב בסה"כ, הגדול ביותר ' + fmtKb(a.max) + ' ק"ב.') : 'אין קבצים מצורפים.';
@@ -3076,7 +3076,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
   'use strict';
   var el = function(id){ return document.getElementById(id); };
   var esc = function(s){ return typeof escapeHtml === 'function' ? escapeHtml(s) : String(s); };
-  var TYPE = { syncChanges:'שינויי סנכרון', syncBatches:'קבוצות סנכרון', hqDomains:'תחומי אחריות מטה', employees:'עובדים', meetings:'סיכומי פגישות', tasks:'משימות', postings:'שיבוצים', positions:'תקנים', convergence:'התכנסות', attendance:'נוכחות', attendanceRequests:'בקשות נוכחות', infoItems:'מידע למנהלים', contactRoles:'דף קשר', incentives:'תמריצים', users:'משתמשים', grants:'הרשאות', orgUnits:'מרכזים ויחידות', unitMemberships:'היסטוריית שיוך', notifications:'התראות', system:'מערכת' };
+  var TYPE = { abroadForms:'טפסי חו"ל', responsibilities:'אחראים', syncChanges:'שינויי סנכרון', syncBatches:'קבוצות סנכרון', hqDomains:'תחומי אחריות מטה', employees:'עובדים', meetings:'סיכומי פגישות', tasks:'משימות', postings:'שיבוצים', positions:'תקנים', convergence:'התכנסות', attendance:'נוכחות', attendanceRequests:'בקשות נוכחות', infoItems:'מידע למנהלים', contactRoles:'דף קשר', incentives:'תמריצים', users:'משתמשים', grants:'הרשאות', orgUnits:'מרכזים ויחידות', unitMemberships:'היסטוריית שיוך', notifications:'התראות', system:'מערכת' };
   var ACTION = { create:'נוצר', update:'עודכן', delete:'נמחק', 'backup-export':'ייצוא גיבוי', restore:'שחזור', 'sync-submit':'שליחת סנכרון', 'sync-approve':'אישור סנכרון', 'sync-reject':'דחיית סנכרון', 'sync-review':'סנכרון לבדיקה', 'sync-discard':'ביטול שינוי פרטי', 'sync-reopen':'החזרה לעריכה', 'sync-domains':'תחומי אחריות מטה' };
   var SOURCE = { ui:'ממשק', 'import':'ייבוא', migration:'שדרוג נתונים', sync:'סנכרון', rule:'כלל אוטומטי' };
   var FIELD = { name:'שם', role:'תפקיד', department:'מרכז', industry:'ענף', mador:'מדור', team:'צוות', ramad:'רמ"ד', rank:'רמת הרשאה', level:'זוטר/מובהק', serviceType:'סוג שירות', managerId:'מנהל ישיר', email:'אימייל', phone:'טלפון', active:'פעיל', title:'כותרת', status:'סטטוס', priority:'עדיפות', dueDate:'תאריך יעד', description:'תיאור', assignedTo:'מוקצה ל', jobText:'מלל משרה', serialNumber:'מס\' תקן', counterStatus:'מונה', freezeStatus:'הקפאה', currentAppointment:'מינוי נוכחי', futureAppointment:'מינוי עתידי', firstName:'שם פרטי', lastName:'שם משפחה', releaseDate:'תאריך שחרור', entryDate:'כניסה', exitDate:'יציאה', starred:'רידוד', gross:'שווי ברוטו', code:'קוד', entered:'הוזן', notes:'הערות', content:'תוכן', topic:'נושא', file:'קובץ', comments:'תגובות', summary:'סיכום', date:'תאריך', requestedStatus:'סטטוס מבוקש', note:'הערה', roleTitle:'תפקיד', holderName:'שם התפקידן', responsibilities:'תחומי אחריות' };
@@ -5880,6 +5880,219 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
 })();
 </script>
 <script>
+/* ================================================================
+   Abroad form ("טופס חו"ל") in the attendance tab (round 4, stage 13).
+   - the employee uploads a scanned form (stored in IndexedDB, size checked) and sees its status
+   - the responsible person (Responsibility key "abroad-forms", the system user when nobody is set) sees the waiting forms
+     and either marks "entered" or returns it for correction with a due date: that creates a regular task for the employee
+     (so it shows in the tasks tab and the calendar); finishing the task, or uploading again, puts the form back as waiting
+   - every step is an audit-logged change of the "abroadForms" collection, and the people involved get a notification
+   ================================================================ */
+(function(){
+  'use strict';
+  var el = function(id){ return document.getElementById(id); };
+  var esc = function(s){ return typeof escapeHtml === 'function' ? escapeHtml(s) : String(s); };
+  var KEY = 'abroadForms', KEY_R = 'responsibilities', RKEY = 'abroad-forms';
+  var STATUS = { submitted: 'ממתין להזנה', entered: 'הוזן', returned: 'הוחזר לתיקון' };
+  var STATUS_CLS = { submitted: 'pending', entered: 'approved', returned: 'rejected' };
+  var SCAN_EXT = /\.(pdf|png|jpe?g|tiff?|heic|webp|gif|bmp)$/i;
+  var forms = [], resp = [];
+  function newId(){ return 'af' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+  function today(){ return new Date().toISOString().slice(0, 10); }
+  function fmtD(s){ try{ return s ? new Date(s + 'T00:00:00').toLocaleDateString('he-IL') : '—'; }catch(e){ return s || '—'; } }
+  function myEmp(){ return state.currentUserId; }
+  function userOf(empId){ return (state.users || []).find(function(u){ return u.employeeId === empId && u.active !== false; }) || null; }
+
+  async function load(){
+    var a = await DataStore.get(KEY, []); forms = Array.isArray(a) ? a : [];
+    var r = await DataStore.get(KEY_R, []); resp = Array.isArray(r) ? r : [];
+    return forms;
+  }
+  async function save(){ var ok = await DataStore.set(KEY, forms); if (ok) forms = await DataStore.get(KEY, forms); return ok; }
+
+  /* ---------- who is responsible ---------- */
+  function responsibleEmployeeIds(){
+    var ids = resp.filter(function(r){ return r.key === RKEY && empById(r.employeeId); }).map(function(r){ return r.employeeId; });
+    if (ids.length) return ids;
+    return (state.users || []).filter(function(u){ return u.isSuper && u.active !== false && empById(u.employeeId); }).map(function(u){ return u.employeeId; });
+  }
+  function iAmResponsible(){ return isSuperUser() || resp.some(function(r){ return r.key === RKEY && r.employeeId === myEmp(); }); }
+  async function notifyResponsible(spec){
+    var seen = {}, ids = responsibleEmployeeIds();
+    for (var i = 0; i < ids.length; i++){ var u = userOf(ids[i]); if (u && !seen[u.id]){ seen[u.id] = 1; await hubNotify.add(Object.assign({}, spec, { recipientId: u.id })); } }
+  }
+  async function notifyEmployee(empId, spec){ var u = userOf(empId); if (u) await hubNotify.add(Object.assign({}, spec, { recipientId: u.id })); }
+
+  /* ---------- upload (new form or a corrected one) ---------- */
+  function formModal(existing){
+    var f = existing || {};
+    openModal('<h3>' + (existing ? 'הגשה מחדש של טופס חו"ל' : 'העלאת טופס חו"ל') + '</h3>'
+      + (existing ? '<div class="locked-note">הטופס הוחזר לתיקון' + (f.returnNote ? ': ' + esc(f.returnNote) : '') + '. העלה קובץ מתוקן.</div>' : '')
+      + '<div class="grid2"><div class="field"><label>מתאריך *</label><input type="date" id="ab-from" value="' + esc(f.dateFrom || '') + '"' + (existing ? ' disabled' : '') + '></div>'
+      + '<div class="field"><label>עד תאריך *</label><input type="date" id="ab-to" value="' + esc(f.dateTo || '') + '"' + (existing ? ' disabled' : '') + '></div></div>'
+      + '<div class="field"><label>יעד</label><input type="text" id="ab-dest" value="' + esc(f.destination || '') + '"' + (existing ? ' disabled' : '') + '></div>'
+      + '<div class="field"><label>קובץ סרוק של הטופס * (PDF או תמונה, עד 10MB)</label><input type="file" id="ab-file" accept=".pdf,image/*"></div>'
+      + '<div class="locked-note">הקובץ נשמר בדפדפן. האחראי על טפסי חו"ל יקבל התראה, ותראה כאן את הסטטוס של הטופס.</div>'
+      + '<div class="modal-actions"><button class="primary" type="button" data-ab="send" data-id="' + esc(f.id || '') + '">' + (existing ? 'הגש מחדש' : 'שלח') + '</button><button class="ghost" onclick="closeModal()" type="button">ביטול</button></div>');
+  }
+  async function pickFile(){
+    var inp = el('ab-file'), file = inp && inp.files && inp.files[0];
+    if (!file){ alert('נא לבחור קובץ סרוק של הטופס'); return null; }
+    if (!SCAN_EXT.test(file.name || '')){ alert('יש להעלות קובץ סרוק: PDF או תמונה'); return null; }
+    var problem = typeof hubAttachmentProblem === 'function' ? await hubAttachmentProblem(file) : '';
+    if (problem){ alert(problem); return null; }
+    try{ return await hubStoreAttachment(file, 'abroadForms'); }catch(e){ return null; }
+  }
+  async function send(id){
+    await load();
+    var f = id ? forms.find(function(x){ return x.id === id; }) : null, from, to, dest;
+    if (f){ from = f.dateFrom; to = f.dateTo; dest = f.destination; }
+    else {
+      from = el('ab-from').value; to = el('ab-to').value; dest = el('ab-dest').value.trim();
+      if (!from || !to){ alert('נא להזין תאריכי יציאה וחזרה'); return; }
+      if (to < from){ alert('תאריך החזרה קודם לתאריך היציאה'); return; }
+    }
+    var file = await pickFile(); if (!file) return;
+    var now = new Date().toISOString(), me = myEmp();
+    if (f){
+      (f.history = f.history || []).push({ at: now, by: me, action: 'resubmit', file: f.file, note: f.returnNote || '' });
+      var tid = f.returnTaskId;
+      f.file = file; f.status = 'submitted'; f.resubmittedAt = now; f.returnTaskId = null;
+      if (!(await save())) return;                                  /* the form first, so closing its task below does not look like a second resubmission */
+      var t = tid ? state.tasks.find(function(x){ return x.id === tid; }) : null;
+      if (t && t.status !== 'done'){ t.status = 'done'; await storeSet('tasks', state.tasks); }
+    } else {
+      f = { id: newId(), employeeId: me, requestedBy: state.authUserId, dateFrom: from, dateTo: to, destination: dest, file: file, status: 'submitted', createdAt: now, history: [] };
+      forms.push(f);
+    }
+    if (!id && !(await save())) return;
+    await notifyResponsible({ kind: 'abroad-form', title: 'טופס חו"ל ' + (f.resubmittedAt ? 'הוגש מחדש' : 'חדש') + ': ' + (empById(f.employeeId) || {}).name, body: fmtD(f.dateFrom) + ' עד ' + fmtD(f.dateTo) + (f.destination ? ' · ' + f.destination : ''), payload: { open: 'abroad-form', formId: f.id }, dedupeKey: 'abroad:' + f.id + ':' + (f.resubmittedAt || f.createdAt) });
+    closeModal(); render();
+    if (window.hubNotify) hubNotify.refresh();
+  }
+
+  /* ---------- the responsible person's decisions ---------- */
+  async function markEntered(id){
+    await load(); var f = forms.find(function(x){ return x.id === id; });
+    if (!f || f.status !== 'submitted') return 'הטופס כבר טופל';
+    if (!iAmResponsible()) return 'רק האחראי על טפסי חו"ל יכול לסמן';
+    f.status = 'entered'; f.enteredAt = new Date().toISOString(); f.enteredBy = myEmp();
+    if (!(await save())) return 'השמירה נכשלה';
+    await notifyEmployee(f.employeeId, { kind: 'abroad-form', title: 'טופס החו"ל שלך הוזן', body: fmtD(f.dateFrom) + ' עד ' + fmtD(f.dateTo), payload: { open: 'abroad-form', formId: f.id } });
+    return '';
+  }
+  function returnModal(id){
+    var f = forms.find(function(x){ return x.id === id; }); if (!f) return;
+    openModal('<h3>החזרה לתיקון — ' + esc((empById(f.employeeId) || {}).name || '') + '</h3>'
+      + '<div class="field"><label>מה צריך לתקן *</label><textarea id="ab-note"></textarea></div>'
+      + '<div class="field"><label>תאריך יעד לתיקון *</label><input type="date" id="ab-due" value="' + esc(new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10)) + '"></div>'
+      + '<div class="locked-note">תיווצר משימה רגילה לעובד עם תאריך היעד, והיא תופיע גם בלוח השנה.</div>'
+      + '<div class="modal-actions"><button class="primary" type="button" data-ab="return-do" data-id="' + esc(id) + '">החזר לתיקון</button><button class="ghost" onclick="closeModal()" type="button">ביטול</button></div>');
+  }
+  async function returnForm(id, note, due){
+    await load(); var f = forms.find(function(x){ return x.id === id; });
+    if (!f || f.status !== 'submitted') return 'הטופס כבר טופל';
+    if (!iAmResponsible()) return 'רק האחראי על טפסי חו"ל יכול להחזיר';
+    if (!note) return 'נא לכתוב מה צריך לתקן';
+    if (!due) return 'נא לבחור תאריך יעד';
+    var emp = empById(f.employeeId);
+    var task = { id: uid('t'), status: 'none', priority: 'high', assignedBy: myEmp(), assignedTo: [f.employeeId], aboutEmployeeIds: [f.employeeId], title: 'לתקן ולהגיש מחדש טופס חו"ל (' + fmtD(f.dateFrom) + ' עד ' + fmtD(f.dateTo) + ')',
+      description: note, dueDate: due, source: 'abroad:' + f.id, abroadFormId: f.id };
+    state.tasks.push(task);
+    if (!(await storeSet('tasks', state.tasks))) return 'יצירת המשימה נכשלה';
+    f.status = 'returned'; f.returnNote = note; f.returnDue = due; f.returnTaskId = task.id; f.returnedAt = new Date().toISOString(); f.returnedBy = myEmp();
+    (f.history = f.history || []).push({ at: f.returnedAt, by: myEmp(), action: 'return', note: note, due: due });
+    if (!(await save())) return 'השמירה נכשלה';
+    await notifyEmployee(f.employeeId, { kind: 'abroad-form', title: 'טופס החו"ל הוחזר לתיקון', body: note + ' · עד ' + fmtD(due), payload: { open: 'abroad-form', formId: f.id } });
+    return '';
+  }
+  /* closing the correction task puts the form back in the queue of the responsible person */
+  var syncing = false;
+  async function followTasks(){
+    if (syncing || !state.authUserId) return; syncing = true;
+    try{
+      await load();
+      var changed = false;
+      for (var i = 0; i < forms.length; i++){
+        var f = forms[i]; if (f.status !== 'returned' || !f.returnTaskId) continue;
+        var t = state.tasks.find(function(x){ return x.id === f.returnTaskId; });
+        if (t && t.status === 'done'){
+          f.status = 'submitted'; f.resubmittedAt = new Date().toISOString(); f.returnTaskId = null; changed = true;
+          (f.history = f.history || []).push({ at: f.resubmittedAt, by: myEmp(), action: 'task-closed' });
+          await notifyResponsible({ kind: 'abroad-form', title: 'טופס חו"ל חזר לטיפול: ' + (empById(f.employeeId) || {}).name, body: 'משימת התיקון נסגרה.', payload: { open: 'abroad-form', formId: f.id }, dedupeKey: 'abroad:' + f.id + ':' + f.resubmittedAt });
+        }
+      }
+      if (changed){ await save(); render(); if (window.hubNotify) hubNotify.refresh(); }
+    } finally { syncing = false; }
+  }
+  if (window.DataStore) DataStore.on('change', function(ev){ if (ev && ev.name === 'tasks' && !syncing){ setTimeout(function(){ followTasks().catch(function(){}); }, 50); } });
+
+  /* ---------- rendering (inside the attendance tab) ---------- */
+  function fileLink(f){ return f && f.file ? '<a class="comment-file" ' + hubFileLink(f.file) + '>📎 ' + esc(f.file.name) + '</a>' : '—'; }
+  function statusCell(f){
+    return '<span class="req-status ' + STATUS_CLS[f.status] + '">' + esc(STATUS[f.status]) + '</span>'
+      + (f.status === 'returned' ? '<div class="locked-note" style="display:block;">' + esc(f.returnNote || '') + ' · להגיש עד ' + esc(fmtD(f.returnDue)) + '</div>' : '')
+      + (f.status === 'entered' ? '<div class="locked-note" style="display:block;">הוזן ' + esc(f.enteredAt ? new Date(f.enteredAt).toLocaleDateString('he-IL') : '') + '</div>' : '');
+  }
+  async function render(){
+    var panel = el('panel-attendance'); if (!panel || !state.authUserId) return;
+    var box = el('abroadSection');
+    if (!box){ box = document.createElement('div'); box.id = 'abroadSection'; panel.appendChild(box); }
+    await load();
+    var me = myEmp(), mine = forms.filter(function(f){ return f.employeeId === me; }).sort(function(a, b){ return (b.createdAt || '') < (a.createdAt || '') ? -1 : 1; });
+    var h = '<div class="panel-head" style="margin-top:28px;"><div><h2 style="font-size:18px;">טפסי חו"ל שלי</h2><p>העלאת טופס סרוק ומעקב אחרי הטיפול בו</p></div><button class="primary" type="button" data-ab="new" id="abNewBtn">+ העלאת טופס חו"ל</button></div>'
+      + '<div class="card"><div class="table-scroll"><table id="abMineTable"><thead><tr><th>תאריכים</th><th>יעד</th><th>קובץ</th><th>סטטוס</th><th></th></tr></thead><tbody>'
+      + (mine.map(function(f){ return '<tr><td>' + esc(fmtD(f.dateFrom)) + ' – ' + esc(fmtD(f.dateTo)) + '</td><td>' + esc(f.destination || '—') + '</td><td>' + fileLink(f) + '</td><td>' + statusCell(f) + '</td><td>' + (f.status === 'returned' ? '<button class="primary" type="button" data-ab="resubmit" data-id="' + esc(f.id) + '">הגש מחדש</button>' : '') + '</td></tr>'; }).join('') || '<tr><td colspan="5"><div class="empty-state" style="padding:20px;">עדיין לא הגשת טפסי חו"ל</div></td></tr>')
+      + '</tbody></table></div></div>';
+    if (iAmResponsible()){
+      var waiting = forms.filter(function(f){ return f.status === 'submitted'; }).sort(function(a, b){ return (a.createdAt || '') < (b.createdAt || '') ? -1 : 1; });
+      var other = forms.filter(function(f){ return f.status !== 'submitted'; }).sort(function(a, b){ return (b.createdAt || '') < (a.createdAt || '') ? -1 : 1; }).slice(0, 20);
+      h += '<div class="panel-head" style="margin-top:28px;"><div><h2 style="font-size:18px;">טפסי חו"ל ממתינים להזנה</h2><p>אתה האחראי על טפסי חו"ל. סמן "הוזן" או החזר לתיקון עם תאריך יעד</p></div></div>'
+        + '<div class="card"><div class="table-scroll"><table id="abPendingTable"><thead><tr><th>עובד</th><th>תאריכים</th><th>יעד</th><th>קובץ</th><th>הוגש</th><th></th></tr></thead><tbody>'
+        + (waiting.map(function(f){ var e = empById(f.employeeId); return '<tr><td>' + esc(e ? e.name : '—') + '</td><td>' + esc(fmtD(f.dateFrom)) + ' – ' + esc(fmtD(f.dateTo)) + '</td><td>' + esc(f.destination || '—') + '</td><td>' + fileLink(f) + '</td><td>' + esc(new Date(f.resubmittedAt || f.createdAt).toLocaleDateString('he-IL')) + (f.resubmittedAt ? ' <span class="tag">מתוקן</span>' : '') + '</td><td style="white-space:nowrap;"><button class="primary" type="button" data-ab="entered" data-id="' + esc(f.id) + '">הוזן</button> <button class="ghost" type="button" data-ab="return" data-id="' + esc(f.id) + '">החזר לתיקון</button></td></tr>'; }).join('') || '<tr><td colspan="6"><div class="empty-state" style="padding:20px;">אין טפסים שממתינים להזנה</div></td></tr>')
+        + '</tbody></table></div></div>';
+      if (other.length) h += '<div class="card"><div class="form-section-title">טופלו לאחרונה</div><div class="table-scroll"><table><thead><tr><th>עובד</th><th>תאריכים</th><th>קובץ</th><th>סטטוס</th></tr></thead><tbody>'
+        + other.map(function(f){ var e = empById(f.employeeId); return '<tr><td>' + esc(e ? e.name : '—') + '</td><td>' + esc(fmtD(f.dateFrom)) + ' – ' + esc(fmtD(f.dateTo)) + '</td><td>' + fileLink(f) + '</td><td>' + statusCell(f) + '</td></tr>'; }).join('') + '</tbody></table></div></div>';
+    }
+    box.innerHTML = h;
+  }
+
+  /* ---------- responsible person setting (permissions tab, system user) ---------- */
+  function card(){
+    if (!isSuperUser()) return '';
+    var cur = resp.filter(function(r){ return r.key === RKEY; });
+    var chips = cur.map(function(r){ var e = empById(r.employeeId); return '<span class="tag">' + esc(e ? e.name : '—') + ' <button type="button" class="icon-btn danger-txt" data-ab="resp-del" data-id="' + esc(r.id) + '" title="הסר">✕</button></span>'; }).join(' ') || '<span class="widget-empty">לא הוגדר אחראי. הטפסים מגיעים למשתמש המערכת.</span>';
+    var opts = '<option value="">— בחר עובד —</option>' + state.employees.filter(isActiveEmp).map(function(e){ return '<option value="' + esc(e.id) + '">' + esc(e.name) + '</option>'; }).join('');
+    return '<div class="card"><div class="panel-head" style="margin-bottom:10px;"><div><h3 style="margin:0 0 6px;">אחראי על טפסי חו"ל</h3><span class="locked-note" style="display:inline">האחראי רואה את הטפסים הממתינים בדף הנוכחות, מקבל התראה על כל טופס חדש, ומסמן "הוזן" או מחזיר לתיקון.</span></div></div>'
+      + '<div class="p-tags" style="margin-bottom:10px;">' + chips + '</div><div style="display:flex;gap:8px;"><select id="ab-resp-pick">' + opts + '</select><button class="primary" type="button" data-ab="resp-add">הוסף אחראי</button></div></div>';
+  }
+  window.hubPermExtras = window.hubPermExtras || [];
+  window.hubPermExtras.push(card);
+  async function setResp(fn){ await load(); fn(); await DataStore.set(KEY_R, resp); await load(); if (typeof renderPermissionsPage === 'function') renderPermissionsPage(); render(); }
+
+  document.addEventListener('click', async function(e){
+    var b = e.target.closest ? e.target.closest('[data-ab]') : null; if (!b) return;
+    var act = b.getAttribute('data-ab'), id = b.getAttribute('data-id');
+    if (act === 'new') formModal(null);
+    else if (act === 'send'){ b.disabled = true; await send(id || null); b.disabled = false; }
+    else if (act === 'resubmit'){ await load(); formModal(forms.find(function(x){ return x.id === id; })); }
+    else if (act === 'entered'){ var er = await markEntered(id); if (er) alert(er); render(); if (window.hubNotify) hubNotify.refresh(); }
+    else if (act === 'return'){ await load(); returnModal(id); }
+    else if (act === 'return-do'){
+      var er2 = await returnForm(id, el('ab-note').value.trim(), el('ab-due').value);
+      if (er2){ alert(er2); return; }
+      closeModal(); render(); if (typeof renderTasks === 'function') renderTasks(); if (window.hubNotify) hubNotify.refresh();
+    }
+    else if (act === 'resp-add'){ var v = el('ab-resp-pick').value; if (!v) return; await setResp(function(){ if (!resp.some(function(r){ return r.key === RKEY && r.employeeId === v; })) resp.push({ id: 'rs' + Date.now().toString(36) + Math.random().toString(36).slice(2, 4), key: RKEY, employeeId: v }); }); }
+    else if (act === 'resp-del'){ await setResp(function(){ resp = resp.filter(function(r){ return r.id !== id; }); }); }
+  });
+  window.hubNotifyHandlers = window.hubNotifyHandlers || {};
+  window.hubNotifyHandlers['abroad-form'] = function(){ closeModal(); var t = document.querySelector('.tab-btn[data-tab="attendance"]'); if (t) t.click(); setTimeout(function(){ var s = el('abroadSection'); if (s) s.scrollIntoView({ block: 'start' }); }, 400); };
+
+  window.hubAbroad = { render: render, load: load, send: send, markEntered: markEntered, returnForm: returnForm, followTasks: followTasks, list: function(){ return forms; }, responsibleEmployeeIds: responsibleEmployeeIds, iAmResponsible: iAmResponsible };
+})();
+</script>
+<script>
 /* ---------------- storage helpers ---------------- */
 function hasArtifactStorage(){ return typeof window !== 'undefined' && window.storage && typeof window.storage.get === 'function'; }
 async function storeSet(key, value){
@@ -6158,6 +6371,7 @@ async function completeLogin(user){
   hideAuth();
   if (window.hubOrgSnapshotClosed) setTimeout(()=>{ hubOrgSnapshotClosed().catch(()=>{}); }, 900);
   if (window.hubFlex) setTimeout(()=>{ hubFlex.sync().then(()=>window.hubCalRules ? hubCalRules.sync() : null).then(()=>hubFlex.runReminders()).then(()=>{ if (window.hubNotify) hubNotify.refresh(); }).catch(()=>{}); }, 1200);
+  if (window.hubAbroad) setTimeout(()=>{ hubAbroad.followTasks().catch(()=>{}); }, 1800);
   if (user.isSuper && window.hubConflicts) setTimeout(()=>{ hubConflicts.runAndNotify().then(()=>{ if (window.hubNotify) hubNotify.refresh(); }).catch(()=>{}); }, 1500);
   if (!appBooted){ appBooted = true; bootApp(); } else { refreshAllViews(); }
   applyAccessControl();
@@ -8832,6 +9046,7 @@ async function setAttendance(employeeId, date, status){
 }
 
 function renderAttendance(){
+  if (window.hubAbroad) hubAbroad.render();
   renderAttDeptOptions();
   const date = document.getElementById('attDate').value || new Date().toISOString().slice(0,10);
   const deptFilter = document.getElementById('attDeptFilter').value;
