@@ -5093,12 +5093,13 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     { key: 'reminders', label: 'תזכורות', cls: 'rem' },
     { key: 'compulsory', label: 'סיום חובה', cls: 'comp' },
     { key: 'releases', label: 'שחרורים', cls: 'rel' },
+    { key: 'enlist', label: 'גיוס', cls: 'rel' },
     { key: 'entries', label: 'כניסות', cls: 'ent' },
     { key: 'flex', label: 'גמישות', cls: 'flex' },
     { key: 'occupancy', label: 'איוש תפקידים', cls: 'occ' },
     { key: 'events', label: 'אירועים', cls: 'evt', gated: true }
   ];
-  function layerAllowed(k){ var l = LAYERS.find(function(x){ return x.key === k; }); return !l || !l.gated || !!(window.hubEvents && hubEvents.canSeeLayer()); }
+  function layerAllowed(k){ if (window.hubHier && hubHier.isRegular() && !hubHier.regularLayerOk(k)) return false; var l = LAYERS.find(function(x){ return x.key === k; }); return !l || !l.gated || !!(window.hubEvents && hubEvents.canSeeLayer()); }
   var VIEWS = [{ k: 'day', l: 'יום' }, { k: 'week', l: 'שבוע' }, { k: 'month', l: 'חודש' }, { k: 'year', l: 'שנה' }, { k: 'range', l: 'טווח' }];
   var DAYS = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
   var cal = { view: 'month', date: iso(new Date()), layers: LAYERS.map(function(l){ return l.key; }), from: '', to: '', event: '' };
@@ -5141,6 +5142,10 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     compulsory: function(from, to){
       return state.employees.filter(function(e){ return e.compulsoryReleaseDate && e.active !== false && between(from, to, e.compulsoryReleaseDate); })
         .map(function(e){ return { layer: 'compulsory', date: e.compulsoryReleaseDate, title: 'סיום חובה: ' + e.name, sub: e.serviceType || '', ref: { type: 'employee', id: e.id } }; });
+    },
+    enlist: function(from, to){
+      return state.employees.filter(function(e){ return e.enlistmentDate && e.active !== false && between(from, to, e.enlistmentDate); })
+        .map(function(e){ return { layer: 'enlist', date: e.enlistmentDate, title: 'גיוס: ' + e.name, sub: '', ref: { type: 'employee', id: e.id } }; });
     },
     releases: function(from, to){
       var out = [];
@@ -5199,6 +5204,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
       if (cal.event && ['events', 'tasks', 'reminders'].indexOf(k) < 0) return;
       var list = []; try{ list = providers[k](from, to) || []; }catch(e){ console.error('calendar provider failed', k, e); }
       if (window.hubHier) list = list.filter(function(it){ return hubHier.refVisible(it.ref); });
+      if (window.hubHier && hubHier.isRegular()) list = list.filter(function(it){ return !it.ref || it.ref.type !== 'employee' || it.ref.id === state.currentUserId; });
       if (cal.event) list = list.filter(function(it){ return it.eventId === cal.event; });
       list.forEach(function(it){
         var last = it.end || it.date, d = it.date, g = 0;
@@ -7028,6 +7034,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
   }
   /* true when the viewer may see the employee under the new model (legacy viewers: not decided here, so true) */
   function canSee(empId, viewer){
+    var vw = viewer || me(); if (vw && isRegular(vw)) return empId === vw;   /* a regular employee sees only himself, in either model */
     var s = scopeFor(viewer); if (!s) return true;
     if (s.all) return true;
     return !!empId && (s.ids.has(empId) || (!!s.dom && s.dom.has(empId)));
@@ -7041,7 +7048,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     return out.filter(function(id){ return id !== viewer; });
   }
   function canAssign(targetId, viewer){ viewer = viewer || me(); if (targetId === viewer) return true; var s = scopeFor(viewer); if (!s) return true; return s.all || s.ids.has(targetId); }
-  function canManageEmployee(empId, viewer){ var s = scopeFor(viewer); if (!s) return true; return s.all || s.ids.has(empId); }
+  function canManageEmployee(empId, viewer){ if (isRegular(viewer || me())) return false; var s = scopeFor(viewer); if (!s) return true; return s.all || s.ids.has(empId); }
   function canCreateEmployees(viewer){ var s = scopeFor(viewer); return !s || s.all; }
   function levelOf(empId){ empId = empId || me(); var s = scopeFor(empId); return s ? s.level : null; }
   function isDomainOnly(empId){ var s = scopeFor(empId); return !!(s && s.domainOnly); }
@@ -7401,7 +7408,81 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     exportToExcel('דוח_רמד_לא_תואם', rows);
   }
 
+  /* ---------- the regular employee (round 6): not a manager, not responsible for anything ---------- */
+  var EMP_FIELDS = [['name', 'שם'], ['personalNumber', 'מספר אישי'], ['role', 'תפקיד'], ['unit', 'יחידה (מרכז, ענף, מדור, צוות)'], ['manager', 'מנהל ישיר'], ['ramad', 'רמ"ד ושרשרת פיקוד'], ['rank', 'רמת הרשאה'], ['level', 'זוטר/מובהק'], ['serviceType', 'סוג שירות'], ['position', 'תקן נוכחי'], ['startDate', 'תאריך התחלה'], ['enlistmentDate', 'תאריך גיוס'], ['compulsoryReleaseDate', 'סיום חובה'], ['actualReleaseDate', 'שחרור בפועל'], ['contractEndDate', 'סיום חוזה'], ['releaseDate', 'תאריך שחרור קובע'], ['unitIntakeDate', 'תאריך קליטה ליחידה'], ['grade', 'דרגה'], ['email', 'אימייל'], ['phone', 'טלפון'], ['professionNumber', 'מספר מקצוע'], ['professionText', 'מלל מקצוע'], ['education', 'השכלה'], ['studies', 'לימודים'], ['city', 'עיר מגורים'], ['street', 'רחוב'], ['flags', 'סימונים (מתנדב, עתודאי, גמישות, לא פעיל)'], ['notes', 'הערות'], ['convergence', 'סטטוס התכנסות']];
+  var DEFAULT_EXPOSED = ['name', 'personalNumber', 'role', 'unit', 'enlistmentDate', 'releaseDate'];
+  var REG_WIDGETS = ['myOpenTasks'], REG_HIDDEN_TABS = ['positions', 'convergence', 'meetings', 'mgrinfo', 'postings'];
+  function exposedList(){ var a = peekRaw('exposedFields'); return Array.isArray(a) ? a : DEFAULT_EXPOSED; }
+  function peekRaw(n){ return window.DataStore && DataStore.peekAll ? DataStore.peekAll(n) : null; }
+  function exposed(key){ return exposedList().indexOf(key) > -1; }
+  function isRegular(empId){
+    empId = empId || me(); if (!empId) return false;
+    var c = C(); c.reg = c.reg || {}; if (c.reg[empId] !== undefined) return c.reg[empId];
+    var r = (function(){
+      var u = userOf(empId); if (!u || u.isSuper || u.isHr) return false;
+      if (u.scope && u.scope.kind === 'hq') return false;
+      if (hasDomains(ownedBy(u))) return false;
+      if (peek('responsibilities').some(function(x){ return x.employeeId === empId; })) return false;
+      if (peek('conflictSubs').some(function(x){ return x.userId === u.id && x.on; })) return false;
+      var e = c.emps[empId]; if (e && e.rank && e.rank !== 'צפייה עצמית') return false;
+      var sc = scopeFor(empId);
+      if (sc) return !sc.all && sc.ids.size <= 1 && !(sc.heads && sc.heads.length);
+      if (typeof hasFullDataAccess === 'function' && hasFullDataAccess(empId)) return false;
+      return getSubordinateIds(empId).length === 0;
+    })();
+    c.reg[empId] = r; return r;
+  }
+  /* is the field hidden from the viewer on his own card? */
+  function hidden(e, key){ var v = me(); return !!v && !!e && e.id === v && isRegular(v) && !exposed(key); }
+  function maskEmployeeRows(tbody){
+    var K = { 2: 'name', 3: 'role', 4: 'unit', 5: 'unit', 6: 'manager', 7: 'position', 8: 'flags', 9: 'email', 10: 'phone', 11: 'startDate', 12: 'enlistmentDate', 13: 'releaseDate', 14: 'unitIntakeDate' };
+    Array.prototype.forEach.call(tbody.querySelectorAll('tr'), function(tr){
+      var td = tr.children;
+      Object.keys(K).forEach(function(i){ if (td[i - 1] && !exposed(K[i])) td[i - 1].textContent = '—'; });
+      if (td[0]) td[0].innerHTML = ''; if (td.length > 1 && td[td.length - 1]) td[td.length - 1].innerHTML = '';
+    });
+  }
+  function regularLayerOk(k){
+    if (k === 'tasks' || k === 'reminders' || k === 'events') return true;
+    return ({ releases: 'releaseDate', enlist: 'enlistmentDate', compulsory: 'compulsoryReleaseDate' })[k] ? exposed(({ releases: 'releaseDate', enlist: 'enlistmentDate', compulsory: 'compulsoryReleaseDate' })[k]) : false;
+  }
+  function widgetOk(key){ return !isRegular() || REG_WIDGETS.indexOf(key) > -1; }
+  /* the dashboard widgets read the whole lists: show them only what the user may see */
+  function withScopedState(fn){
+    var st = S(), reg = isRegular(), sc = scopeFor();
+    if (!reg && (!sc || sc.all)) return fn();
+    var keep = { employees: st.employees, positions: st.positions, convergence: st.convergence, incentives: st.incentives, attendance: st.attendance, meetings: st.meetings, tasks: st.tasks }, v = me();
+    try{
+      st.employees = reg ? keep.employees.filter(function(e){ return e.id === v; }) : visibleEmployees(keep.employees);
+      st.positions = reg ? [] : keep.positions.filter(function(p){ return posVisible(p); });
+      st.convergence = reg ? [] : keep.convergence.filter(function(c){ return convVisible(c); });
+      st.incentives = reg ? [] : keep.incentives.filter(function(i){ return incVisible(i); });
+      st.attendance = keep.attendance.filter(function(a){ return reg ? a.employeeId === v : attVisible(a); });
+      st.meetings = reg ? [] : keep.meetings;
+      return fn();
+    } finally { Object.keys(keep).forEach(function(k){ st[k] = keep[k]; }); }
+  }
+  function exposedCard(){
+    if (typeof isSuperUser !== 'function' || !isSuperUser()) return '';
+    var cur = exposedList();
+    return '<div class="card"><div class="panel-head" style="margin-bottom:10px;"><div><h3 style="margin:0 0 6px;">שדות חשופים לעובד</h3><span class="locked-note" style="display:inline">עובד רגיל (לא מנהל ולא אחראי) רואה בכרטיס שלו, בטבלת העובדים ובלוח השנה רק את השדות המסומנים כאן. כל שדה אחר מוסתר ממנו, והוא גם לא רואה לשוניות של תקנים, התכנסות, פגישות ומידע למנהלים, לא מייצא לאקסל, ורואה משימות שהוקצו לו או שהקצה בלבד.</span></div><button class="ghost" type="button" data-hh="ef-reset">ברירת מחדל</button></div>'
+      + '<div class="checkbox-list" style="max-height:none;">' + EMP_FIELDS.map(function(f){ return '<label class="checkbox-row"><input type="checkbox" data-ef="' + f[0] + '"' + (cur.indexOf(f[0]) > -1 ? ' checked' : '') + '> ' + esc(f[1]) + '</label>'; }).join('') + '</div></div>';
+  }
+  window.hubPermExtras = window.hubPermExtras || [];
+  window.hubPermExtras.push(exposedCard);
+  document.addEventListener('change', async function(e){
+    var cb = e.target.closest ? e.target.closest('[data-ef]') : null; if (!cb || typeof isSuperUser !== 'function' || !isSuperUser()) return;
+    var list = Array.from(document.querySelectorAll('[data-ef]')).filter(function(x){ return x.checked; }).map(function(x){ return x.getAttribute('data-ef'); });
+    await DataStore.set('exposedFields', list); invalidate();
+    try{ DataStore.audit.logEvent('exposed-fields', { label: 'שדות חשופים לעובד עודכנו: ' + list.length + ' שדות' }); }catch(x){}
+  });
+  document.addEventListener('click', async function(e){
+    var b = e.target.closest ? e.target.closest('[data-hh="ef-reset"]') : null; if (!b || typeof isSuperUser !== 'function' || !isSuperUser()) return;
+    await DataStore.set('exposedFields', DEFAULT_EXPOSED.slice()); invalidate(); if (typeof renderPermissionsPage === 'function') renderPermissionsPage();
+  });
+
   window.hubHier = {
+    isRegular: isRegular, hidden: hidden, exposed: exposed, EMP_FIELDS: EMP_FIELDS, maskEmployeeRows: maskEmployeeRows, regularLayerOk: regularLayerOk, widgetOk: widgetOk, withScopedState: withScopedState, REG_HIDDEN_TABS: REG_HIDDEN_TABS,
     ramadDerived: ramadDerived, ramadEffective: ramadEffective, ramadMismatch: ramadMismatch, ramadSameAsDerived: ramadSameAsDerived, syncRamad: syncRamad,
     ramadFieldHtml: ramadFieldHtml, ramadApply: ramadApply, chainHtml: chainHtml, openRamadReport: openRamadReport,
     engaged: engaged, isAll: isAll, unitEmployees: unitEmployees, isDomainOnly: isDomainOnly, ownsDomain: ownsDomain, domainTabAccess: domainTabAccess, ownedBy: ownedBy, recCenter: recCenter, owns: owns, DOMAIN_KEYS: DOMAIN_KEYS, DOMAIN_LABEL: DOMAIN_LABEL, modeOf: modeOf, scopeFor: scopeFor, canSee: canSee, visibleEmployees: visibleEmployees, subordinateIds: subordinateIds,
@@ -8380,6 +8461,7 @@ function hasTabAccess(tab){
   const me = state.currentUserId;
   if (!me) return false;
   if (tab === 'dashboard') return true;
+  if (window.hubHier && hubHier.REG_HIDDEN_TABS.indexOf(tab) > -1 && hubHier.isRegular(me)) return false;
   if (tab === 'users') return isSuperUser();
   if (tab === 'permissions') return isSuperUser() || hasRank(me);
   if (window.hubHier && hubHier.engaged(me)){ const dt = hubHier.domainTabAccess(me, tab); if (dt !== null) return dt; }
@@ -8979,6 +9061,7 @@ function renderEmployees(){
       </td>
     </tr>`;
   }).join('');
+  if (window.hubHier && hubHier.isRegular()) hubHier.maskEmployeeRows(tbody);
   updateEmpBulkToolbar();
 }
 
@@ -9469,43 +9552,27 @@ function openEmployeeProfile(id){
   if (e.flexA) flags.push("גמוש א'");
   if (e.flexB) flags.push("גמוש ב'");
 
+  const ex = k => !(window.hubHier && hubHier.hidden(e, k));
+  const cell = (k, label, html) => ex(k) ? `<div><div class="lbl3">${label}</div>${html}</div>` : '';
   openModal(`
     <h3 style="margin-bottom:10px;">${escapeHtml(e.name)}</h3>
     <div class="profile-meta">
-      <div><div class="lbl3">תפקיד</div>${escapeHtml(e.role||'—')}</div>
-      <div><div class="lbl3">מרכז</div>${escapeHtml(e.department||'—')}</div>
-      <div><div class="lbl3">ענף</div>${escapeHtml(e.industry||'—')}</div>
-      <div><div class="lbl3">מדור</div>${escapeHtml(e.mador||'—')}</div>
-      <div><div class="lbl3">צוות</div>${escapeHtml(e.team||'—')}</div>
-      <div><div class="lbl3">מנהל ישיר</div>${mgr?escapeHtml(mgr.name):'—'}</div>
-      <div><div class="lbl3">רמ"ד</div>${escapeHtml((window.hubHier ? hubHier.ramadEffective(e) : e.ramad)||'—')}</div>${window.hubHier ? hubHier.chainHtml(e) : ''}
-      <div><div class="lbl3">רמת הרשאה</div>${escapeHtml(e.rank||'—')}</div>
-      <div><div class="lbl3">זוטר/מובהק</div>${escapeHtml(e.level||'—')}</div>
-      <div><div class="lbl3">סוג שירות</div>${escapeHtml(e.serviceType||'—')}</div>
-      <div><div class="lbl3">תקן נוכחי</div>${pos?`${escapeHtml(pos.serialNumber)} — ${escapeHtml(pos.jobText)}`:(e.flex?`גמישות עד ${escapeHtml(e.flexEndDate||'?')}`:'<span class="vacant-txt">ללא תקן</span>')}</div>
-      <div><div class="lbl3">תאריך התחלה</div>${escapeHtml(e.startDate||'—')}</div>
-      <div><div class="lbl3">תאריך גיוס</div>${escapeHtml(e.enlistmentDate||'—')}</div>
-      <div><div class="lbl3">סיום חובה</div>${escapeHtml(e.compulsoryReleaseDate||'—')}</div>
-      <div><div class="lbl3">שחרור בפועל</div>${escapeHtml(e.actualReleaseDate||'—')}</div>
-      <div><div class="lbl3">סיום חוזה</div>${escapeHtml(e.contractEndDate||'—')}</div>
-      <div><div class="lbl3">תאריך שחרור קובע</div>${escapeHtml(effectiveReleaseDate(e).date||'—')}${effectiveReleaseDate(e).label?' ('+escapeHtml(effectiveReleaseDate(e).label)+')':''}</div>
-      <div><div class="lbl3">תאריך קליטה ליחידה</div>${escapeHtml(e.unitIntakeDate||'—')}</div>
-      <div><div class="lbl3">מספר אישי</div>${escapeHtml(e.personalNumber||'—')}</div>
-      <div><div class="lbl3">דרגה</div>${escapeHtml(e.grade||'—')}</div>
-      <div><div class="lbl3">אימייל</div>${escapeHtml(e.email||'—')}</div>
-      <div><div class="lbl3">טלפון</div>${escapeHtml(e.phone||'—')}</div>
-      <div><div class="lbl3">מספר מקצוע</div>${escapeHtml(e.professionNumber||'—')}</div>
-      <div><div class="lbl3">מלל מקצוע</div>${escapeHtml(e.professionText||'—')}</div>
-      <div><div class="lbl3">השכלה</div>${escapeHtml(e.education||'—')}</div>
-      <div><div class="lbl3">לימודים</div>${escapeHtml(e.studies||'—')}</div>
-      <div><div class="lbl3">עיר מגורים</div>${escapeHtml(e.city||'—')}</div>
-      <div><div class="lbl3">רחוב</div>${escapeHtml(e.street||'—')}</div>
+      ${cell('role','תפקיד',escapeHtml(e.role||'—'))}
+      ${cell('unit','מרכז',escapeHtml(e.department||'—'))}${cell('unit','ענף',escapeHtml(e.industry||'—'))}${cell('unit','מדור',escapeHtml(e.mador||'—'))}${cell('unit','צוות',escapeHtml(e.team||'—'))}
+      ${cell('manager','מנהל ישיר',mgr?escapeHtml(mgr.name):'—')}
+      ${cell('ramad','רמ"ד',escapeHtml((window.hubHier ? hubHier.ramadEffective(e) : e.ramad)||'—'))}${ex('ramad') && window.hubHier ? hubHier.chainHtml(e) : ''}
+      ${cell('rank','רמת הרשאה',escapeHtml(e.rank||'—'))}${cell('level','זוטר/מובהק',escapeHtml(e.level||'—'))}${cell('serviceType','סוג שירות',escapeHtml(e.serviceType||'—'))}
+      ${cell('position','תקן נוכחי',pos?`${escapeHtml(pos.serialNumber)} — ${escapeHtml(pos.jobText)}`:(e.flex?`גמישות עד ${escapeHtml(e.flexEndDate||'?')}`:'<span class="vacant-txt">ללא תקן</span>'))}
+      ${cell('startDate','תאריך התחלה',escapeHtml(e.startDate||'—'))}${cell('enlistmentDate','תאריך גיוס',escapeHtml(e.enlistmentDate||'—'))}${cell('compulsoryReleaseDate','סיום חובה',escapeHtml(e.compulsoryReleaseDate||'—'))}${cell('actualReleaseDate','שחרור בפועל',escapeHtml(e.actualReleaseDate||'—'))}${cell('contractEndDate','סיום חוזה',escapeHtml(e.contractEndDate||'—'))}
+      ${cell('releaseDate','תאריך שחרור קובע',escapeHtml(effectiveReleaseDate(e).date||'—')+(effectiveReleaseDate(e).label?' ('+escapeHtml(effectiveReleaseDate(e).label)+')':''))}${cell('unitIntakeDate','תאריך קליטה ליחידה',escapeHtml(e.unitIntakeDate||'—'))}
+      ${cell('personalNumber','מספר אישי',escapeHtml(e.personalNumber||'—'))}${cell('grade','דרגה',escapeHtml(e.grade||'—'))}${cell('email','אימייל',escapeHtml(e.email||'—'))}${cell('phone','טלפון',escapeHtml(e.phone||'—'))}
+      ${cell('professionNumber','מספר מקצוע',escapeHtml(e.professionNumber||'—'))}${cell('professionText','מלל מקצוע',escapeHtml(e.professionText||'—'))}${cell('education','השכלה',escapeHtml(e.education||'—'))}${cell('studies','לימודים',escapeHtml(e.studies||'—'))}${cell('city','עיר מגורים',escapeHtml(e.city||'—'))}${cell('street','רחוב',escapeHtml(e.street||'—'))}
     </div>
-    ${flags.length ? `<div class="p-tags" style="margin-bottom:10px;">${flags.map(f=>`<span class="tag">${escapeHtml(f)}</span>`).join('')}</div>` : ''}
-    ${e.notes ? `<div class="field"><div class="lbl3">הערות</div><div style="font-size:13.5px; white-space:pre-wrap;">${escapeHtml(e.notes)}</div></div>` : ''}
+    ${flags.length && ex('flags') ? `<div class="p-tags" style="margin-bottom:10px;">${flags.map(f=>`<span class="tag">${escapeHtml(f)}</span>`).join('')}</div>` : ''}
+    ${e.notes && ex('notes') ? `<div class="field"><div class="lbl3">הערות</div><div style="font-size:13.5px; white-space:pre-wrap;">${escapeHtml(e.notes)}</div></div>` : ''}
 
-    <div class="form-section-title">סטטוס התכנסות</div>
-    ${convHtml}
+    ${ex('convergence') ? `<div class="form-section-title">סטטוס התכנסות</div>
+    ${convHtml}` : ''}
 
     <div class="form-section-title">משימות לביצוע (מוקצות לעובד/ת)</div>
     ${assignedToHtml}
@@ -9515,7 +9582,7 @@ function openEmployeeProfile(id){
 
     <div class="modal-actions">
       <button class="ghost" onclick="closeModal()">סגור</button>
-      <button class="primary" onclick="editEmployee('${e.id}')">ערוך פרטי עובד</button>
+      ${window.hubHier && !hubHier.canManageEmployee(e.id) ? '' : `<button class="primary" onclick="editEmployee('${e.id}')">ערוך פרטי עובד</button>`}
     </div>
   `, true);
 }
@@ -9705,6 +9772,7 @@ function bindTasks(){
 }
 function taskVisibleToCurrentUser(t){
   if (t.eventId && window.hubEvents){ const r = hubEvents.canSeeTask(t); if (r !== null) return r; }
+  if (window.hubHier && hubHier.isRegular()) return (t.assignedTo||[]).includes(state.currentUserId) || t.assignedBy === state.currentUserId;   /* a regular employee: only tasks given to him or by him */
   if (window.hubHier && hubHier.engaged()){ const hr = hubHier.taskVisible(t); if (hr !== null) return hr; }
   if (!t.aboutEmployeeIds || !t.aboutEmployeeIds.length) return true;
   if ((t.assignedTo||[]).includes(state.currentUserId)) return true;
@@ -11577,6 +11645,7 @@ async function applyImportBatch(){
 
 /* ================= EXCEL EXPORT (generic, used by several tabs) ================= */
 function exportToExcel(filename, rows){
+  if (window.hubHier && hubHier.isRegular()){ alert('הייצוא לאקסל אינו זמין לעובד רגיל'); return; }
   if (!rows || !rows.length){ alert('אין נתונים לייצוא'); return; }
   const ws = XLSX.utils.json_to_sheet(rows);
   const wb = XLSX.utils.book_new();
@@ -12588,15 +12657,15 @@ function renderDashboardWidgets(){
   if (!grid) return;
   widgetChartInstances.forEach(c=>{ try{ c.destroy(); }catch(e){} });
   widgetChartInstances = []; pendingWidgetCharts = [];
-  const keys = getMyDashboardWidgetKeys().filter(k=>WIDGET_DEFS[k]);
+  const keys = getMyDashboardWidgetKeys().filter(k=>WIDGET_DEFS[k] && (!window.hubHier || hubHier.widgetOk(k)));
   if (!keys.length){
     grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;">לא נבחרו רכיבים ללוח הבקרה. לחץ על "התאם אישית" כדי לבחור.</div>`;
     return;
   }
-  grid.innerHTML = keys.map((k, i)=>{
+  grid.innerHTML = (window.hubHier ? hubHier.withScopedState : (f=>f()))(()=>keys.map((k, i)=>{
     const w = WIDGET_DEFS[k];
     return hubWidgetCardHtml(k, w, i, keys.length);
-  }).join('');
+  }).join(''));
   hubAfterWidgetsRender(grid);
   hubApplyChartDefaults();
   if (typeof Chart !== 'undefined' && Chart.defaults && Chart.defaults.font && !Chart.__hubDefaults){
@@ -12612,7 +12681,7 @@ function renderDashboardWidgets(){
 function openDashboardWidgetPicker(){
   const current = getMyDashboardWidgetKeys();
   const sections = WIDGET_GROUPS.map(([gk, gl])=>{
-    const rows = Object.entries(WIDGET_DEFS).filter(([k,w])=>(w.group||'general')===gk).map(([key,w])=>
+    const rows = Object.entries(WIDGET_DEFS).filter(([k,w])=>(w.group||'general')===gk && (!window.hubHier || hubHier.widgetOk(k))).map(([key,w])=>
       `<label class="checkbox-row"><input type="checkbox" value="${key}" ${current.includes(key)?'checked':''}> ${escapeHtml(w.label)}</label>`
     ).join('');
     return rows ? `<div style="font-weight:700; font-size:12px; margin:10px 0 4px; color:var(--accent-text);">${escapeHtml(gl)}</div>${rows}` : '';
