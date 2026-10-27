@@ -1282,6 +1282,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     </div>
     <div class="card" id="orgViewBar">
       <div class="task-filters" style="margin:0;"><button class="ghost active" type="button" data-ov="people">עץ עובדים</button><button class="ghost" type="button" data-ov="roles">עץ תפקידים</button></div>
+      <div id="orgUnitFilters" style="margin-top:10px;"></div>
       <div id="roleFilters" hidden style="margin-top:10px; display:flex; gap:14px; flex-wrap:wrap; align-items:center;">
         <label class="checkbox-row"><input type="checkbox" id="of-filled"> בעלי תפקידים בלבד</label>
         <label class="checkbox-row"><input type="checkbox" id="of-vacant"> תפקידים בלי אנשים</label>
@@ -1308,6 +1309,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
         <h3 id="calTitle"></h3>
       </div>
       <div id="calLayers" class="cal-layers"></div>
+      <div id="calFilters" style="margin-top:10px;"></div>
     </div>
     <div class="card"><div id="calBody" class="cal-body"></div></div>
   </section>
@@ -1676,7 +1678,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
 
     <div class="panel-head" style="margin-top:28px;">
       <div><h2 style="font-size:18px;">מבנה ארגוני</h2><p>ענפים, מדורים וצוותים בכל מרכז. עובד משויך ליחידה אחת, ושדות ענף / מדור / צוות בכרטיס שלו מתמלאים ממנה.</p></div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;"><button class="ghost" id="ot-class" type="button">דוח סיווג מדור / צוות</button><button class="ghost" id="ot-mgr" type="button">הצעת מנהלים</button><button class="ghost" id="ot-ramad" type="button" data-hh="ramad-report">דוח רמ"ד לא תואם</button><button class="ghost" id="rel-report" type="button">דוח תאריכי שחרור</button><button class="ghost" id="dup-report" type="button">דוח כפילויות וקישורים</button><button class="ghost" id="conflict-report" type="button">סתירות פתוחות</button></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;"><button class="ghost" id="ot-class" type="button">דוח סיווג מדור / צוות</button><button class="ghost" id="ot-mgr" type="button">הצעת מנהלים</button><button class="ghost" id="ot-ramad" type="button" data-hh="ramad-report">דוח רמ"ד לא תואם</button><button class="ghost" id="ot-names" type="button" data-nm="report">שמות לפיצול</button><button class="ghost" id="rel-report" type="button">דוח תאריכי שחרור</button><button class="ghost" id="dup-report" type="button">דוח כפילויות וקישורים</button><button class="ghost" id="conflict-report" type="button">סתירות פתוחות</button></div>
     </div>
     <div class="card" id="orgTreeCard"><div class="field" style="max-width:280px;"><label>מרכז</label><select id="ot-center"></select></div><div id="ot-tree"></div></div>
 
@@ -2398,7 +2400,8 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     }).catch(function(){ return fallback; });
   }
   /* validators: fn(newValue, oldValue) returns an error text to refuse the write (used for identifiers that must stay unique) */
-  var validators = {};
+  var validators = {}, normalizers = {};
+  function addNormalizer(name, fn){ normalizers[name] = fn; }
   function addValidator(name, fn){ (validators[name] = validators[name] || []).push(fn); }
   function validateWrite(name, full){ return validate(name, full); }
   function validate(name, full){
@@ -2419,6 +2422,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     var raw, changes = null, full = value;
     try{
       full = prepareWrite(name, value);
+      if (normalizers[name] && Array.isArray(full)){ try{ normalizers[name](full); }catch(e){ console.error('normalizer failed', name, e); } }
       var verr = validate(name, full);
       if (verr){ notify('השמירה נחסמה', verr); emit('error', { name: name, error: new Error(verr) }); return Promise.resolve(false); }
       try{ changes = stamp(name, full, a); }catch(e){ console.error('metadata stamp failed', name, e); }
@@ -2615,7 +2619,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     adapterName: function(){ return adapter().name; },
     META_COLLECTIONS: META_COLLECTIONS,
     openDb: openDb, idbTx: idbTx, audit: audit, blobs: blobs,
-    setScope: setScope, getScope: getScope, setMain: setMain, validateWrite: validateWrite, setInterceptor: setInterceptor, setOverlay: setOverlay, wasPrivate: wasPrivate, visibleMain: function(name){ return scopeFilter(name, peekJson(name) || []); }, scopedNames: SCOPED, peekAll: peekJson, addValidator: addValidator, ensureDefaultCenters: ensureDefaultCenters,
+    setScope: setScope, getScope: getScope, setMain: setMain, addNormalizer: addNormalizer, validateWrite: validateWrite, setInterceptor: setInterceptor, setOverlay: setOverlay, wasPrivate: wasPrivate, visibleMain: function(name){ return scopeFilter(name, peekJson(name) || []); }, scopedNames: SCOPED, peekAll: peekJson, addValidator: addValidator, ensureDefaultCenters: ensureDefaultCenters,
     schemaVersion: schemaVersion, latestSchema: latestSchema,
     registerMigration: registerMigration, migrate: migrate,
     migrationState: function(){ return migrationState; },
@@ -4033,7 +4037,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
   /* linked records show the employee's current name and number */
   async function syncEmployeeCopiesInner(empId){
     var e = empById(empId); if (!e) return;
-    var parts = (e.name || '').trim().split(/\s+/), last = parts.length > 1 ? parts.pop() : '', first = parts.join(' ');
+    var np = window.hubNames ? hubNames.parts(e) : { first: '', last: '' }, first = np.first, last = np.last;
     var cv = false, inc = false, ps = false;
     (state.convergence || []).forEach(function(c){ if (c.employeeId === empId && (c.firstName !== first || c.lastName !== last)){ c.firstName = first; c.lastName = last; cv = true; } });
     (state.incentives || []).forEach(function(i){ if (i.employeeId === empId && i.snapName !== e.name){ i.snapName = e.name; inc = true; } });
@@ -4988,6 +4992,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
   var O = { view: 'people', filled: false, vacant: false, hideNames: false, depth: 0, notIn: false };
   function roleChildren(pid){ return roles.filter(function(r){ return (r.parentRoleId || null) === (pid || null) && r.active !== false; }); }
   function rolePasses(r){
+    if (window.hubHier && !hubHier.ufPassUnit('org', r.orgUnitId, r.centerId)) return false;
     var st = occupancy(r).status;
     if (O.filled && st === 'vacant') return false;
     if (O.vacant && st !== 'vacant' && st !== 'gap') return false;
@@ -5015,8 +5020,8 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
   function renderNotIn(){
     var box = el('roleNotIn'); if (!box) return;
     var occ = occupiedEmployeeIds();
-    var people = state.employees.filter(function(e){ return isActiveEmp(e) && !occ.has(e.id); });
-    var vacant = roles.filter(function(r){ var s = occupancy(r).status; return r.active !== false && (s === 'vacant' || s === 'gap'); });
+    var people = state.employees.filter(function(e){ return isActiveEmp(e) && !occ.has(e.id) && (!window.hubHier || hubHier.ufPassEmp('org', e)); });
+    var vacant = roles.filter(function(r){ var s = occupancy(r).status; return r.active !== false && (s === 'vacant' || s === 'gap') && (!window.hubHier || hubHier.ufPassUnit('org', r.orgUnitId, r.centerId)); });
     box.innerHTML = '<div class="grid2"><div class="card" style="padding:12px;"><div class="form-section-title">עובדים בלי תפקיד (' + people.length + ')</div>'
       + (people.map(function(e){ return '<div class="widget-row"><span>' + esc(e.name) + '</span><span class="locked-note">' + esc(e.role || '') + '</span></div>'; }).join('') || '<div class="locked-note">אין</div>') + '</div>'
       + '<div class="card" style="padding:12px;"><div class="form-section-title">תפקידים בלי עובד (' + vacant.length + ')</div>'
@@ -5105,6 +5110,47 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
   var DAYS = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
   var cal = { view: 'month', date: iso(new Date()), layers: LAYERS.map(function(l){ return l.key; }), from: '', to: '', event: '' };
   var shown = [];                                          /* items of the current rendering, addressed by index from the DOM */
+  /* filters of the calendar: unit (multi-select), personal number, employee name and role; saved per user */
+  var calFilter = { pn: '', name: '', role: '' };
+  function nrm(x){ return String(x == null ? '' : x).toLowerCase().replace(/\s+/g, ' ').trim(); }
+  function filterActive(){ return !!window.hubHier && !hubHier.isRegular() && (hubHier.ufActive('cal') || !!(calFilter.pn || calFilter.name || calFilter.role)); }
+  function itemEmps(it){
+    var r = it.ref || {}, byId = function(id){ return state.employees.find(function(e){ return e.id === id; }); };
+    if (r.type === 'employee'){ var e = byId(r.id); return e ? [e] : []; }
+    if (r.type === 'task'){ var t = state.tasks.find(function(x){ return x.id === r.id; }); return t ? (t.assignedTo || []).concat(t.aboutEmployeeIds || []).map(byId).filter(Boolean) : []; }
+    if (r.type === 'convergence'){
+      var c = state.convergence.find(function(x){ return x.id === r.id; }); if (!c) return [];
+      var emp = c.employeeId ? byId(c.employeeId) : state.employees.find(function(x){ return (x.name || '').trim() === ((c.firstName || '') + ' ' + (c.lastName || '')).trim(); });
+      return emp ? [emp] : [{ name: ((c.firstName || '') + ' ' + (c.lastName || '')).trim(), personalNumber: '', role: c.role || '', orgUnitId: c.orgUnitId, centerId: c.centerId }];
+    }
+    if (r.type === 'role' && window.hubRoles){
+      var ro = hubRoles.list().find(function(x){ return x.id === r.id; }); if (!ro) return [];
+      var hid = hubRoles.currentHolderId ? hubRoles.currentHolderId(ro) : null, h = hid ? byId(hid) : null;
+      return [Object.assign({ name: '', personalNumber: '' }, h || {}, { role: ro.title, orgUnitId: ro.orgUnitId, centerId: ro.centerId })];
+    }
+    return [];
+  }
+  function itemPasses(it){
+    return itemEmps(it).some(function(e){
+      return hubHier.ufPassEmp('cal', e) && (!calFilter.pn || nrm(e.personalNumber).indexOf(nrm(calFilter.pn)) > -1) && (!calFilter.name || nrm(e.name).indexOf(nrm(calFilter.name)) > -1) && (!calFilter.role || nrm(e.role).indexOf(nrm(calFilter.role)) > -1);
+    });
+  }
+  function saveFilters(){ savePref('calendar.filters', { units: hubHier.ufSerialize('cal'), pn: calFilter.pn, name: calFilter.name, role: calFilter.role }); }
+  function renderFilters(){
+    var box = el('calFilters'); if (!box) return;
+    if (!window.hubHier || hubHier.isRegular()){ box.innerHTML = ''; box.removeAttribute('data-built'); return; }
+    var un = el('calFilterUnits');
+    if (box.getAttribute('data-built') === '1' && (!un || un.getAttribute('data-sig') === hubHier.ufSig())) return;
+    box.setAttribute('data-built', '1');
+    box.innerHTML = '<details' + (filterActive() ? ' open' : '') + '><summary class="locked-note" style="cursor:pointer;display:inline-block;">סינון לפי יחידה, מספר אישי, שם עובד ותפקיד</summary><div id="calFilterUnits" style="margin-top:8px;"></div>'
+      + '<div class="grid2" style="margin-top:8px;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));"><div class="field" style="margin:0"><label>מספר אישי</label><input type="text" id="calF-pn" value="' + esc(calFilter.pn) + '"></div><div class="field" style="margin:0"><label>שם עובד</label><input type="text" id="calF-name" value="' + esc(calFilter.name) + '"></div><div class="field" style="margin:0"><label>תפקיד</label><input type="text" id="calF-role" value="' + esc(calFilter.role) + '"></div></div>'
+      + '<div class="locked-note">המסנן חל על פריטים שקשורים לעובד. פריטים בלי עובד (למשל אירוע) מוסתרים כשמסנן פעיל. הסינון נשמר לכל משתמש ומכבד את ההיקף שלך.</div></details>';
+    hubHier.ufMount('cal', 'calFilterUnits', function(){ saveFilters(); render(); });
+  }
+  document.addEventListener('input', function(e){
+    var m = { 'calF-pn': 'pn', 'calF-name': 'name', 'calF-role': 'role' }[e.target.id]; if (!m) return;
+    calFilter[m] = e.target.value; saveFilters(); render();
+  });
 
   /* ---------- dates (local time, YYYY-MM-DD) ---------- */
   function iso(d){ return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
@@ -5206,6 +5252,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
       var list = []; try{ list = providers[k](from, to) || []; }catch(e){ console.error('calendar provider failed', k, e); }
       if (window.hubHier) list = list.filter(function(it){ return hubHier.refVisible(it.ref); });
       if (window.hubHier && hubHier.isRegular()) list = list.filter(function(it){ return !it.ref || it.ref.type !== 'employee' || it.ref.id === state.currentUserId; });
+      if (filterActive()) list = list.filter(itemPasses);
       if (cal.event) list = list.filter(function(it){ return it.eventId === cal.event; });
       list.forEach(function(it){
         var last = it.end || it.date, d = it.date, g = 0;
@@ -5291,6 +5338,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     if (cal.event && !evOpts.some(function(x){ return x.id === cal.event; })) cal.event = '';
     el('calLayers').innerHTML = LAYERS.filter(function(l){ return layerAllowed(l.key); }).map(function(l){ return '<label class="cal-layer cal-' + l.cls + '"><input type="checkbox" data-cal-layer="' + l.key + '"' + (cal.layers.indexOf(l.key) >= 0 ? ' checked' : '') + '><span>' + l.label + '</span></label>'; }).join('')
       + (evOpts.length ? '<label class="cal-layer"><span>סינון לפי אירוע</span> <select id="calEvent"><option value="">כל האירועים</option>' + evOpts.map(function(x){ return '<option value="' + esc(x.id) + '"' + (cal.event === x.id ? ' selected' : '') + '>' + esc(x.title) + '</option>'; }).join('') + '</select></label>' : '');
+    renderFilters();
     var fn = { day: viewDay, week: viewWeek, month: viewMonth, year: viewYear, range: viewRange }[cal.view];
     box.className = 'cal-body cal-v-' + cal.view;
     box.innerHTML = fn();
@@ -5304,6 +5352,9 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     var l = get('calendar.layers'); if (Array.isArray(l)) cal.layers = l.filter(function(k){ return providers[k]; });
     if (Array.isArray(l) && !get('calendar.layersV') && cal.layers.indexOf('events') < 0) cal.layers.push('events');   /* the events layer arrived after these preferences were saved */
     var v = get('calendar.view'); if (v && VIEWS.some(function(x){ return x.k === v; })) cal.view = v;
+    var ff = get('calendar.filters') || {}; calFilter = { pn: ff.pn || '', name: ff.name || '', role: ff.role || '' };
+    if (window.hubHier) hubHier.ufRestore('cal', ff.units);
+    var fb = el('calFilters'); if (fb) fb.removeAttribute('data-built');
   }
   async function savePref(key, value){
     var uid = state.authUserId; if (!uid) return;
@@ -5390,7 +5441,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     var tab = document.querySelector('.tab-btn[data-tab="calendar"]');
     if (tab) tab.addEventListener('click', async function(){ await loadPrefs(); if (window.hubRoles) await hubRoles.reload(); render(); });
   }
-  window.hubCalendar = { render: render, items: itemsBetween, providers: providers, state: function(){ return cal; }, loadPrefs: loadPrefs, setView: function(v){ cal.view = v; render(); }, setDate: function(d){ cal.date = d; render(); }, setLayers: function(l){ cal.layers = l; render(); } };
+  window.hubCalendar = { filter: function(){ return calFilter; }, render: render, items: itemsBetween, providers: providers, state: function(){ return cal; }, loadPrefs: loadPrefs, setView: function(v){ cal.view = v; render(); }, setDate: function(d){ cal.date = d; render(); }, setLayers: function(l){ cal.layers = l; render(); } };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 })();
 </script>
@@ -7494,7 +7545,49 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     await DataStore.set('exposedFields', DEFAULT_EXPOSED.slice()); invalidate(); if (typeof renderPermissionsPage === 'function') renderPermissionsPage();
   });
 
+  /* ---------- unit filters: multi-select by center, branch, mador and team ---------- */
+  var UF = {}, UF_HOOK = {}, UF_KINDS = [['center', 'מרכז'], ['branch', 'ענף'], ['mador', 'מדור'], ['team', 'צוות']];
+  function ufState(ns){ return UF[ns] = UF[ns] || { center: new Set(), branch: new Set(), mador: new Set(), team: new Set() }; }
+  function ufActive(ns){ var st = ufState(ns); return UF_KINDS.some(function(k){ return st[k[0]].size > 0; }); }
+  function ufPassUnit(ns, unitId, centerId){
+    if (!ufActive(ns)) return true;
+    var st = ufState(ns), chain = unitId ? chainOfUnit(unitId) : [];
+    return UF_KINDS.every(function(k){
+      var set = st[k[0]]; if (!set.size) return true;
+      if (chain.some(function(u){ return u.kind === k[0] && set.has(u.id); })) return true;
+      return k[0] === 'center' && !chain.length && !!centerId && set.has(centerId);
+    });
+  }
+  function ufPassEmp(ns, e){ return ufPassUnit(ns, e.orgUnitId, e.centerId); }
+  function ufHtml(ns){
+    var st = ufState(ns), us = allUnits();
+    return '<div class="uf-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;">' + UF_KINDS.map(function(k){
+      var list = us.filter(function(u){ return u.kind === k[0]; }).sort(function(a, b){ return a.name.localeCompare(b.name, 'he'); });
+      return '<div class="field" style="margin:0"><label>' + k[1] + '</label><details class="ef-list"><summary>' + (st[k[0]].size ? st[k[0]].size + ' נבחרו' : 'הכול') + '</summary><div class="ef-opts">'
+        + (list.map(function(u){ return '<label class="checkbox-row"><input type="checkbox" data-uf="' + ns + '|' + k[0] + '" value="' + esc(u.id) + '"' + (st[k[0]].has(u.id) ? ' checked' : '') + '> ' + esc(u.name + (k[0] === 'center' ? '' : ' · ' + parentName(C(), u))) + '</label>'; }).join('') || '<span class="locked-note">אין</span>') + '</div></details></div>';
+    }).join('') + '</div><button class="ghost" type="button" data-uf-clear="' + ns + '" style="margin-top:6px;">נקה מסנני יחידה</button>';
+  }
+  function ufSig(){ return allUnits().map(function(u){ return u.id; }).join(','); }
+  function ufMount(ns, boxId, onChange){ UF_HOOK[ns] = onChange; var box = el(boxId); if (box){ box.setAttribute('data-uf-ns', ns); box.setAttribute('data-sig', ufSig()); box.innerHTML = ufHtml(ns); } }
+  function ufSerialize(ns){ var st = ufState(ns), out = {}; UF_KINDS.forEach(function(k){ out[k[0]] = Array.from(st[k[0]]); }); return out; }
+  function ufRestore(ns, obj){ var st = ufState(ns); UF_KINDS.forEach(function(k){ st[k[0]] = new Set(obj && Array.isArray(obj[k[0]]) ? obj[k[0]] : []); }); }
+  document.addEventListener('change', function(e){
+    var cb = e.target.closest ? e.target.closest('[data-uf]') : null; if (!cb) return;
+    var p = cb.getAttribute('data-uf').split('|'), st = ufState(p[0]);
+    if (cb.checked) st[p[1]].add(cb.value); else st[p[1]].delete(cb.value);
+    var sum = cb.closest('details').querySelector('summary'); sum.textContent = st[p[1]].size ? st[p[1]].size + ' נבחרו' : 'הכול';
+    if (UF_HOOK[p[0]]) UF_HOOK[p[0]]();
+  });
+  document.addEventListener('click', function(e){
+    var b = e.target.closest ? e.target.closest('[data-uf-clear]') : null; if (!b) return;
+    var ns = b.getAttribute('data-uf-clear'); ufRestore(ns, null);
+    var box = b.closest('[data-uf-ns]'); if (box) box.innerHTML = ufHtml(ns);
+    if (UF_HOOK[ns]) UF_HOOK[ns]();
+  });
+
   window.hubHier = {
+    ufSig: ufSig, ufState: ufState, ufActive: ufActive, ufPassUnit: ufPassUnit, ufPassEmp: ufPassEmp, ufMount: ufMount, ufHtml: ufHtml, ufSerialize: ufSerialize, ufRestore: ufRestore,
+    empShown: function(e){ return canSee(e.id) && ufPassEmp('org', e); },
     unitInfo: unitInfo, allUnits: allUnits, isRegular: isRegular, hidden: hidden, exposed: exposed, EMP_FIELDS: EMP_FIELDS, maskEmployeeRows: maskEmployeeRows, regularLayerOk: regularLayerOk, widgetOk: widgetOk, withScopedState: withScopedState, REG_HIDDEN_TABS: REG_HIDDEN_TABS,
     ramadDerived: ramadDerived, ramadEffective: ramadEffective, ramadMismatch: ramadMismatch, ramadSameAsDerived: ramadSameAsDerived, syncRamad: syncRamad,
     ramadFieldHtml: ramadFieldHtml, ramadApply: ramadApply, chainHtml: chainHtml, openRamadReport: openRamadReport,
@@ -7942,6 +8035,199 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     out.push({ label: 'פתח את מנהל ההחלפות', run: async function(){ C.openManager(); return ''; } });
     return out;
   } });
+})();
+</script>
+<script>
+/* ================================================================
+   Names and value lists (round 6, stage 25).
+   Names: first name, last name and full name are always stored; the full name is derived from the two. A normalizer in the
+   data layer keeps them consistent on every write (an old record that has only a full name gets a split; a name with more
+   than two words is split at the last word and marked for a decision in the "names to split" report).
+   Value lists: the closed lists (education, studies, service type, level, seniority, extra statuses...) are edited by the system user;
+   a value in use is never deleted, only disabled.
+   ================================================================ */
+(function(){
+  'use strict';
+  var el = function(id){ return document.getElementById(id); };
+  var esc = function(s){ return typeof escapeHtml === 'function' ? escapeHtml(s) : String(s); };
+  function splitName(full){ var w = String(full || '').trim().split(/\s+/).filter(Boolean); if (w.length <= 1) return { first: w[0] || '', last: '', words: w.length, list: w }; return { first: w.slice(0, -1).join(' '), last: w[w.length - 1], words: w.length, list: w }; }
+  function joinName(f, l){ return [f, l].map(function(x){ return String(x == null ? '' : x).trim(); }).filter(Boolean).join(' '); }
+  /* first / last of an employee-like record: stored values, or the split of the full name */
+  function parts(e){
+    if (!e) return { first: '', last: '' };
+    if ((e.firstName !== undefined || e.lastName !== undefined) && joinName(e.firstName, e.lastName) === String(e.name || '').trim()) return { first: e.firstName || '', last: e.lastName || '' };
+    var s = splitName(e.name); return { first: s.first, last: s.last };
+  }
+  /* the data-layer normalizers */
+  function fixPerson(e, fullKey){
+    var full = String(e[fullKey] || '').trim();
+    if (joinName(e.firstName, e.lastName) !== full){ var s = splitName(full); e.firstName = s.first; e.lastName = s.last; if (s.words > 2) e.nameSplitAuto = true; else delete e.nameSplitAuto; }
+  }
+  if (window.DataStore && DataStore.addNormalizer){
+    DataStore.addNormalizer('employees', function(list){ list.forEach(function(e){ if (e && typeof e === 'object' && e.name !== undefined) fixPerson(e, 'name'); }); });
+    DataStore.addNormalizer('convergence', function(list){ list.forEach(function(c){ if (c && typeof c === 'object' && (c.firstName || c.lastName)) c.fullName = joinName(c.firstName, c.lastName); }); });
+    DataStore.addNormalizer('positions', function(list){
+      list.forEach(function(p){ if (!p || typeof p !== 'object') return;
+        ['currentAppointment', 'futureAppointment'].forEach(function(k){ var a = p[k]; if (a && typeof a === 'object' && a.fullName){ var full = String(a.fullName).trim(); if (joinName(a.firstName, a.lastName) !== full){ var s = splitName(full); a.firstName = s.first; a.lastName = s.last; } } });
+      });
+    });
+  }
+
+  /* ---------- the employee form ---------- */
+  function formHtml(e){
+    var p = parts(e);
+    return '<div class="grid2"><div class="field"><label>שם פרטי</label><input type="text" id="f-firstName" value="' + esc(p.first) + '" data-init="' + esc(p.first) + '"></div>'
+      + '<div class="field"><label>שם משפחה</label><input type="text" id="f-lastName" value="' + esc(p.last) + '" data-init="' + esc(p.last) + '"></div></div>'
+      + '<div class="field"><label>שם מלא (נגזר מהשם הפרטי ושם המשפחה)</label><input type="text" id="f-name" value="' + esc(e.name) + '" data-init="' + esc(e.name) + '" readonly></div>';
+  }
+  document.addEventListener('input', function(ev){
+    if (ev.target.id === 'f-firstName' || ev.target.id === 'f-lastName'){ var n = el('f-name'); if (n) n.value = joinName(el('f-firstName').value, el('f-lastName').value); }
+  });
+  /* what the form says: the two names (the full name follows); a script that edits only the full-name field is also understood */
+  function readForm(){
+    var fi = el('f-firstName'), la = el('f-lastName'), nm = el('f-name');
+    if (!fi || !la) return { name: (nm ? nm.value.trim() : ''), firstName: '', lastName: '' };
+    var f = fi.value.trim(), l = la.value.trim(), full = nm ? nm.value.trim() : '';
+    var untouched = f === fi.getAttribute('data-init') && l === la.getAttribute('data-init');
+    if (untouched && nm && full !== nm.getAttribute('data-init')){ var s = splitName(full); return { name: full, firstName: s.first, lastName: s.last, auto: s.words > 2, changed: true }; }
+    return { name: joinName(f, l), firstName: f, lastName: l, changed: !untouched };
+  }
+
+  /* ---------- import: a full name column, or first + last columns ---------- */
+  function prepareRow(cfg, row){
+    (cfg.names || []).forEach(function(g, gi){
+      var full = String(row[g.full] || '').trim(), first = String(row[g.first] || '').trim(), last = String(row[g.last] || '').trim();
+      if (first || last){ row[g.first] = first; row[g.last] = last; row[g.full] = joinName(first, last); }
+      else if (full){ var s = splitName(full); row[g.first] = s.first; row[g.last] = s.last; row[g.full] = full; if (s.words > 2) (row.__amb = row.__amb || []).push({ gi: gi, words: s.list }); }
+    });
+    return row;
+  }
+  function ambiguous(cfg, rows){ var out = []; rows.forEach(function(r, ri){ (r.__amb || []).forEach(function(a){ out.push({ ri: ri, gi: a.gi, words: a.words }); }); }); return out; }
+  var pendingSplit = null;
+  function openSplitModal(cfg, configKey, rows, amb){
+    pendingSplit = { cfg: cfg, configKey: configKey, rows: rows, amb: amb };
+    var body = amb.map(function(a, i){
+      var w = a.words, opts = '';
+      for (var k = 1; k < w.length; k++) opts += '<option value="' + k + '"' + (k === w.length - 1 ? ' selected' : '') + '>שם פרטי: ' + esc(w.slice(0, k).join(' ')) + ' · שם משפחה: ' + esc(w.slice(k).join(' ')) + '</option>';
+      return '<tr><td>' + esc(rows[a.ri].__rowNo) + '</td><td>' + esc(w.join(' ')) + '</td><td><select data-ns="' + i + '">' + opts + '</select></td></tr>';
+    }).join('');
+    openModal('<h3>שמות שאי אפשר לפצל בוודאות</h3><div class="locked-note">בקובץ יש שמות מלאים עם יותר משתי מילים (למשל "בן דוד" או שם פרטי כפול). בכל שורה בחרי איפה לחתוך בין שם פרטי לשם משפחה. ברירת המחדל: המילה האחרונה היא שם המשפחה.</div><div class="table-scroll"><table><thead><tr><th>שורה</th><th>שם מלא בקובץ</th><th>איפה לחתוך</th></tr></thead><tbody>' + body + '</tbody></table></div><div class="modal-actions"><button class="primary" type="button" data-nm="split-go">המשך</button><button class="ghost" type="button" data-nm="split-cancel">ביטול</button></div>', true);
+  }
+  function applySplits(){
+    var p = pendingSplit; if (!p) return;
+    p.amb.forEach(function(a, i){
+      var sel = document.querySelector('[data-ns="' + i + '"]'), k = sel ? Number(sel.value) : a.words.length - 1, g = p.cfg.names[a.gi], row = p.rows[a.ri];
+      row[g.first] = a.words.slice(0, k).join(' '); row[g.last] = a.words.slice(k).join(' '); row[g.full] = a.words.join(' ');
+    });
+    pendingSplit = null; closeModal();
+    hubFinishAnalysis(p.configKey, p.rows);
+  }
+
+  /* ---------- the report of names that were split automatically ---------- */
+  var lastNames = [];
+  function openReport(msg){
+    lastNames = (state.employees || []).filter(function(e){ return e.nameSplitAuto && splitName(e.name).words > 2; });
+    var body = lastNames.map(function(e, i){
+      var w = splitName(e.name).list, cur = parts(e).first.split(/\s+/).filter(Boolean).length, opts = '<option value="">השאר כפי שפוצל</option>';
+      for (var k = 1; k < w.length; k++) opts += '<option value="' + k + '"' + (k === cur ? ' disabled' : '') + '>שם פרטי: ' + esc(w.slice(0, k).join(' ')) + ' · משפחה: ' + esc(w.slice(k).join(' ')) + '</option>';
+      return '<tr><td>' + esc(e.name) + '</td><td>' + esc(parts(e).first) + ' | ' + esc(parts(e).last) + '</td><td><select data-nr="' + i + '">' + opts + '</select></td></tr>';
+    }).join('') || '<tr><td colspan="3">אין שמות שפוצלו אוטומטית וממתינים להחלטה.</td></tr>';
+    openModal('<h3>שמות לפיצול</h3><div class="locked-note">שמות מלאים עם יותר משתי מילים פוצלו אוטומטית (המילה האחרונה היא שם המשפחה). לכל שם אפשר לבחור חיתוך אחר, או לאשר את הקיים. שום שם מלא לא משתנה.</div><div class="table-scroll"><table><thead><tr><th>שם מלא</th><th>שם פרטי | משפחה כיום</th><th>החלטה</th></tr></thead><tbody>' + body + '</tbody></table></div><div class="locked-note" id="nr-msg">' + esc(msg || '') + '</div><div class="modal-actions"><button class="primary" type="button" data-nm="report-apply">אשר את כל הרשימה</button><button class="ghost" onclick="closeModal()" type="button">סגור</button></div>', true);
+  }
+  async function applyReport(){
+    var n = 0;
+    lastNames.forEach(function(e, i){
+      var sel = document.querySelector('[data-nr="' + i + '"]'), rec = (state.employees || []).find(function(x){ return x.id === e.id; }); if (!rec) return;
+      var k = sel && sel.value ? Number(sel.value) : 0, w = splitName(rec.name).list;
+      if (k){ rec.firstName = w.slice(0, k).join(' '); rec.lastName = w.slice(k).join(' '); }
+      delete rec.nameSplitAuto; n++;
+    });
+    if (n){ await storeSet('employees', state.employees); for (var i = 0; i < lastNames.length; i++) if (window.hubSyncEmployeeCopies) await hubSyncEmployeeCopies(lastNames[i].id); }
+    openReport(n + ' שמות אושרו.');
+  }
+  document.addEventListener('click', async function(e){
+    var b = e.target.closest ? e.target.closest('[data-nm]') : null; if (!b) return;
+    var a = b.getAttribute('data-nm');
+    if (a === 'report'){ if (typeof isSuperUser === 'function' && isSuperUser()) openReport(); }
+    else if (a === 'report-apply') await applyReport();
+    else if (a === 'split-go') applySplits();
+    else if (a === 'split-cancel'){ pendingSplit = null; closeModal(); }
+  });
+  window.hubNames = { splitName: splitName, joinName: joinName, parts: parts, formHtml: formHtml, readForm: readForm, prepareRow: prepareRow, ambiguous: ambiguous, openSplitModal: openSplitModal, openReport: openReport };
+
+  /* ================= value lists ================= */
+  var LISTS = {
+    education: { label: 'השכלה', def: ['תיכונית', 'אקדמאית', 'תלפיון'], used: function(v){ return count('employees', function(e){ return e.education === v; }); }, rename: [['employees', 'education']] },
+    studies: { label: 'לימודים', def: ['חטיבת היעדרות 3 שעות', 'חטיבת היעדרות 5 שעות', 'יום לימודים מלא', 'תוכ"ש מוגבר', 'היברידי', 'לא רלוונטי'], used: function(v){ return count('employees', function(e){ return e.studies === v; }); }, rename: [['employees', 'studies']] },
+    seniority: { label: 'בכיר / מובהק / זוטר (תקנים)', def: ['בכיר', 'מובהק', 'זוטר'], used: function(v){ return count('positions', function(p){ return p.seniorityLevel === v; }); }, rename: [['positions', 'seniorityLevel']] },
+    statuses: { label: 'סטטוסים נוספים לעובד (תיבות סימון בכרטיס)', def: ['תלפיון'], used: function(v){ return count('employees', function(e){ return (e.extraStatuses || []).indexOf(v) > -1; }); }, renameArray: ['employees', 'extraStatuses'] },
+    grade: { label: 'דרגות (הצעות בשדה הדרגה)', def: [], used: function(v){ return count('employees', function(e){ return e.grade === v; }) + count('positions', function(p){ return p.grade === v; }); }, rename: [['employees', 'grade'], ['positions', 'grade']] },
+    temporality: { label: 'סוגי זמניות (הצעות בשדה)', def: [], used: function(v){ return count('positions', function(p){ return p.temporality === v; }); }, rename: [['positions', 'temporality']] }
+  };
+  function count(coll, fn){ return ((typeof state !== 'undefined' && state[coll]) || []).filter(fn).length; }
+  function stored(){ var a = window.DataStore && DataStore.peekAll ? DataStore.peekAll('valueLists') : null; return a && !Array.isArray(a) && typeof a === 'object' ? a : {}; }
+  function list(key){
+    var s = stored()[key], d = LISTS[key] ? LISTS[key].def : [];
+    var out = Array.isArray(s) ? s.map(function(x){ return { v: x.v, active: x.active !== false }; }) : d.map(function(v){ return { v: v, active: true }; });
+    /* values that arrived later in the code (a new default) join an existing stored list at the end */
+    if (Array.isArray(s)) d.forEach(function(v){ if (!out.some(function(x){ return x.v === v; }) && !(stored().__seen && (stored().__seen[key] || []).indexOf(v) > -1)) out.push({ v: v, active: true }); });
+    return out;
+  }
+  function values(key){ return list(key).filter(function(x){ return x.active; }).map(function(x){ return x.v; }); }
+  /* <option>s for a select: the active values, and the current value even when it is disabled or unknown */
+  function options(key, selected, emptyLabel){
+    var vs = values(key), h = '<option value=""' + (!selected ? ' selected' : '') + '>' + esc(emptyLabel || '— לא נבחר —') + '</option>';
+    vs.forEach(function(v){ h += '<option value="' + esc(v) + '"' + (v === selected ? ' selected' : '') + '>' + esc(v) + '</option>'; });
+    if (selected && vs.indexOf(selected) < 0) h += '<option value="' + esc(selected) + '" selected>' + esc(selected) + ' (ערך מושבת)</option>';
+    return h;
+  }
+  async function save(key, arr){
+    var s = Object.assign({}, stored()); s[key] = arr;
+    s.__seen = Object.assign({}, s.__seen || {}); s.__seen[key] = LISTS[key].def.slice();
+    return DataStore.set('valueLists', s);
+  }
+  async function addValue(key, v){
+    v = String(v || '').trim(); if (!v) return 'נא להזין ערך';
+    var l = list(key); if (l.some(function(x){ return x.v === v; })) return 'הערך כבר קיים ברשימה';
+    l.push({ v: v, active: true }); await save(key, l); return '';
+  }
+  async function setActive(key, v, on){ var l = list(key); var x = l.find(function(y){ return y.v === v; }); if (!x) return; x.active = on; await save(key, l); }
+  async function renameValue(key, oldV, newV){
+    newV = String(newV || '').trim(); if (!newV || newV === oldV) return 'נא להזין שם חדש';
+    var l = list(key); if (l.some(function(x){ return x.v === newV; })) return 'הערך כבר קיים ברשימה';
+    var x = l.find(function(y){ return y.v === oldV; }); if (!x) return 'הערך לא נמצא';
+    x.v = newV; await save(key, l);
+    var cfg = LISTS[key], n = 0;
+    for (var i = 0; i < (cfg.rename || []).length; i++){
+      var coll = cfg.rename[i][0], f = cfg.rename[i][1], arr = state[coll] || [], ch = false;
+      arr.forEach(function(r){ if (r[f] === oldV){ r[f] = newV; ch = true; n++; } });
+      if (ch) await storeSet(coll, arr);
+    }
+    if (cfg.renameArray){ var a2 = state[cfg.renameArray[0]] || [], ch2 = false; a2.forEach(function(r){ var xs = r[cfg.renameArray[1]]; if (Array.isArray(xs) && xs.indexOf(oldV) > -1){ r[cfg.renameArray[1]] = xs.map(function(q){ return q === oldV ? newV : q; }); ch2 = true; n++; } }); if (ch2) await storeSet(cfg.renameArray[0], a2); }
+    return n ? '' : '';
+  }
+  function card(){
+    if (typeof isSuperUser !== 'function' || !isSuperUser()) return '';
+    return '<div class="card"><div class="panel-head" style="margin-bottom:10px;"><div><h3 style="margin:0 0 6px;">רשימות ערכים</h3><span class="locked-note" style="display:inline">הרשימות הסגורות בטפסים (השכלה, לימודים, סוג שירות, סטטוסים, דרגות ועוד). אפשר להוסיף ערך, לשנות שם (הרשומות שמשתמשות בו מתעדכנות) ולהשבית. ערך שיש רשומות שמשתמשות בו לא נמחק: רק מושבת, והוא ממשיך להופיע ברשומות הקיימות.</span></div></div>'
+      + Object.keys(LISTS).map(function(k){
+        var cfg = LISTS[k];
+        return '<div class="form-section-title">' + esc(cfg.label) + '</div><div class="table-scroll"><table><thead><tr><th>ערך</th><th>בשימוש</th><th>מצב</th><th></th></tr></thead><tbody>'
+          + (list(k).map(function(x){ var used = cfg.used(x.v); return '<tr' + (x.active ? '' : ' style="opacity:.6"') + '><td>' + esc(x.v) + '</td><td>' + used + '</td><td>' + (x.active ? 'פעיל' : '<span class="tag">מושבת</span>') + '</td><td style="white-space:nowrap;"><button class="ghost" type="button" data-vl="rename" data-k="' + k + '" data-v="' + esc(x.v) + '">שנה שם</button> <button class="ghost" type="button" data-vl="toggle" data-k="' + k + '" data-v="' + esc(x.v) + '">' + (x.active ? 'השבת' : 'הפעל') + '</button></td></tr>'; }).join('') || '<tr><td colspan="4">הרשימה ריקה. הערכים בשדה מוצעים מהנתונים הקיימים.</td></tr>')
+          + '</tbody></table></div><div style="display:flex;gap:8px;margin:6px 0 12px;"><input type="text" data-vl-new="' + k + '" placeholder="ערך חדש"><button class="primary" type="button" data-vl="add" data-k="' + k + '">הוסף</button></div>';
+      }).join('') + '</div>';
+  }
+  window.hubPermExtras = window.hubPermExtras || [];
+  window.hubPermExtras.push(card);
+  document.addEventListener('click', async function(e){
+    var b = e.target.closest ? e.target.closest('[data-vl]') : null; if (!b || typeof isSuperUser !== 'function' || !isSuperUser()) return;
+    var a = b.getAttribute('data-vl'), k = b.getAttribute('data-k'), v = b.getAttribute('data-v'), err = '';
+    if (a === 'add'){ var inp = document.querySelector('[data-vl-new="' + k + '"]'); err = await addValue(k, inp ? inp.value : ''); }
+    else if (a === 'toggle') await setActive(k, v, !list(k).find(function(x){ return x.v === v; }).active);
+    else if (a === 'rename'){ var nv = prompt('שם חדש לערך "' + v + '":', v); if (nv === null) return; var n = LISTS[k].used(v); if (n && !confirm('הערך בשימוש ב-' + n + ' רשומות. השם יתעדכן בכולן. להמשיך?')) return; err = await renameValue(k, v, nv); }
+    if (err){ alert(err); return; }
+    if (typeof renderPermissionsPage === 'function') renderPermissionsPage();
+  });
+  window.hubLists = { LISTS: LISTS, list: list, values: values, options: options, addValue: addValue, setActive: setActive, renameValue: renameValue };
 })();
 </script>
 <script>
@@ -9171,9 +9457,7 @@ async function bulkAddSelectedToConvergence(){
   Array.from(selectedEmployeeIds).forEach(id=>{
     const e = empById(id);
     if (!e) return;
-    const parts = e.name.trim().split(/\s+/);
-    const lastName = parts.length>1 ? parts.pop() : '';
-    const firstName = parts.join(' ');
+    const __np = hubNames.parts(e), lastName = __np.last, firstName = __np.first;
     state.convergence.push({
       id: uid('conv'), employeeId: e.id, firstName, lastName, role: e.role||'', level: e.level||'', industry: e.industry||e.department||'', mador: e.team||'',
       releaseDate: getEmployeeReleaseDate(e), entryDate:'', exitDate:'', starred:false
@@ -9190,9 +9474,7 @@ async function bulkAddSelectedToConvergence(){
 function addEmployeeToConvergence(employeeId){
   const e = empById(employeeId);
   if (!e) return;
-  const parts = e.name.trim().split(/\s+/);
-  const lastName = parts.length>1 ? parts.pop() : '';
-  const firstName = parts.join(' ');
+  const __np = hubNames.parts(e), lastName = __np.last, firstName = __np.first;
   openModal(convFormHtml({employeeId:e.id, firstName, lastName, role:e.role||'', level:e.level||'', industry:e.industry||e.department||'', mador:e.team||'', releaseDate:getEmployeeReleaseDate(e), entryDate:'', exitDate:'', starred:false}));
 }
 
@@ -9215,9 +9497,7 @@ async function confirmAddEmployeesToConvergence(){
   ids.forEach(id=>{
     const e = empById(id);
     if (!e) return;
-    const parts = e.name.trim().split(/\s+/);
-    const lastName = parts.length>1 ? parts.pop() : '';
-    const firstName = parts.join(' ');
+    const __np = hubNames.parts(e), lastName = __np.last, firstName = __np.first;
     state.convergence.push({
       id: uid('conv'), employeeId: e.id, firstName, lastName, role: e.role||'', level: e.level||'', industry: e.industry||e.department||'', mador: e.team||'',
       releaseDate: getEmployeeReleaseDate(e), entryDate:'', exitDate:'', starred:false
@@ -9245,7 +9525,7 @@ function employeeFormHtml(existing, presetManagerId){
     <h3>${existing ? 'עריכת עובד' : 'עובד חדש'}</h3>
 
     <div class="form-section-title">פרטים אישיים</div>
-    <div class="field"><label>שם מלא</label><input type="text" id="f-name" value="${escapeHtml(e.name)}"></div>
+    ${window.hubNames ? hubNames.formHtml(e) : `<div class="field"><label>שם מלא</label><input type="text" id="f-name" value="${escapeHtml(e.name)}"></div>`}
     <div class="grid2">
       <div class="field"><label>אימייל</label><input type="email" id="f-email" value="${escapeHtml(e.email)}"></div>
       <div class="field"><label>טלפון</label><input type="tel" id="f-phone" value="${escapeHtml(e.phone)}"></div>
@@ -9265,7 +9545,7 @@ function employeeFormHtml(existing, presetManagerId){
     <div class="locked-note">התאריך הקובע לפי סוג השירות: חובה — סיום חובה, אזרח — סיום חוזה, קבע — שחרור בפועל. שחרור בפועל גובר תמיד. התאריך הקובע מתעדכן בתקן המקושר ובהתכנסות.</div>
     <div class="grid2">
       <div class="field"><label>מספר אישי</label><input type="text" id="f-personalNumber" value="${escapeHtml(e.personalNumber)}"><div id="dup-pn"></div></div>
-      <div class="field"><label>דרגה</label><input type="text" id="f-grade" value="${escapeHtml(e.grade)}"></div>
+      <div class="field"><label>דרגה</label><input type="text" id="f-grade" list="f-grade-list" value="${escapeHtml(e.grade)}"><datalist id="f-grade-list">${Array.from(new Set(hubLists.values('grade').concat(state.employees.map(x=>x.grade).filter(Boolean)))).map(t=>`<option value="${escapeHtml(t)}">`).join('')}</datalist></div>
     </div>
     <div class="field"><label class="checkbox-row"><input type="checkbox" id="f-active" ${e.active===false?'':'checked'}> עובד פעיל</label></div>
 
@@ -9328,18 +9608,12 @@ function employeeFormHtml(existing, presetManagerId){
       <div class="field"><label style="display:flex; align-items:center; gap:8px; font-weight:400; color:var(--text);"><input type="checkbox" id="f-flexA" style="width:auto;" ${e.flexA?'checked':''}> גמוש א'</label></div>
       <div class="field"><label style="display:flex; align-items:center; gap:8px; font-weight:400; color:var(--text);"><input type="checkbox" id="f-flexB" style="width:auto;" ${e.flexB?'checked':''}> גמוש ב'</label></div>
     </div>
+    ${hubLists.values('statuses').length || (e.extraStatuses||[]).length ? `<div class="field" id="xs-wrap"><label>סטטוסים נוספים</label><div class="checkbox-list" style="max-height:none;">${Array.from(new Set(hubLists.values('statuses').concat(e.extraStatuses||[]))).map(v=>`<label class="checkbox-row"><input type="checkbox" data-xs value="${escapeHtml(v)}" ${(e.extraStatuses||[]).includes(v)?'checked':''}> ${escapeHtml(v)}</label>`).join('')}</div></div>` : ''}
     <div class="field"><label>השכלה</label>
-      <select id="f-education">
-        <option value="" ${!e.education?'selected':''}>— לא נבחר —</option>
-        <option value="תיכונית" ${e.education==='תיכונית'?'selected':''}>תיכונית</option>
-        <option value="אקדמאית" ${e.education==='אקדמאית'?'selected':''}>אקדמאית</option>
-      </select>
+      <select id="f-education">${hubLists.options('education', e.education)}</select>
     </div>
     <div class="field"><label>לימודים</label>
-      <select id="f-studies">
-        <option value="" ${!e.studies?'selected':''}>— לא נבחר —</option>
-        ${studiesOptions.map(s=>`<option value="${escapeHtml(s)}" ${e.studies===s?'selected':''}>${escapeHtml(s)}</option>`).join('')}
-      </select>
+      <select id="f-studies">${hubLists.options('studies', e.studies)}</select>
     </div>
 
     <div class="form-section-title">מגורים</div>
@@ -9363,10 +9637,11 @@ function addEmployee(presetManagerId){ if (window.hubHier && !hubHier.canCreateE
 function editEmployee(id){ if (window.hubHier && !hubHier.canManageEmployee(id)){ alert('העובד אינו בהיקף שלך'); return; } openModal(employeeFormHtml(empById(id))); if (window.hubUnitPickerInit) hubUnitPickerInit(); hubPosPickerInit(empById(id)); }
 
 async function saveEmployee(existingId){
-  const name = document.getElementById('f-name').value.trim();
+  const nm = window.hubNames ? hubNames.readForm() : {name: document.getElementById('f-name').value.trim()};
+  const name = nm.name;
   if (!name){ alert('נא להזין שם'); return; }
   const data = {
-    name,
+    name, ...(window.hubNames ? {firstName: nm.firstName, lastName: nm.lastName} : {}),
     role: document.getElementById('f-role').value.trim(),
     department: document.getElementById('f-department').value.trim(),
     managerId: document.getElementById('f-managerId').value || null,
@@ -9400,6 +9675,8 @@ async function saveEmployee(existingId){
     notes: document.getElementById('f-notes').value.trim(),
     active: document.getElementById('f-active').checked
   };
+  if (nm.changed) data.nameSplitAuto = nm.auto ? true : undefined; else if (nm.auto) data.nameSplitAuto = true;
+  if (document.getElementById('xs-wrap')) data.extraStatuses = Array.from(document.querySelectorAll('[data-xs]:checked')).map(i=>i.value);
   const prevUnitId = existingId ? ((empById(existingId)||{}).orgUnitId || null) : null;
   const pickedUnit = window.hubUnitPickerValue ? hubUnitPickerValue() : undefined;
   if (pickedUnit) data.orgUnitId = pickedUnit; else if (pickedUnit === '' && prevUnitId) data.orgUnitId = null;
@@ -9575,6 +9852,7 @@ function openEmployeeProfile(id){
   if (e.active===false) flags.push('לא פעיל');
   if (e.isVolunteer) flags.push('מתנדב');
   if (e.isCadet) flags.push('עתודאי');
+  (e.extraStatuses||[]).forEach(x=>flags.push(x));
   if (e.flexA) flags.push("גמוש א'");
   if (e.flexB) flags.push("גמוש ב'");
 
@@ -9616,7 +9894,8 @@ function openEmployeeProfile(id){
 /* ================= ORG CHART TAB ================= */
 function renderOrgChart(){
   const root = document.getElementById('orgTree');
-  const vis = e => !window.hubHier || hubHier.canSee(e.id);
+  if (window.hubHier && document.getElementById('orgUnitFilters') && (!document.querySelector('#orgUnitFilters details') || document.getElementById('orgUnitFilters').getAttribute('data-sig') !== hubHier.ufSig())) hubHier.ufMount('org', 'orgUnitFilters', ()=>{ renderOrgChart(); if (window.hubRoles) hubRoles.render(); });
+  const vis = e => !window.hubHier || hubHier.empShown(e);
   const topLevel = state.employees.filter(e=>vis(e) && (!e.managerId || !vis(empById(e.managerId)||{})));
   if (!topLevel.length){
     root.innerHTML = `<div class="empty-state"><div class="big">🏢</div>אין עדיין מבנה ארגוני. הוסף בעל תפקיד בכיר כדי להתחיל.</div>`;
@@ -9625,7 +9904,7 @@ function renderOrgChart(){
   root.innerHTML = topLevel.map(e=>buildNode(e)).join('');
 }
 function buildNode(emp){
-  const children = state.employees.filter(e=>e.managerId===emp.id && (!window.hubHier || hubHier.canSee(e.id)));
+  const children = state.employees.filter(e=>e.managerId===emp.id && (!window.hubHier || hubHier.empShown(e)));
   return `
     <div class="node-row">
       <div>
@@ -10480,14 +10759,9 @@ function positionFormHtml(existing){
     <div class="field"><label>מלל משרה</label><input type="text" id="pos-jobText" value="${escapeHtml(p.jobText)}"></div>
     <div class="field"><label>מלל עיסוק</label><input type="text" id="pos-occupationText" value="${escapeHtml(p.occupationText)}"></div>
     <div class="grid2">
-      <div class="field"><label>דרגה</label><input type="text" id="pos-grade" value="${escapeHtml(p.grade)}"></div>
+      <div class="field"><label>דרגה</label><input type="text" id="pos-grade" list="pos-grade-list" value="${escapeHtml(p.grade)}"><datalist id="pos-grade-list">${Array.from(new Set(hubLists.values('grade').concat(state.positions.map(x=>x.grade).filter(Boolean)))).map(t=>`<option value="${escapeHtml(t)}">`).join('')}</datalist></div>
       <div class="field"><label>בכיר/מובהק/זוטר</label>
-        <select id="pos-seniorityLevel">
-          <option value="" ${!p.seniorityLevel?'selected':''}>— לא נבחר —</option>
-          <option value="בכיר" ${p.seniorityLevel==='בכיר'?'selected':''}>בכיר</option>
-          <option value="מובהק" ${p.seniorityLevel==='מובהק'?'selected':''}>מובהק</option>
-          <option value="זוטר" ${p.seniorityLevel==='זוטר'?'selected':''}>זוטר</option>
-        </select>
+        <select id="pos-seniorityLevel">${hubLists.options('seniority', p.seniorityLevel)}</select>
       </div>
     </div>
     <div class="field"><label>יחידת רישומת</label><input type="text" id="pos-registrationUnit" value="${escapeHtml(p.registrationUnit)}"></div>
@@ -10511,7 +10785,7 @@ function positionFormHtml(existing){
     <div class="grid2">
       <div class="field"><label>סוג זמניות</label>
         <input type="text" id="pos-temporality" list="pos-temp-list" value="${escapeHtml(p.temporality)}">
-        <datalist id="pos-temp-list">${[...new Set(state.positions.map(x=>x.temporality).filter(Boolean))].map(t=>`<option value="${escapeHtml(t)}">`).join('')}</datalist>
+        <datalist id="pos-temp-list">${[...new Set(hubLists.values('temporality').concat(state.positions.map(x=>x.temporality).filter(Boolean)))].map(t=>`<option value="${escapeHtml(t)}">`).join('')}</datalist>
       </div>
       <div class="field"><label>דירוג מופת</label>
         <label style="display:flex; align-items:center; gap:8px; font-weight:400; color:var(--text); padding-top:8px;"><input type="checkbox" id="pos-exemplary" style="width:auto;" ${p.exemplary?'checked':''}> V — מסומן</label>
@@ -11106,8 +11380,11 @@ const IMPORT_CONFIGS = {
   employees: {
     title: 'ייבוא עובדים מאקסל',
     recordLabel: r => r.name,
+    names: [{full:'name', first:'firstName', last:'lastName'}], nameRequired: true, noDiff: ['firstName','lastName'],
     fields: [
-      {key:'name', label:'שם מלא', required:true},
+      {key:'name', label:'שם מלא'},
+      {key:'firstName', label:'שם פרטי'},
+      {key:'lastName', label:'שם משפחה'},
       {key:'role', label:'תפקיד'},
       {key:'department', label:'מרכז', aliases:['מחלקה']},
       {key:'industry', label:'ענף'},
@@ -11154,6 +11431,8 @@ const IMPORT_CONFIGS = {
     matchExisting: row => hubFindEmployeeForImport(row),
     warnRow: row => row.personalNumber ? '' : 'אין מספר אישי: הזיהוי לפי שם בלבד',
     getExisting: (existing, key) => {
+      if (key==='firstName') return window.hubNames ? hubNames.parts(existing).first : '';
+      if (key==='lastName') return window.hubNames ? hubNames.parts(existing).last : '';
       if (key==='managerName') return existing.managerId ? (empById(existing.managerId)||{}).name || '' : '';
       if (key==='active') return existing.active===false ? 'לא' : 'כן';
       return existing[key] || '';
@@ -11161,7 +11440,7 @@ const IMPORT_CONFIGS = {
     beginImport: () => ({ pendingManagerNames: {}, touched: [] }),
     createRecord: (ctx, row) => {
       const emp = {
-        id: uid('e'), name:row.name, role:row.role, department:row.department, managerId:null,
+        id: uid('e'), name:row.name, firstName:row.firstName, lastName:row.lastName, role:row.role, department:row.department, managerId:null,
         email:row.email, phone:row.phone, startDate:row.startDate, enlistmentDate:row.enlistmentDate, compulsoryReleaseDate:row.compulsoryReleaseDate, actualReleaseDate:row.actualReleaseDate, contractEndDate:row.contractEndDate, unitIntakeDate:row.unitIntakeDate, personalNumber:row.personalNumber, positionSerial:row.positionSerial || '', grade:row.grade,
         industry:row.industry, mador:row.mador, team:row.team, ramad:row.ramad, rank:row.rank, level:row.level, serviceType:row.serviceType,
         professionNumber:row.professionNumber, professionText:row.professionText,
@@ -11174,6 +11453,7 @@ const IMPORT_CONFIGS = {
       return emp;
     },
     mergeRecord: (ctx, existing, row) => {
+      if (row.name && row.name !== existing.name){ existing.name = row.name; existing.firstName = row.firstName; existing.lastName = row.lastName; delete existing.nameSplitAuto; }
       if (row.role) existing.role = row.role;
       if (row.department) existing.department = row.department;
       if (row.industry) existing.industry = row.industry;
@@ -11238,14 +11518,19 @@ const IMPORT_CONFIGS = {
       {key:'temporality', label:'סוג זמניות'},
       {key:'exemplary', label:'דירוג מופת (V)'},
       {key:'curFullName', label:'מינוי נוכחי - שם מלא'},
+      {key:'curFirstName', label:'מינוי נוכחי - שם פרטי'},
+      {key:'curLastName', label:'מינוי נוכחי - שם משפחה'},
       {key:'curPersonalNumber', label:'מינוי נוכחי - מספר אישי'},
       {key:'curReleaseDate', label:'מינוי נוכחי - תאריך שחרור'},
       {key:'futFullName', label:'מינוי עתידי - שם מלא'},
+      {key:'futFirstName', label:'מינוי עתידי - שם פרטי'},
+      {key:'futLastName', label:'מינוי עתידי - שם משפחה'},
       {key:'futPersonalNumber', label:'מינוי עתידי - מספר אישי'},
       {key:'futStaffingDate', label:'מינוי עתידי - תאריך איוש'},
       {key:'regulationNotes', label:'הערות תקינה'},
       {key:'generalNotes', label:'מקום להערות'}
     ],
+    names: [{full:'curFullName', first:'curFirstName', last:'curLastName'}, {full:'futFullName', first:'futFirstName', last:'futLastName'}], noDiff: ['curFirstName','curLastName','futFirstName','futLastName'],
     normalizeRow: row => {
       row.exemplary = /^(v|✓|✔|x|כן|1|true)$/i.test((row.exemplary || '').trim()) ? 'V' : '';
       return row;
@@ -11254,7 +11539,7 @@ const IMPORT_CONFIGS = {
     matchExisting: row => state.positions.find(p=>p.serialNumber===row.serialNumber) || null,
     getExisting: (existing, key) => {
       const cur = existing.currentAppointment || {}, fut = existing.futureAppointment || {};
-      const map = { curFullName:cur.fullName, curPersonalNumber:cur.personalNumber, curReleaseDate:cur.releaseDate,
+      const map = { curFirstName:cur.firstName, curLastName:cur.lastName, futFirstName:fut.firstName, futLastName:fut.lastName, curFullName:cur.fullName, curPersonalNumber:cur.personalNumber, curReleaseDate:cur.releaseDate,
         futFullName:fut.fullName, futPersonalNumber:fut.personalNumber, futStaffingDate:fut.staffingDate, exemplary: existing.exemplary ? 'V' : '' };
       return (key in map) ? (map[key]||'') : (existing[key]||'');
     },
@@ -11265,8 +11550,8 @@ const IMPORT_CONFIGS = {
         profession:row.profession, grade:row.grade, seniorityLevel:row.seniorityLevel, registrationUnit:row.registrationUnit,
         counterStatus:row.counterStatus, freezeStatus:row.freezeStatus,
         temporality:row.temporality, exemplary:!!row.exemplary,
-        currentAppointment: {fullName:row.curFullName, personalNumber:row.curPersonalNumber, releaseDate:row.curReleaseDate, linkedEmployeeId:null},
-        futureAppointment: {fullName:row.futFullName, personalNumber:row.futPersonalNumber, staffingDate:row.futStaffingDate},
+        currentAppointment: {fullName:row.curFullName, firstName:row.curFirstName, lastName:row.curLastName, personalNumber:row.curPersonalNumber, releaseDate:row.curReleaseDate, linkedEmployeeId:null},
+        futureAppointment: {fullName:row.futFullName, firstName:row.futFirstName, lastName:row.futLastName, personalNumber:row.futPersonalNumber, staffingDate:row.futStaffingDate},
         linkedConvergenceId:null, regulationNotes:row.regulationNotes, generalNotes:row.generalNotes
       };
       state.positions.push(pos);
@@ -11281,12 +11566,14 @@ const IMPORT_CONFIGS = {
         temporality:row.temporality||existing.temporality, exemplary: row.exemplary ? true : !!existing.exemplary,
         currentAppointment: {
           fullName: row.curFullName||(existing.currentAppointment||{}).fullName,
+          firstName: row.curFullName ? row.curFirstName : (existing.currentAppointment||{}).firstName, lastName: row.curFullName ? row.curLastName : (existing.currentAppointment||{}).lastName,
           personalNumber: row.curPersonalNumber||(existing.currentAppointment||{}).personalNumber,
           releaseDate: row.curReleaseDate||(existing.currentAppointment||{}).releaseDate,
           linkedEmployeeId: (existing.currentAppointment||{}).linkedEmployeeId || null
         },
         futureAppointment: {
           fullName: row.futFullName||(existing.futureAppointment||{}).fullName,
+          firstName: row.futFullName ? row.futFirstName : (existing.futureAppointment||{}).firstName, lastName: row.futFullName ? row.futLastName : (existing.futureAppointment||{}).lastName,
           personalNumber: row.futPersonalNumber||(existing.futureAppointment||{}).personalNumber,
           staffingDate: row.futStaffingDate||(existing.futureAppointment||{}).staffingDate
         },
@@ -11305,9 +11592,11 @@ const IMPORT_CONFIGS = {
   convergence: {
     title: 'ייבוא רשומות התכנסות מאקסל',
     recordLabel: r => `${r.firstName} ${r.lastName}`,
+    names: [{full:'fullName', first:'firstName', last:'lastName'}], nameRequired: true, noDiff: ['fullName'],
     fields: [
-      {key:'firstName', label:'שם פרטי', required:true},
-      {key:'lastName', label:'שם משפחה', required:true},
+      {key:'fullName', label:'שם מלא'},
+      {key:'firstName', label:'שם פרטי'},
+      {key:'lastName', label:'שם משפחה'},
       {key:'role', label:'תפקיד'},
       {key:'level', label:'זוטר/מובהק'},
       {key:'industry', label:'ענף'},
@@ -11344,7 +11633,9 @@ const IMPORT_CONFIGS = {
     title: 'ייבוא תמריצים מאקסל',
     recordLabel: r => `${r.employeeName || r.personalNumber || '?'} — ${r.name}`,
     fields: [
-      {key:'employeeName', label:'שם מלא', required:true},
+      {key:'employeeName', label:'שם מלא'},
+      {key:'empFirst', label:'שם פרטי'},
+      {key:'empLast', label:'שם משפחה'},
       {key:'personalNumber', label:'מספר אישי'},
       {key:'name', label:'שם תמריץ', required:true},
       {key:'code', label:'קוד תמריץ'},
@@ -11356,7 +11647,8 @@ const IMPORT_CONFIGS = {
       {key:'entered', label:'הוזן'},
       {key:'notes', label:'הערות'}
     ],
-    noDiff: ['employeeName', 'personalNumber', 'name', 'startDate'],   // identify the record, never "conflict"
+    names: [{full:'employeeName', first:'empFirst', last:'empLast'}], nameRequired: true,
+    noDiff: ['employeeName', 'empFirst', 'empLast', 'personalNumber', 'name', 'startDate'],   // identify the record, never "conflict"
     normalizeRow: row => {
       const g = String(row.gross || '').replace(/[₪,\s]/g, '');
       row.gross = (g !== '' && !isNaN(Number(g))) ? String(Number(g)) : '';
@@ -11489,13 +11781,20 @@ function analyzeExcelImport(){
   for (const f of cfg.fields){
     if (f.required && !mapping[f.key]){ alert(`נא למפות את שדה החובה: ${f.label}`); return; }
   }
+  if (cfg.nameRequired){ const g = cfg.names[0]; if (!mapping[g.full] && !(mapping[g.first] && mapping[g.last])){ alert('נא למפות עמודה של שם מלא, או עמודות נפרדות של שם פרטי ושם משפחה'); return; } }
   const mappedRows = pendingImport.rows.map((r, idx)=>{
     const obj = {};
     cfg.fields.forEach(f=>{ obj[f.key] = mapping[f.key] ? String(r[mapping[f.key]] ?? '').trim() : ''; if (/Date$/.test(f.key) && obj[f.key]) obj[f.key] = normalizeImportDate(obj[f.key]); });
+    if (cfg.names && window.hubNames) hubNames.prepareRow(cfg, obj);
     const norm = cfg.normalizeRow ? cfg.normalizeRow(obj) : obj;
     norm.__rowNo = idx + 2;
     return norm;
   });
+  if (cfg.names && window.hubNames){ const amb = hubNames.ambiguous(cfg, mappedRows); if (amb.length){ hubNames.openSplitModal(cfg, configKey, mappedRows, amb); return; } }
+  hubFinishAnalysis(configKey, mappedRows);
+}
+function hubFinishAnalysis(configKey, mappedRows){
+  const cfg = IMPORT_CONFIGS[configKey];
   pendingImport = null;
   const split = splitFileDuplicates(cfg, mappedRows);
   if (split.conflictGroups.length){
@@ -11689,7 +11988,7 @@ function exportEmployees(){
       'תקן נוכחי': pos ? `${pos.serialNumber} — ${pos.jobText}` : '',
       'אימייל': e.email, 'טלפון': e.phone, 'תאריך התחלה': e.startDate, 'תאריך גיוס': e.enlistmentDate, 'סיום חובה': e.compulsoryReleaseDate, 'שחרור בפועל': e.actualReleaseDate, 'סיום חוזה': e.contractEndDate, 'תאריך שחרור קובע': effectiveReleaseDate(e).date, 'תאריך קליטה ליחידה': e.unitIntakeDate, 'מספר אישי': e.personalNumber, 'דרגה': e.grade,
       'מספר מקצוע': e.professionNumber, 'מלל מקצוע': e.professionText,
-      'מתנדב': e.isVolunteer ? 'כן' : 'לא', 'עתודאי': e.isCadet ? 'כן' : 'לא',
+      'מתנדב': e.isVolunteer ? 'כן' : 'לא', 'עתודאי': e.isCadet ? 'כן' : 'לא', 'סטטוסים נוספים': (e.extraStatuses||[]).join('; '),
       'השכלה': e.education, "גמוש א'": e.flexA ? 'כן' : 'לא', "גמוש ב'": e.flexB ? 'כן' : 'לא',
       'לימודים': e.studies, 'עיר מגורים': e.city, 'רחוב': e.street, 'הערות': e.notes
     };
