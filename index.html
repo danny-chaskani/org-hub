@@ -4517,12 +4517,14 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     var now = today(), n = 0;
     for (var i = 0; i < state.tasks.length; i++){
       var t = state.tasks[i];
-      if (t.autoKind !== 'flex-end' || t.status === 'done' || !t.remindAt || t.remindAt > now) continue;
+      if (t.status === 'done' || !t.remindAt || t.remindAt > now) continue;
+      var isFlexTask = t.autoKind === 'flex-end';
       for (var j = 0; j < (t.assignedTo || []).length; j++){
         var users = (state.users || []).filter(function(u){ return u.employeeId === t.assignedTo[j] && u.active !== false; });
         for (var k = 0; k < users.length; k++){
           var late = t.dueDate && t.dueDate < now;
-          var r = await hubNotify.add({ recipientId: users[k].id, kind: 'reminder', title: t.title, body: late ? 'הגמישות הסתיימה ב-' + t.dueDate + ' והעובד עדיין לא משובץ.' : 'הגמישות מסתיימת ב-' + t.dueDate + '.', dedupeKey: 'flexrem:' + t.id + ':' + t.remindAt + (late ? ':late' : '') });
+          var body = isFlexTask ? (late ? 'הגמישות הסתיימה ב-' + t.dueDate + ' והעובד עדיין לא משובץ.' : 'הגמישות מסתיימת ב-' + t.dueDate + '.') : (t.dueDate ? (late ? 'המשימה באיחור. תאריך היעד היה ' + t.dueDate + '.' : 'תאריך היעד: ' + t.dueDate + '.') : '');
+          var r = await hubNotify.add({ recipientId: users[k].id, kind: 'reminder', title: t.title, body: body, dedupeKey: 'taskrem:' + t.id + ':' + t.remindAt + (late ? ':late' : '') });
           if (r) n++;
         }
       }
@@ -5256,6 +5258,155 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
 })();
 </script>
 <script>
+/* ================================================================
+   Automatic calendar rules (round 3, stage 11).
+   A rule says: "N days before / after a date of an employee or a convergence, create a task".
+   - key of the task: rule + record (autoKey), so the same task is never created twice;
+     a change of the source date updates the open task instead of creating another one
+   - a task the user already finished is not created again for the same source date
+   - manual edits of an open task survive until the rule or the source date changes
+   - reminders: checked at sign-in and every minute while the system is open
+   ================================================================ */
+(function(){
+  'use strict';
+  var el = function(id){ return document.getElementById(id); };
+  var esc = function(s){ return typeof escapeHtml === 'function' ? escapeHtml(s) : String(s); };
+  var SOURCES = {
+    'employee.actualReleaseDate': { label: 'שחרור בפועל (עובד)', entity: 'employee', get: function(e){ return e.actualReleaseDate || ''; } },
+    'employee.release': { label: 'תאריך שחרור קובע (עובד)', entity: 'employee', get: function(e){ return effectiveReleaseDate(e).date || ''; } },
+    'employee.compulsoryReleaseDate': { label: 'סיום חובה (עובד)', entity: 'employee', get: function(e){ return e.compulsoryReleaseDate || ''; } },
+    'convergence.entryDate': { label: 'כניסה להתכנסות', entity: 'convergence', get: function(c){ return c.entryDate || ''; } },
+    'convergence.exitDate': { label: 'יציאה מהתכנסות', entity: 'convergence', get: function(c){ return c.exitDate || ''; } }
+  };
+  var PRIORITY = { low: 'נמוכה', med: 'בינונית', high: 'גבוהה' };
+  var rules = [];
+  function today(){ return new Date().toISOString().slice(0, 10); }
+  function addDays(iso, n){ var d = new Date(iso + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }
+  function newId(){ return 'cr' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5); }
+
+  async function load(){ var r = await DataStore.get('calendarRules', []); rules = Array.isArray(r) ? r : []; return rules; }
+  async function save(){ var ok = await DataStore.set('calendarRules', rules); if (ok) await sync(); return ok; }
+
+  function assigneeFor(rule, emp){
+    var sys = window.hubFlex ? hubFlex.systemEmployeeId() : null;
+    if (rule.assignee === 'manager') return (emp && emp.managerId && empById(emp.managerId) && emp.managerId) || sys;
+    if (rule.assignee === 'employee') return emp ? emp.id : sys;
+    if (rule.assignee && rule.assignee !== 'system' && empById(rule.assignee)) return rule.assignee;
+    return sys;
+  }
+  function entityList(src){
+    if (src.entity === 'employee') return state.employees.filter(function(e){ return e.active !== false; }).map(function(e){ return { id: e.id, emp: e, name: e.name, rec: e }; });
+    return state.convergence.map(function(c){ var e = c.employeeId ? empById(c.employeeId) : null; return { id: c.id, emp: e, name: ((c.firstName || '') + ' ' + (c.lastName || '')).trim(), rec: c }; });
+  }
+  var running = false, again = false;
+  async function sync(){
+    if (running){ again = true; return; }
+    running = true;
+    try{
+      do {
+        again = false;
+        var now = today(), changed = false, keep = new Set();
+        rules.forEach(function(rule){
+          var src = SOURCES[rule.source]; if (!src) return;
+          entityList(src).forEach(function(it){
+            var key = 'rule:' + rule.id + ':' + it.id, date = src.get(it.rec);
+            var open = state.tasks.find(function(t){ return t.autoKey === key && t.status !== 'done'; });
+            var doneSame = state.tasks.find(function(t){ return t.autoKey === key && t.status === 'done' && t.ruleSrc === date; });
+            var assignee = assigneeFor(rule, it.emp);
+            var wanted = rule.active !== false && date && assignee && !doneSame;
+            var due = wanted ? addDays(date, Number(rule.offsetDays) || 0) : '';
+            if (wanted && !open && due < now) wanted = false;                    /* past dates are not turned into tasks */
+            if (!wanted){ if (open){ state.tasks = state.tasks.filter(function(t){ return t !== open; }); changed = true; } return; }
+            var remindAt = rule.remindDays ? addDays(due, -Number(rule.remindDays)) : '';
+            var sig = JSON.stringify([rule.offsetDays, rule.title, rule.assignee, rule.priority, rule.remindDays, date, assignee]);
+            var title = String(rule.title || rule.name || 'משימה').replace(/\{name\}/g, it.name);
+            if (!open){
+              state.tasks.push({ id: uid('t'), status: 'none', priority: rule.priority || 'med', assignedBy: assignee, assignedTo: [assignee], aboutEmployeeIds: it.emp ? [it.emp.id] : [],
+                title: title, description: 'נוצרה אוטומטית מהכלל "' + (rule.name || '') + '" (' + src.label + ': ' + date + ').', dueDate: due, remindAt: remindAt,
+                autoKey: key, autoKind: 'rule', ruleId: rule.id, ruleSrc: date, ruleSig: sig });
+              changed = true;
+            } else if (open.ruleSig !== sig){
+              open.title = title; open.dueDate = due; open.remindAt = remindAt; open.priority = rule.priority || 'med'; open.assignedTo = [assignee]; open.ruleSrc = date; open.ruleSig = sig;
+              changed = true;
+            }
+          });
+        });
+        /* tasks of rules that were deleted */
+        var ids = new Set(rules.map(function(r){ return r.id; }));
+        var before = state.tasks.length;
+        state.tasks = state.tasks.filter(function(t){ return !(t.autoKind === 'rule' && t.status !== 'done' && !ids.has(t.ruleId)); });
+        if (state.tasks.length !== before) changed = true;
+        if (changed){ await storeSet('tasks', state.tasks); if (typeof renderTasks === 'function'){ try{ renderTasks(); }catch(e){} } if (window.hubCalendar && el('panel-calendar') && el('panel-calendar').classList.contains('active')) hubCalendar.render(); }
+      } while (again);
+    } finally { running = false; }
+  }
+
+  /* ---------- rules editor ---------- */
+  function ruleLine(r){
+    var src = SOURCES[r.source], off = Number(r.offsetDays) || 0;
+    var when = off === 0 ? 'ביום' : (Math.abs(off) + ' ימים ' + (off < 0 ? 'לפני' : 'אחרי'));
+    var n = state.tasks.filter(function(t){ return t.ruleId === r.id && t.status !== 'done'; }).length;
+    return '<tr><td><b>' + esc(r.name || '') + '</b>' + (r.active === false ? ' <span class="tag">כבוי</span>' : '') + '</td><td>' + esc(when + ' ' + (src ? src.label : r.source)) + '</td><td>' + esc(r.title || '') + '</td><td>' + n + '</td><td style="white-space:nowrap;"><button class="icon-btn" data-cr-edit="' + esc(r.id) + '" title="עריכה">✏️</button><button class="icon-btn danger-txt" data-cr-del="' + esc(r.id) + '" title="מחיקה">🗑️</button></td></tr>';
+  }
+  async function openList(){
+    if (typeof isSuperUser === 'function' && !isSuperUser()){ alert('הגדרת כללים אוטומטיים זמינה למשתמשי על בלבד'); return; }
+    await load();
+    openModal('<h3>כללים אוטומטיים</h3><div class="locked-note">כלל יוצר משימה לפי תאריך של עובד או של התכנסות. אותה משימה לא נוצרת פעמיים, ושינוי של התאריך המקורי מעדכן את המשימה הפתוחה. משימה שהושלמה לא נוצרת מחדש לאותו תאריך.</div>'
+      + '<div class="table-scroll"><table><thead><tr><th>כלל</th><th>מתי</th><th>משימה</th><th>פתוחות</th><th></th></tr></thead><tbody>' + (rules.map(ruleLine).join('') || '<tr><td colspan="5">אין כללים עדיין.</td></tr>') + '</tbody></table></div>'
+      + '<div class="modal-actions"><button class="primary" type="button" id="cr-new">כלל חדש</button><button class="ghost" type="button" id="cr-example">הוסף כלל לדוגמה: ראיון סיכום שבוע לפני שחרור</button><button class="ghost" onclick="closeModal()" type="button">סגור</button></div>', true);
+  }
+  function empOpts(sel){
+    return '<option value="system"' + (sel === 'system' || !sel ? ' selected' : '') + '>משתמש המערכת</option><option value="manager"' + (sel === 'manager' ? ' selected' : '') + '>המנהל הישיר של העובד</option><option value="employee"' + (sel === 'employee' ? ' selected' : '') + '>העובד עצמו</option>'
+      + state.employees.filter(function(e){ return isActiveEmp(e); }).map(function(e){ return '<option value="' + esc(e.id) + '"' + (sel === e.id ? ' selected' : '') + '>' + esc(e.name) + '</option>'; }).join('');
+  }
+  function openForm(id){
+    var r = id ? rules.find(function(x){ return x.id === id; }) : null;
+    var x = r || { name: '', source: 'employee.actualReleaseDate', offsetDays: -7, title: '', assignee: 'system', priority: 'med', remindDays: '', active: true };
+    var off = Number(x.offsetDays) || 0;
+    openModal('<h3>' + (r ? 'עריכת כלל' : 'כלל חדש') + '</h3>'
+      + '<div class="field"><label>שם הכלל *</label><input type="text" id="cr-name" value="' + esc(x.name) + '"></div>'
+      + '<div class="field"><label>התאריך שממנו מחשבים</label><select id="cr-source">' + Object.keys(SOURCES).map(function(k){ return '<option value="' + k + '"' + (x.source === k ? ' selected' : '') + '>' + esc(SOURCES[k].label) + '</option>'; }).join('') + '</select></div>'
+      + '<div class="grid2"><div class="field"><label>כמה ימים</label><input type="number" min="0" id="cr-days" value="' + Math.abs(off) + '"></div><div class="field"><label>לפני / אחרי</label><select id="cr-dir"><option value="-1"' + (off <= 0 ? ' selected' : '') + '>לפני</option><option value="1"' + (off > 0 ? ' selected' : '') + '>אחרי</option></select></div></div>'
+      + '<div class="field"><label>כותרת המשימה (אפשר להשתמש ב-{name} לשם)</label><input type="text" id="cr-title" value="' + esc(x.title) + '" placeholder="ראיון סיכום עם {name}"></div>'
+      + '<div class="grid2"><div class="field"><label>מוקצית ל</label><select id="cr-assignee">' + empOpts(x.assignee) + '</select></div><div class="field"><label>עדיפות</label><select id="cr-priority">' + Object.keys(PRIORITY).map(function(k){ return '<option value="' + k + '"' + (x.priority === k ? ' selected' : '') + '>' + PRIORITY[k] + '</option>'; }).join('') + '</select></div></div>'
+      + '<div class="field"><label>תזכורת (ימים לפני תאריך היעד של המשימה, אופציונלי)</label><input type="number" min="0" id="cr-remind" value="' + esc(x.remindDays || '') + '"></div>'
+      + '<div class="field"><label class="checkbox-row"><input type="checkbox" id="cr-active"' + (x.active === false ? '' : ' checked') + '> הכלל פעיל</label></div>'
+      + '<div class="modal-actions"><button class="primary" type="button" id="cr-save" data-id="' + esc(r ? r.id : '') + '">שמור</button><button class="ghost" type="button" id="cr-back">חזרה לרשימה</button></div>');
+  }
+  async function saveForm(id){
+    var name = el('cr-name').value.trim(); if (!name){ alert('נא להזין שם לכלל'); return; }
+    var d = Math.max(0, parseInt(el('cr-days').value, 10) || 0), dir = Number(el('cr-dir').value);
+    var data = { name: name, source: el('cr-source').value, offsetDays: dir * d, title: el('cr-title').value.trim() || name, assignee: el('cr-assignee').value, priority: el('cr-priority').value, remindDays: parseInt(el('cr-remind').value, 10) || 0, active: el('cr-active').checked };
+    if (id){ var i = rules.findIndex(function(r){ return r.id === id; }); rules[i] = Object.assign({}, rules[i], data); }
+    else rules.push(Object.assign({ id: newId() }, data));
+    if (await save()) openList();
+  }
+  async function del(id){
+    var r = rules.find(function(x){ return x.id === id; }); if (!r || !confirm('למחוק את הכלל "' + r.name + '"? משימות פתוחות שנוצרו ממנו יימחקו, משימות שהושלמו יישארו.')) return;
+    rules = rules.filter(function(x){ return x.id !== id; });
+    if (await save()) openList();
+  }
+  document.addEventListener('click', function(e){
+    var t = e.target.closest ? e.target : null; if (!t) return;
+    if (t.closest('#calRulesBtn')){ openList(); return; }
+    if (t.closest('#cr-new')){ openForm(null); return; }
+    if (t.closest('#cr-back')){ openList(); return; }
+    if (t.closest('#cr-example')){ rules.push({ id: newId(), name: 'ראיון סיכום שבוע לפני שחרור', source: 'employee.actualReleaseDate', offsetDays: -7, title: 'ראיון סיכום עם {name}', assignee: 'manager', priority: 'med', remindDays: 2, active: true }); save().then(openList); return; }
+    var ed = t.closest('[data-cr-edit]'); if (ed){ openForm(ed.getAttribute('data-cr-edit')); return; }
+    var dl = t.closest('[data-cr-del]'); if (dl){ del(dl.getAttribute('data-cr-del')); return; }
+    if (t.closest('#cr-save')){ saveForm(t.closest('#cr-save').getAttribute('data-id') || null); return; }
+  });
+
+  /* ---------- triggers ---------- */
+  var timer = null;
+  function schedule(){ clearTimeout(timer); timer = setTimeout(function(){ if (!state.authUserId) return; load().then(function(){ if (window.hubFlex) return hubFlex.sync(); }).then(sync).catch(function(e){ console.error('calendar sync failed', e); }); }, 500); }
+  if (window.DataStore) DataStore.on('change', function(ev){ if (ev && /^(employees|convergence|positions|calendarRules)$/.test(ev.name || '')) schedule(); });
+  /* reminders when the system is open */
+  setInterval(function(){ if (state.authUserId && window.hubFlex) hubFlex.runReminders().then(function(n){ if (n && window.hubNotify) hubNotify.refresh(); }).catch(function(){}); }, 60000);
+  window.hubCalRules = { sync: function(){ return load().then(sync); }, load: load, list: function(){ return rules; }, sources: SOURCES };
+})();
+</script>
+<script>
 /* ---------------- storage helpers ---------------- */
 function hasArtifactStorage(){ return typeof window !== 'undefined' && window.storage && typeof window.storage.get === 'function'; }
 async function storeSet(key, value){
@@ -5530,7 +5681,7 @@ async function completeLogin(user){
   if (window.hubApplyScope) await hubApplyScope(user);
   hideAuth();
   if (window.hubOrgSnapshotClosed) setTimeout(()=>{ hubOrgSnapshotClosed().catch(()=>{}); }, 900);
-  if (window.hubFlex) setTimeout(()=>{ hubFlex.sync().then(()=>hubFlex.runReminders()).then(()=>{ if (window.hubNotify) hubNotify.refresh(); }).catch(()=>{}); }, 1200);
+  if (window.hubFlex) setTimeout(()=>{ hubFlex.sync().then(()=>window.hubCalRules ? hubCalRules.sync() : null).then(()=>hubFlex.runReminders()).then(()=>{ if (window.hubNotify) hubNotify.refresh(); }).catch(()=>{}); }, 1200);
   if (user.isSuper && window.hubConflicts) setTimeout(()=>{ hubConflicts.runAndNotify().then(()=>{ if (window.hubNotify) hubNotify.refresh(); }).catch(()=>{}); }, 1500);
   if (!appBooted){ appBooted = true; bootApp(); } else { refreshAllViews(); }
   applyAccessControl();
