@@ -3659,6 +3659,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
       + (u.active === false ? ' <span class="tag">מושבת</span>' : '')
       + ' <span class="ot-actions">'
       + CHILD_KINDS[u.kind].map(function(ck){ return '<button class="ghost" type="button" data-ot="add" data-kind="' + ck + '" data-id="' + esc(u.id) + '">+ ' + KIND[ck] + '</button>'; }).join(' ')
+      + (u.kind === 'center' ? ' <button class="ghost" type="button" data-ot="head" data-id="' + esc(u.id) + '">ראש יחידה</button>' : '')
       + (u.kind !== 'center' ? ' <button class="ghost" type="button" data-ot="rename" data-id="' + esc(u.id) + '">שנה שם</button> <button class="ghost" type="button" data-ot="head" data-id="' + esc(u.id) + '">ראש יחידה</button> <button class="ghost" type="button" data-ot="toggle" data-id="' + esc(u.id) + '">' + (u.active === false ? 'הפעל' : 'השבת') + '</button>' : '')
       + '</span></div></li>';
     return h + k.map(function(c){ return nodeHtml(list, c, depth + 1); }).join('');
@@ -7548,6 +7549,118 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
 })();
 </script>
 <script>
+/* ================================================================
+   Conflict rules for positions, employees and swaps (round 5, stage 20). They run in the existing engine (findings, subscriptions,
+   snooze / task / approved exception with an expiry, fixes), so nothing here is a separate mechanism.
+   1. an employee who is no longer active still occupies a position
+   2. an employee occupies a position that cannot be assigned (counter 0 that was not raised, or a frozen position)
+   3. a swap in which one side is not valid (missing / not frozen / counter changed / twice in an active swap / "both active" quota exception)
+   ================================================================ */
+(function(){
+  'use strict';
+  if (!window.hubConflictRules || !window.hubCounter) return;
+  var C = window.hubCounter, label = C.label;
+  var HIDDEN = ' הרשומה במרכז אחר ואינה גלויה לך.';
+  function allOf(n){ return window.hubIds ? hubIds.allOf(n) : (state[n] || []); }
+  function posRec(id){ return (state.positions || []).find(function(p){ return p.id === id; }) || null; }
+  function empRec(id){ return (state.employees || []).find(function(e){ return e.id === id; }) || null; }
+  function empAny(id){ return allOf('employees').find(function(e){ return e.id === id; }) || null; }
+  function logEvent(action, details){ try{ return DataStore.audit.logEvent(action, details); }catch(e){ return null; } }
+  function unlink(p, e){
+    p.currentAppointment = p.currentAppointment || {};
+    p.currentAppointment.linkedEmployeeId = null;
+    if (e && p.currentAppointment.fullName && p.currentAppointment.fullName === e.name) p.currentAppointment.fullName = '';
+    if (e && p.currentAppointment.personalNumber && p.currentAppointment.personalNumber === (e.personalNumber || '')) p.currentAppointment.personalNumber = '';
+  }
+
+  /* 1. an inactive employee on a position */
+  hubConflictRules.add('emp-inactive-on-pos', 'עובד לא פעיל שעדיין מאייש תקן', function(){
+    var out = [];
+    allOf('positions').forEach(function(p){
+      var id = C.occupantId(p); if (!id) return;
+      var e = empAny(id); if (!e || e.active !== false) return;
+      out.push({ key: p.id, text: e.name + ' מסומן כלא פעיל ועדיין מאייש את התקן ' + label(p), refs: [{ type: 'employee', id: e.id }, { type: 'position', id: p.id }], basis: [p.id, e.id, 'inactive'].join('|') });
+    });
+    return out;
+  }, { entities: ['employees', 'positions'], fixes: function(f){
+    var pid = f.refs[1].id, eid = f.refs[0].id;
+    return [
+      { label: 'שחרר את העובד מהתקן', run: async function(){ var p = posRec(pid), e = empAny(eid); if (!p) return 'התקן' + HIDDEN; unlink(p, e); await storeSet('positions', state.positions); return 'העובד שוחרר מהתקן.'; } },
+      { label: 'סמן את העובד כפעיל', run: async function(){ var e = empRec(eid); if (!e) return 'העובד' + HIDDEN; e.active = true; await storeSet('employees', state.employees); return 'העובד סומן כפעיל.'; } },
+      { label: 'פתח את התקן', run: async function(){ if (!posRec(pid)) return 'התקן' + HIDDEN; openPositionForm(pid); return ''; } }
+    ];
+  } });
+
+  /* 2. an employee on a position that is not assignable */
+  hubConflictRules.add('emp-on-nonassignable-pos', 'עובד על תקן במונה 0 שלא הועלה, או על תקן מוקפא', function(){
+    var out = [];
+    allOf('positions').forEach(function(p){
+      var id = C.occupantId(p); if (!id) return;
+      var a = C.assignable(p); if (a.ok) return;
+      var e = empAny(id), rs = C.raisingSwap(p.id);
+      out.push({ key: p.id, text: (e ? e.name : (p.currentAppointment || {}).fullName || '—') + ' משובץ לתקן ' + label(p) + ' שאינו ניתן לשיבוץ: ' + a.reason, refs: [{ type: 'employee', id: id }, { type: 'position', id: p.id }], basis: [p.id, id, p.counterStatus || '', p.freezeStatus || '', rs ? rs.id : ''].join('|') });
+    });
+    return out;
+  }, { entities: ['employees', 'positions', 'positionSwaps'], fixes: function(f){
+    var pid = f.refs[1].id, eid = f.refs[0].id, p0 = posRec(pid), out = [];
+    if (p0 && C.counterOf(p0) === 0 && !C.frozenOf(p0)) out.push({ label: 'העלה את התקן דרך החלפת תקנים', run: async function(){ if (!C.canSwap()) return 'החלפת תקנים היא פעולה של המטה, של משאבי אנוש או של משתמש המערכת'; C.openNew(); var s = document.getElementById('sw-raised'); if (s) s.value = pid; return ''; } });
+    if (p0 && C.frozenOf(p0)) out.push({ label: C.freezingSwap(pid) ? 'הפשר את התקן (בחירה מה לעשות בהחלפה)' : 'הפשר את התקן (שנה ל"מופשר")', run: async function(){
+      var p = posRec(pid); if (!p) return 'התקן' + HIDDEN;
+      var sw = C.freezingSwap(pid); if (sw){ if (!C.canSwap()) return 'ההפשרה היא פעולה של המטה, של משאבי אנוש או של משתמש המערכת'; C.openDecision(sw.id); return ''; }
+      p.freezeStatus = 'מופשר'; await storeSet('positions', state.positions); return 'התקן הוגדר כמופשר.';
+    } });
+    if (p0 && C.counterOf(p0) === 0) out.push({ label: 'שנה את התקן למונה 1 (בלי החלפה)', run: async function(){ var p = posRec(pid); if (!p) return 'התקן' + HIDDEN; p.counterStatus = 'מונה 1'; await storeSet('positions', state.positions); return 'התקן הוגדר כמונה 1.'; } });
+    out.push({ label: 'הסר את העובד מהתקן', run: async function(){ var p = posRec(pid); if (!p) return 'התקן' + HIDDEN; unlink(p, empAny(eid)); await storeSet('positions', state.positions); return 'העובד הוסר מהתקן.'; } });
+    out.push({ label: 'פתח את התקן', run: async function(){ if (!posRec(pid)) return 'התקן' + HIDDEN; openPositionForm(pid); return ''; } });
+    return out;
+  } });
+
+  /* 3. a swap with an invalid side */
+  async function closeSwap(id, status, how){
+    var sw = C.swaps().find(function(s){ return s.id === id; }); if (!sw) return 'ההחלפה לא נמצאה';
+    if (!C.canSwap()) return 'סגירת החלפה היא פעולה של המטה, של משאבי אנוש או של משתמש המערכת';
+    var u = currentUser(), now = new Date().toISOString();
+    sw.status = status; sw[status === 'reversed' ? 'reversedBy' : 'convertedBy'] = u.id; sw[status === 'reversed' ? 'reversedAt' : 'convertedAt'] = now;
+    sw.history = (sw.history || []).concat([{ at: now, by: u.username, action: 'rule-' + status, note: how }]);
+    if (!(await DataStore.set('positionSwaps', C.swaps().map(function(x){ return x.id === id ? sw : x; })))) return 'השמירה נכשלה';
+    logEvent('swap-' + (status === 'reversed' ? 'reverse' : 'convert'), { label: 'החלפה נסגרה מכלל הסתירות (' + how + '): ' + (sw.frozenPositionId) + ' / ' + sw.raisedPositionId + ' · ' + u.username, swapId: id });
+    return 'ההחלפה נסגרה (' + (status === 'reversed' ? 'בוטלה' : 'הוחלפה לצמיתות') + ').';
+  }
+  hubConflictRules.add('swap-integrity', 'החלפת תקנים שאחד מצדדיה לא תקין', function(){
+    var out = [], byId = {}, count = {};
+    allOf('positions').forEach(function(p){ byId[p.id] = p; });
+    var active = C.swaps().filter(function(s){ return s.status === 'active'; });
+    active.forEach(function(s){ if (s.bothActive) return; count[s.frozenPositionId] = (count[s.frozenPositionId] || 0) + 1; count[s.raisedPositionId] = (count[s.raisedPositionId] || 0) + 1; });
+    active.forEach(function(s){
+      var f = byId[s.frozenPositionId], r = byId[s.raisedPositionId], probs = [];
+      if (!f) probs.push(['missing-frozen', 'התקן המוקפא נמחק']);
+      if (!r) probs.push(['missing-raised', 'התקן שהועלה נמחק']);
+      if (s.bothActive) probs.push(['quota', 'שניהם פעילים: חריגה ממכסת מונה 1' + (s.approvedBy ? ' (אושרה בהפשרה)' : '')]);
+      else {
+        if (f && !C.frozenOf(f)) probs.push(['not-frozen', 'התקן שהוקפא בשביל ההחלפה כבר לא מסומן כמוקפא']);
+        if (f && C.counterOf(f) !== 1) probs.push(['frozen-counter', 'התקן המוקפא כבר לא במונה 1']);
+        if (r && C.counterOf(r) !== 0) probs.push(['raised-counter', 'התקן שהועלה כבר לא במונה 0']);
+        if (r && C.frozenOf(r)) probs.push(['raised-frozen', 'התקן שהועלה מוקפא בעצמו']);
+        if ((count[s.frozenPositionId] || 0) > 1 || (count[s.raisedPositionId] || 0) > 1) probs.push(['duplicate', 'תקן משתתף בכמה החלפות פעילות']);
+      }
+      probs.forEach(function(pr){
+        out.push({ key: s.id + '|' + pr[0], text: 'החלפה בין ' + (f ? label(f) : '?') + ' (מוקפא) לבין ' + (r ? label(r) : '?') + ' (הועלה): ' + pr[1],
+          refs: [{ type: 'position', id: s.frozenPositionId }, { type: 'position', id: s.raisedPositionId }],
+          basis: [s.id, pr[0], f ? (f.counterStatus || '') + (f.freezeStatus || '') : 'x', r ? (r.counterStatus || '') + (r.freezeStatus || '') : 'x', s.bothActive ? 'b' : 'a'].join('|') });
+      });
+    });
+    return out;
+  }, { entities: ['positions', 'positionSwaps'], fixes: function(f){
+    var parts = f.fingerprint.slice(f.ruleId.length + 1).split('|'), swId = parts[0], code = parts[1], fid = f.refs[0].id, out = [];
+    if (code === 'not-frozen') out.push({ label: 'החזר את ההקפאה (סמן את התקן כמוקפא)', run: async function(){ var p = posRec(fid); if (!p) return 'התקן' + HIDDEN; p.freezeStatus = 'מוקפא'; await storeSet('positions', state.positions); return 'התקן סומן כמוקפא.'; } });
+    if (code === 'raised-counter') out.push({ label: 'סגור את ההחלפה כקבועה', run: function(){ return closeSwap(swId, 'converted', 'התקן שהועלה כבר במונה 1'); } });
+    if (code !== 'quota') out.push({ label: 'בטל את ההחלפה (בלי לשנות את התקנים)', run: function(){ return closeSwap(swId, 'reversed', code); } });
+    out.push({ label: 'פתח את מנהל ההחלפות', run: async function(){ C.openManager(); return ''; } });
+    return out;
+  } });
+})();
+</script>
+<script>
 /* ---------------- storage helpers ---------------- */
 function hasArtifactStorage(){ return typeof window !== 'undefined' && window.storage && typeof window.storage.get === 'function'; }
 async function storeSet(key, value){
@@ -8995,6 +9108,7 @@ async function saveEmployee(existingId){
     if (existingId === state.currentUserId){ alert('לא ניתן להגדיר את עצמך כלא פעיל'); return; }
     if (wouldRemoveLastActiveSuper(existingId)){ alert('לא ניתן להגדיר כלא פעיל את העובד של משתמש העל האחרון'); return; }
   }
+  if (existingId && data.active === false && isActiveEmp(empById(existingId)) && getPositionByEmployeeId(existingId) && window.hubPosPickerApi && confirm('העובד מאייש תקן. לשחרר אותו מהתקן יחד עם ההשבתה?')) hubPosPickerApi.clear();
   if (!hubPosPickerCheck()) return;
   const flexData = hubFlexFormRead();
   if (flexData && flexData.error) return;
