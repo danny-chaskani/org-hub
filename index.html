@@ -5556,6 +5556,24 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
       title: function(r){ return ((r.firstName || '') + ' ' + (r.lastName || '')).trim() || String(r.id); },
       fields: { firstName: 'שם פרטי', lastName: 'שם משפחה', role: 'תפקיד', level: 'זוטר/מובהק', industry: 'ענף', mador: 'מדור', releaseDate: 'תאריך שחרור', entryDate: 'כניסה', exitDate: 'יציאה', starred: 'סימון ★', employeeId: 'קישור לעובד', centerId: 'מרכז' },
       access: function(emp, r){ return hasFullDataAccess(emp.id) || (r.industry && canAccess('conv:industry:' + r.industry, emp.id)) || (r.mador && canAccess('conv:mador:' + r.mador, emp.id)); }
+    },
+    positions: {
+      domain: 'positions', label: 'התקנים', tab: 'positions',
+      title: function(r){ return ((r.serialNumber || '') + ' — ' + (r.jobText || '')).replace(/^ — | — $/g, '').trim() || String(r.id); },
+      fields: { serialNumber: 'מספר תקן', jobText: 'מלל משרה', occupationText: 'מלל עיסוק', profession: 'מקצוע', grade: 'דרגה', seniorityLevel: 'בכיר/מובהק/זוטר', registrationUnit: 'יחידת רישומת', counterStatus: 'מונה', freezeStatus: 'הקפאה', temporality: 'סוג זמניות', exemplary: 'דירוג מופת',
+        'currentAppointment.fullName': 'מינוי נוכחי: שם', 'currentAppointment.personalNumber': 'מינוי נוכחי: מספר אישי', 'currentAppointment.releaseDate': 'מינוי נוכחי: שחרור', 'currentAppointment.linkedEmployeeId': 'מינוי נוכחי: עובד מקושר',
+        'futureAppointment.fullName': 'מינוי עתידי: שם', 'futureAppointment.personalNumber': 'מינוי עתידי: מספר אישי', 'futureAppointment.staffingDate': 'מינוי עתידי: איוש', linkedConvergenceId: 'התכנסות מקושרת', regulationNotes: 'הערות תקינה', generalNotes: 'הערות', centerId: 'מרכז' },
+      access: function(emp, r){
+        if (hasFullDataAccess(emp.id) || ((r.currentAppointment || {}).linkedEmployeeId === emp.id)) return true;
+        if (window.hubHier && hubHier.engaged(emp.id) && hubHier.posVisible(r, emp.id)) return true;
+        return !!r.registrationUnit && canAccess('pos:unit:' + r.registrationUnit, emp.id);
+      }
+    },
+    incentives: {
+      domain: 'incentives', label: 'התמריצים', tab: 'incentives',
+      title: function(r){ var e = r.employeeId ? empById(r.employeeId) : null; return (((r.name || '') + ' · ' + (e ? e.name : (r.snapName || ''))).replace(/^ · | · $/g, '')).trim() || String(r.id); },
+      fields: { employeeId: 'עובד', snapName: 'שם העובד', name: 'שם התמריץ', code: 'קוד', gross: 'שווי ברוטו', startDate: 'תאריך תחילה', endDate: 'תאריך סיום', industry: 'ענף', mador: 'מדור', entered: 'הוזן', notes: 'הערות', centerId: 'מרכז' },
+      access: function(emp, r){ return !(window.hubHier && hubHier.engaged(emp.id)) || hubHier.incVisible(r, emp.id); }
     }
   };
   var SKIP = { rev: 1, updatedAt: 1, updatedBy: 1 };
@@ -5577,7 +5595,10 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
   function ent(c){ return ENTITIES[c.entityType]; }
   function titleOf(c){ var e = ent(c); return e ? e.title(c.after || c.before || {}) : c.entityId; }
   function fieldLabel(c, k){ var e = ent(c); return (e && e.fields[k]) || k; }
-  function shortVal(v){ if (v === undefined || v === null || v === '') return '—'; if (v === true) return 'כן'; if (v === false) return 'לא'; var s = typeof v === 'string' ? v : JSON.stringify(v); return s.length > 40 ? s.slice(0, 37) + '…' : s; }
+  function flat(o){ var out = {}; Object.keys(o || {}).forEach(function(k){ if (SKIP[k] || k.indexOf('_sync') === 0) return; var v = o[k]; if (v && typeof v === 'object' && !Array.isArray(v)) Object.keys(v).forEach(function(q){ out[k + '.' + q] = v[q]; }); else out[k] = v; }); return out; }
+  function getK(o, k){ var i = k.indexOf('.'); if (i < 0) return o ? o[k] : undefined; var p = o ? o[k.slice(0, i)] : undefined; return p ? p[k.slice(i + 1)] : undefined; }
+  function setK(o, k, v){ var i = k.indexOf('.'); if (i < 0){ o[k] = v; return; } var h = k.slice(0, i); o[h] = Object.assign({}, o[h]); o[h][k.slice(i + 1)] = v; }
+  function shortVal(v, k){ if (v === undefined || v === null || v === '') return '—'; if (k && /(^|\.)(linkedEmployeeId|employeeId)$/.test(k)){ var ee = empById(v); if (ee) return ee.name; } if (v === true) return 'כן'; if (v === false) return 'לא'; var s = typeof v === 'string' ? v : JSON.stringify(v); return s.length > 40 ? s.slice(0, 37) + '…' : s; }
   function logEvent(action, details){ try{ return DataStore.audit.logEvent(action, details); }catch(e){ return null; } }
 
   /* ---------- who is responsible for a domain ---------- */
@@ -5667,13 +5688,14 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
       var ch = byEnt[rec.id], i = mi[rec.id], mr = i !== undefined ? main[i] : null;
       var eff = ch ? (ch.op === 'delete' ? null : ch.after) : (mr ? strip(mr) : null);
       if (!eff) return;
-      var nr = strip(rec), delta = {}, n = 0;
-      Object.keys(nr).forEach(function(k){ if (k === 'id' || k === 'centerId') return; if (canon(nr[k]) !== canon(eff[k])){ delta[k] = nr[k]; n++; } });
+      var nf = flat(rec), ef = flat(eff), delta = {}, n = 0, nr = strip(rec);
+      Object.keys(nf).forEach(function(k){ if (k === 'id' || k === 'centerId') return; if (canon(nf[k]) !== canon(ef[k])){ delta[k] = nf[k]; n++; } });
       if (!n) return;
       var prevRev = mr ? (mr.rev || 1) : 0;
-      if (mr){ main[i] = Object.assign({}, mr, delta); mainChanged = true; }
+      function put(o){ var x = Object.assign({}, o); Object.keys(delta).forEach(function(k){ setK(x, k, delta[k]); }); return x; }
+      if (mr){ main[i] = put(mr); mainChanged = true; }
       if (ch){
-        var c2 = Object.assign({}, ch); c2.after = Object.assign({}, ch.after, delta); if (c2.before) c2.before = Object.assign({}, ch.before, delta);
+        var c2 = Object.assign({}, ch); c2.after = put(ch.after); if (c2.before) c2.before = put(ch.before);
         chs[ci[ch.id]] = c2; chChanged = true;
         if (mr && (ch.baseRev || 1) === prevRev) bumped.push({ id: ch.id, entityId: rec.id });
       }
@@ -5723,46 +5745,52 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
   function changedSinceBase(c){ var m = mainRecord(c); return !!m && c.op !== 'create' && (m.rev || 1) > (c.baseRev || 1); }
   /* fields where the center's version differs from what it started from */
   function fieldDiff(c){
-    var b = c.before || {}, a = c.after || {}, out = [], seen = {};
+    var b = flat(c.before), a = flat(c.after), out = [], seen = {};
     Object.keys(b).concat(Object.keys(a)).forEach(function(k){
-      if (seen[k] || SKIP[k] || k.indexOf('_sync') === 0) return; seen[k] = 1;
+      if (seen[k]) return; seen[k] = 1;
       if (canon(b[k]) !== canon(a[k])) out.push({ k: k, before: b[k], after: a[k] });
     });
     return out;
   }
   function diffHtml(c){
-    if (c.op === 'create') return '<div class="locked-note" style="display:block;">' + Object.keys(c.after || {}).filter(function(k){ return !SKIP[k] && c.after[k] !== '' && c.after[k] !== undefined && k !== 'id' && k !== 'centerId' && k.indexOf('_sync') !== 0; }).map(function(k){ return '<b>' + esc(fieldLabel(c, k)) + '</b>: ' + esc(shortVal(c.after[k])); }).join(' · ') + '</div>';
+    if (c.op === 'create'){ var fa = flat(c.after); return '<div class="locked-note" style="display:block;">' + Object.keys(fa).filter(function(k){ return fa[k] !== '' && fa[k] !== undefined && fa[k] !== null && k !== 'id' && k !== 'centerId'; }).map(function(k){ return '<b>' + esc(fieldLabel(c, k)) + '</b>: ' + esc(shortVal(fa[k], k)); }).join(' · ') + '</div>'; }
     if (c.op === 'delete') return '<div class="locked-note" style="display:block;">הרשומה תימחק מהראשי.</div>';
     var d = fieldDiff(c);
     return '<div class="table-scroll"><table><thead><tr><th>שדה</th><th>ראשי (בבסיס)</th><th>הגרסה של המרכז</th></tr></thead><tbody>'
-      + (d.map(function(x){ return '<tr><td>' + esc(fieldLabel(c, x.k)) + '</td><td>' + esc(shortVal(x.before)) + '</td><td><b>' + esc(shortVal(x.after)) + '</b></td></tr>'; }).join('') || '<tr><td colspan="3">אין הבדלים</td></tr>') + '</tbody></table></div>';
+      + (d.map(function(x){ return '<tr><td>' + esc(fieldLabel(c, x.k)) + '</td><td>' + esc(shortVal(x.before, x.k)) + '</td><td><b>' + esc(shortVal(x.after, x.k)) + '</b></td></tr>'; }).join('') || '<tr><td colspan="3">אין הבדלים</td></tr>') + '</tbody></table></div>';
   }
   function statusTag(c){ return '<span class="req-status ' + (STATUS_CLS[c.status] || '') + '">' + esc(STATUS[c.status] || c.status) + '</span>'; }
 
   /* ---------- the center side: preview, submit, my statuses ---------- */
-  function myPrivate(){ var sc = scopeNow(); return sc ? mineFor('convergence', sc.centerId).filter(function(c){ return c.status === 'private'; }) : []; }
-  function openSubmit(vis){
+  function myPrivate(entity){ var sc = scopeNow(); return sc ? mineFor(entity || 'convergence', sc.centerId).filter(function(c){ return c.status === 'private'; }) : []; }
+  function rerender(entity){
+    if (entity === 'convergence'){ if (typeof renderConvergence === 'function') renderConvergence(); if (typeof renderConvFilterOptions === 'function') renderConvFilterOptions(); }
+    else if (entity === 'positions'){ if (typeof renderPositionFilterOptions === 'function') renderPositionFilterOptions(); if (typeof renderPositions === 'function') renderPositions(); }
+    else if (entity === 'incentives'){ if (typeof renderIncentives === 'function') renderIncentives(); }
+  }
+  function openSubmit(vis, entity){
     var sc = scopeNow(); if (!sc) return;
-    var list = myPrivate();
+    entity = entity || 'convergence';
+    var list = myPrivate(entity);
     if (!list.length){ openModal('<h3>סנכרון</h3><div class="empty-state">אין שינויים פרטיים לשלוח.</div><div class="modal-actions"><button class="ghost" onclick="closeModal()" type="button">סגור</button></div>'); return; }
     var who = vis === 'all' ? 'כל מי שמורשה לראות את הנתון יראה אותם כשכבה "ממתין לאישור המטה". רק אחראי התחום במטה יכול לאשר.' : 'רק המטה יראה אותם.';
-    openModal('<h3>סנכרון ' + (vis === 'all' ? 'עם כולם' : 'עם המטה') + '</h3>'
+    openModal('<h3>סנכרון ' + (vis === 'all' ? 'עם כולם' : 'עם המטה') + ' · ' + esc((ENTITIES[entity] || {}).label || '') + '</h3>'
       + '<div class="locked-note">אלה ' + list.length + ' השינויים של ' + esc(centerName(sc.centerId)) + ' מול המידע הראשי. ' + who + ' הם לא ייכנסו לראשי עד שהמטה יאשר.</div>'
       + list.map(function(c){
         return '<div class="request-item"><div class="rh"><div><div class="r-title">' + esc(c.label || titleOf(c)) + '</div><div class="r-meta"><span>' + esc(OPS[c.op]) + '</span>'
           + (changedSinceBase(c) ? '<span class="danger-txt">שים לב: הרשומה בראשי השתנתה מאז שהתחלת לערוך. המטה יתבקש להכריע.</span>' : '') + '</div></div></div>' + diffHtml(c) + '</div>';
       }).join('')
       + '<div class="field"><label>הערה למטה (אופציונלי)</label><textarea id="sy-note"></textarea></div>'
-      + '<div class="modal-actions"><button class="primary" type="button" data-sy="submit" data-vis="' + vis + '">שלח ' + list.length + ' שינויים</button><button class="ghost" onclick="closeModal()" type="button">ביטול</button></div>', true);
+      + '<div class="modal-actions"><button class="primary" type="button" data-sy="submit" data-vis="' + vis + '" data-ent="' + entity + '">שלח ' + list.length + ' שינויים</button><button class="ghost" onclick="closeModal()" type="button">ביטול</button></div>', true);
   }
   async function notifyDomain(domain, spec){
     var out = [];
     for (var i = 0; i < domainOwners(domain).length; i++){ var u = domainOwners(domain)[i]; out.push(await hubNotify.add(Object.assign({}, spec, { recipientId: u.id, domain: domain }))); }
     return out.filter(Boolean);
   }
-  async function submit(vis, note){
+  async function submit(vis, note, entity){
     var sc = scopeNow(), u = me(); if (!sc || !u) return 0;
-    var list = myPrivate(); if (!list.length) return 0;
+    var list = myPrivate(entity || 'convergence'); if (!list.length) return 0;
     var now = new Date().toISOString(), batch = { id: 'sb' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), centerId: sc.centerId, scope: vis, submittedBy: u.id, submittedAt: now, changeIds: list.map(function(c){ return c.id; }), status: 'open', note: note || '' };
     var ids = {}; list.forEach(function(c){ ids[c.id] = 1; });
     var next = all(KEY_C).map(function(c){ return ids[c.id] ? Object.assign({}, c, { status: 'submitted', visibility: vis, batchId: batch.id, submittedAt: now, submittedBy: u.id, note: note || '' }) : c; });
@@ -5803,10 +5831,9 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     logEvent('sync-reopen', { label: 'החזרה לעריכה פרטית: ' + c.label, centerId: c.centerId, changeId: id });
     await reloadState();
   }
-  async function reloadState(){
-    state.convergence = await storeGet('convergence', state.convergence);
-    if (typeof renderConvergence === 'function') renderConvergence();
-    if (typeof renderConvFilterOptions === 'function') renderConvFilterOptions();
+  async function reloadState(entity){
+    var names = entity ? [entity] : Object.keys(ENTITIES);
+    for (var i = 0; i < names.length; i++){ state[names[i]] = await storeGet(names[i], state[names[i]]); rerender(names[i]); }
   }
 
   /* ---------- the HQ side: decide per record ---------- */
@@ -5818,11 +5845,11 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     var m = mainRecord(c); if (!m || c.op === 'create') return [];
     if ((m.rev || 1) <= (c.baseRev || 1)) return [];
     if (c.op === 'delete') return [{ k: '_delete', before: c.before, center: null, main: strip(m) }];
-    return fieldDiff(c).filter(function(x){ return canon(m[x.k]) !== canon(x.before) && canon(m[x.k]) !== canon(x.after); }).map(function(x){ return { k: x.k, before: x.before, center: x.after, main: m[x.k] }; });
+    return fieldDiff(c).filter(function(x){ var mv = getK(m, x.k); return canon(mv) !== canon(x.before) && canon(mv) !== canon(x.after); }).map(function(x){ return { k: x.k, before: x.before, center: x.after, main: getK(m, x.k) }; });
   }
   function reviewCard(c, u, canDo){
     var by = userById(c.submittedBy), cf = conflictsOf(c);
-    var h = '<div class="request-item" data-sy-card="' + esc(c.id) + '"><div class="rh"><div><div class="r-title">' + esc(c.label || titleOf(c)) + ' · ' + esc(OPS[c.op]) + '</div><div class="r-meta"><span>מרכז: ' + esc(centerName(c.centerId)) + '</span><span>נשלח ע"י ' + esc(by ? by.username : '—') + ' ב-' + esc(c.submittedAt ? new Date(c.submittedAt).toLocaleString('he-IL') : '') + '</span><span>' + (c.visibility === 'all' ? 'גלוי לכולם' : 'גלוי למטה בלבד') + '</span></div></div>' + statusTag(c) + '</div>';
+    var h = '<div class="request-item" data-sy-card="' + esc(c.id) + '"><div class="rh"><div><div class="r-title"><span class="tag">' + esc((ent(c) || {}).label || '') + '</span> ' + esc(c.label || titleOf(c)) + ' · ' + esc(OPS[c.op]) + '</div><div class="r-meta"><span>מרכז: ' + esc(centerName(c.centerId)) + '</span><span>נשלח ע"י ' + esc(by ? by.username : '—') + ' ב-' + esc(c.submittedAt ? new Date(c.submittedAt).toLocaleString('he-IL') : '') + '</span><span>' + (c.visibility === 'all' ? 'גלוי לכולם' : 'גלוי למטה בלבד') + '</span></div></div>' + statusTag(c) + '</div>';
     if (c.note) h += '<div class="r-note">הערת המרכז: ' + esc(c.note) + '</div>';
     h += diffHtml(c);
     if (cf.length){
@@ -5830,7 +5857,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
         + '<div class="table-scroll"><table><thead><tr><th>שדה</th><th>בסיס</th><th>המרכז</th><th>ראשי נוכחי</th><th>בחירה</th></tr></thead><tbody>'
         + cf.map(function(x){
           if (x.k === '_delete') return '<tr><td>מחיקה</td><td colspan="3">הרשומה עודכנה בראשי אחרי שהמרכז ביקש למחוק אותה</td><td>' + (canDo ? '<select data-sy-pick="_delete"><option value="main">השאר את הרשומה בראשי</option><option value="center">מחק בכל זאת</option></select>' : '') + '</td></tr>';
-          return '<tr><td>' + esc(fieldLabel(c, x.k)) + '</td><td>' + esc(shortVal(x.before)) + '</td><td>' + esc(shortVal(x.center)) + '</td><td>' + esc(shortVal(x.main)) + '</td><td>' + (canDo ? '<select data-sy-pick="' + esc(x.k) + '"><option value="">— בחר —</option><option value="center">ערך המרכז</option><option value="main">הערך בראשי</option></select>' : '') + '</td></tr>';
+          return '<tr><td>' + esc(fieldLabel(c, x.k)) + '</td><td>' + esc(shortVal(x.before, x.k)) + '</td><td>' + esc(shortVal(x.center, x.k)) + '</td><td>' + esc(shortVal(x.main, x.k)) + '</td><td>' + (canDo ? '<select data-sy-pick="' + esc(x.k) + '"><option value="">— בחר —</option><option value="center">ערך המרכז</option><option value="main">הערך בראשי</option></select>' : '') + '</td></tr>';
         }).join('') + '</tbody></table></div></div>';
     }
     if (canDo){
@@ -5875,7 +5902,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
         if (picks && picks._delete === 'main') skipDelete = true; else main.splice(idx, 1);
       } else {
         var rec = Object.assign({}, main[idx]);
-        fieldDiff(c).forEach(function(x){ if (picks && picks[x.k] === 'main') return; rec[x.k] = x.after; });
+        fieldDiff(c).forEach(function(x){ if (picks && picks[x.k] === 'main') return; setK(rec, x.k, x.after); });
         main[idx] = rec;
       }
       var prevSrc = DataStore.audit.getSource(); DataStore.audit.setSource('sync');
@@ -5900,7 +5927,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     /* the batch closes when nothing in it is waiting any more */
     var rest = all(KEY_C).filter(function(x){ return x.batchId === c.batchId && LOCKED.indexOf(x.status) > -1; });
     if (!rest.length && c.batchId) await DataStore.set(KEY_B, all(KEY_B).map(function(b){ return b.id === c.batchId ? Object.assign({}, b, { status: 'closed' }) : b; }));
-    if (decision === 'approve' && !scopeNow()){ state.convergence = await storeGet('convergence', state.convergence); }
+    if (decision === 'approve' && !scopeNow()){ state[c.entityType] = await storeGet(c.entityType, state[c.entityType]); }
     return '';
   }
 
@@ -5918,23 +5945,24 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
   }
 
   /* ---------- toolbar and pending layer inside the convergence tab ---------- */
-  function renderBar(){
-    var panel = el('panel-convergence'); if (!panel) return;
-    var bar = el('syncBar');
-    if (!bar){ bar = document.createElement('div'); bar.id = 'syncBar'; var head = panel.querySelector('.panel-head'); if (head) head.insertAdjacentElement('afterend', bar); else panel.prepend(bar); }
+  function renderBar(){ Object.keys(ENTITIES).forEach(renderBarOf); }
+  function renderBarOf(entity){
+    var def = ENTITIES[entity], panel = el('panel-' + def.tab); if (!panel) return;
+    var barId = entity === 'convergence' ? 'syncBar' : 'syncBar-' + entity, bar = el(barId);
+    if (!bar){ bar = document.createElement('div'); bar.id = barId; var head = panel.querySelector('.panel-head'); if (head) head.insertAdjacentElement('afterend', bar); else panel.prepend(bar); }
     var u = me(); if (!u){ bar.innerHTML = ''; return; }
     var sc = scopeNow(), h = '';
     if (sc){
-      var priv = myPrivate().length, waiting = mineFor('convergence', sc.centerId).filter(function(c){ return LOCKED.indexOf(c.status) > -1; }).length;
+      var priv = myPrivate(entity).length, waiting = mineFor(entity, sc.centerId).filter(function(c){ return LOCKED.indexOf(c.status) > -1; }).length;
       h = '<div class="card" style="padding:12px;margin-bottom:12px;"><div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">'
-        + '<b>סנכרון עם המטה</b><span class="locked-note" style="display:inline">' + (priv ? priv + ' שינויים פרטיים שטרם נשלחו' : 'אין שינויים פרטיים') + (waiting ? ' · ' + waiting + ' ממתינים להחלטת המטה' : '') + '. השינויים שלך נראים רק למרכז שלך עד הסנכרון.</span>'
-        + '<button class="primary" type="button" data-sy="open-submit" data-vis="hq"' + (priv ? '' : ' disabled') + '>סנכרן עם המטה</button>'
-        + '<button class="ghost" type="button" data-sy="open-submit" data-vis="all"' + (priv ? '' : ' disabled') + '>סנכרן עם כולם</button>'
+        + '<b>סנכרון עם המטה · ' + esc(def.label) + '</b><span class="locked-note" style="display:inline">' + (priv ? priv + ' שינויים פרטיים שטרם נשלחו' : 'אין שינויים פרטיים') + (waiting ? ' · ' + waiting + ' ממתינים להחלטת המטה' : '') + '. השינויים שלך נראים רק למרכז שלך עד הסנכרון.</span>'
+        + '<button class="primary" type="button" data-sy="open-submit" data-vis="hq" data-ent="' + entity + '"' + (priv ? '' : ' disabled') + '>סנכרן עם המטה</button>'
+        + '<button class="ghost" type="button" data-sy="open-submit" data-vis="all" data-ent="' + entity + '"' + (priv ? '' : ' disabled') + '>סנכרן עם כולם</button>'
         + '<button class="ghost" type="button" data-sy="mine">הסטטוס של מה ששלחתי</button><button class="ghost" type="button" data-sy="log">יומן סנכרון</button></div></div>';
     } else {
-      var pend = pendingFor(u), deciding = pend.filter(function(c){ return canDecide(u, c.domain); });
-      if (pend.length || canDecide(u, 'convergence')){
-        h = '<div class="card" style="padding:12px;margin-bottom:12px;"><div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;"><b>עדכונים מהמרכזים</b>'
+      var pend = pendingFor(u).filter(function(c){ return c.entityType === entity; }), deciding = pend.filter(function(c){ return canDecide(u, c.domain); });
+      if (pend.length || canDecide(u, def.domain)){
+        h = '<div class="card" style="padding:12px;margin-bottom:12px;"><div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;"><b>עדכונים מהמרכזים · ' + esc(def.label) + '</b>'
           + '<span class="locked-note" style="display:inline">' + (deciding.length ? deciding.length + ' ממתינים להחלטה שלך' : pend.length ? pend.length + ' עדכונים ממתינים לאישור המטה (לצפייה)' : 'אין עדכונים ממתינים') + '</span>'
           + '<button class="' + (deciding.length ? 'primary' : 'ghost') + '" type="button" data-sy="review-open">בקשות סנכרון</button><button class="ghost" type="button" data-sy="log">יומן סנכרון</button></div>'
           + layerHtml(pend, u) + '</div>';
@@ -5947,7 +5975,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     var seen = pend.filter(function(c){ return c.visibility === 'all'; });
     if (!seen.length) return '';
     return '<div class="table-scroll" style="margin-top:10px;"><table><thead><tr><th>רשומה</th><th>מרכז</th><th>סוג</th><th>שינוי מוצע</th><th>סטטוס</th></tr></thead><tbody>'
-      + seen.map(function(c){ return '<tr class="sync-layer-row"><td>' + esc(c.label || titleOf(c)) + ' <span class="tag">עדכון מהמרכז, ממתין לאישור המטה</span></td><td>' + esc(centerName(c.centerId)) + '</td><td>' + esc(OPS[c.op]) + '</td><td>' + (c.op === 'update' ? fieldDiff(c).map(function(x){ return esc(fieldLabel(c, x.k)) + ': ' + esc(shortVal(x.before)) + ' ← <b>' + esc(shortVal(x.after)) + '</b>'; }).join('<br>') : '—') + '</td><td>' + statusTag(c) + '</td></tr>'; }).join('')
+      + seen.map(function(c){ return '<tr class="sync-layer-row"><td>' + esc(c.label || titleOf(c)) + ' <span class="tag">עדכון מהמרכז, ממתין לאישור המטה</span></td><td>' + esc(centerName(c.centerId)) + '</td><td>' + esc(OPS[c.op]) + '</td><td>' + (c.op === 'update' ? fieldDiff(c).map(function(x){ return esc(fieldLabel(c, x.k)) + ': ' + esc(shortVal(x.before, x.k)) + ' ← <b>' + esc(shortVal(x.after, x.k)) + '</b>'; }).join('<br>') : '—') + '</td><td>' + statusTag(c) + '</td></tr>'; }).join('')
       + '</tbody></table></div>';
   }
 
@@ -5959,7 +5987,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
       return '<tr><td>' + esc(u.username) + '</td>' + Object.keys(DOMAINS).map(function(d){ return '<td><input type="checkbox" data-hqd="' + esc(u.id) + '|' + d + '"' + (assigned.some(function(a){ return a.userId === u.id && a.domain === d; }) ? ' checked' : '') + '></td>'; }).join('') + '</tr>';
     }).join('') || '<tr><td colspan="4">אין משתמשי מטה. הגדר היקף "מטה" למשתמש בלשונית המשתמשים.</td></tr>';
     var orphan = Object.keys(DOMAINS).filter(function(d){ return !assigned.some(function(a){ return a.domain === d && hq.some(function(u){ return u.id === a.userId; }); }); });
-    return '<div class="card"><div class="panel-head" style="margin-bottom:10px;"><div><h3 style="margin:0 0 6px;">תחומי אחריות של משתמשי מטה</h3><span class="locked-note" style="display:inline">סנכרונים ובקשות מרכזים מנותבים לבעלי התחום. תחום בלי אחראי עובר למשתמש המערכת. סנכרון פעיל כרגע להתכנסות.</span></div></div>'
+    return '<div class="card"><div class="panel-head" style="margin-bottom:10px;"><div><h3 style="margin:0 0 6px;">תחומי אחריות של משתמשי מטה</h3><span class="locked-note" style="display:inline">סנכרונים ובקשות מרכזים מנותבים לבעלי התחום. תחום בלי אחראי עובר למשתמש המערכת. הסנכרון פעיל בהתכנסות, בתקנים ובתמריצים.</span></div></div>'
       + '<div class="table-scroll"><table><thead><tr><th>משתמש מטה</th>' + Object.keys(DOMAINS).map(function(d){ return '<th>' + DOMAINS[d] + '</th>'; }).join('') + '</tr></thead><tbody>' + rows + '</tbody></table></div>'
       + (orphan.length ? '<div class="locked-note" style="display:block;">תחומים בלי אחראי (ההתראות עוברות למשתמש המערכת): ' + orphan.map(function(d){ return DOMAINS[d]; }).join(', ') + '</div>' : '') + '</div>';
   }
@@ -5980,11 +6008,11 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
   document.addEventListener('click', async function(e){
     var b = e.target.closest ? e.target.closest('[data-sy]') : null; if (!b) return;
     var act = b.getAttribute('data-sy'), id = b.getAttribute('data-id');
-    if (act === 'open-submit') openSubmit(b.getAttribute('data-vis'));
+    if (act === 'open-submit') openSubmit(b.getAttribute('data-vis'), b.getAttribute('data-ent'));
     else if (act === 'submit'){
       b.disabled = true;
-      var n = await submit(b.getAttribute('data-vis'), (el('sy-note') || {}).value || '');
-      closeModal(); await reloadState(); if (window.hubNotify) hubNotify.refresh();
+      var n = await submit(b.getAttribute('data-vis'), (el('sy-note') || {}).value || '', b.getAttribute('data-ent'));
+      closeModal(); await reloadState(b.getAttribute('data-ent') || 'convergence'); if (window.hubNotify) hubNotify.refresh();
       if (n) openMine();
     }
     else if (act === 'mine') openMine();
@@ -5995,20 +6023,21 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     else if (act === 'approve' || act === 'reject' || act === 'review'){
       var card = b.closest('[data-sy-card]'), note = card ? (card.querySelector('[data-sy-note]') || {}).value || '' : '', picks = {};
       if (card) card.querySelectorAll('[data-sy-pick]').forEach(function(s){ if (s.value) picks[s.getAttribute('data-sy-pick')] = s.value; });
+      var chg0 = all(KEY_C).find(function(x){ return x.id === id; });
       var err = await decide(id, act, note.trim(), picks);
       if (err){ alert(err); return; }
       if (window.hubNotify) hubNotify.refresh();
       openReview(); renderBar();
-      if (typeof renderConvergence === 'function') renderConvergence();
+      rerender(chg0 ? chg0.entityType : 'convergence');
     }
   });
   window.hubNotifyHandlers = window.hubNotifyHandlers || {};
   window.hubNotifyHandlers['sync-review'] = function(p){ closeModal(); openReview(p && p.batchId); };
   window.hubNotifyHandlers['sync-mine'] = function(){ closeModal(); if (scopeNow()) openMine(); else openReview(); };
   if (window.DataStore) DataStore.on('change', function(ev){ if (ev && /^(syncChanges|hqDomains)$/.test(ev.name || '')){ try{ renderBar(); }catch(x){} } });
-  document.addEventListener('click', function(e){ if (e.target.closest && e.target.closest('.tab-btn[data-tab="convergence"]')) setTimeout(renderBar, 0); });
+  document.addEventListener('click', function(e){ if (e.target.closest && e.target.closest('.tab-btn[data-tab="convergence"], .tab-btn[data-tab="positions"], .tab-btn[data-tab="incentives"]')) setTimeout(renderBar, 0); });
 
-  window.hubSync = { derived: derived, renderBar: renderBar, tag: tag, isLocked: isLocked, submit: submit, decide: decide, pendingFor: pendingFor, domainOwners: domainOwners, canDecide: canDecide, userMaySee: userMaySee, myPrivate: myPrivate, openReview: openReview, openMine: openMine, openLog: openLog, changes: function(){ return all(KEY_C); }, conflictsOf: conflictsOf, ENTITIES: ENTITIES, DOMAINS: DOMAINS };
+  window.hubSync = { rerender: rerender, derived: derived, renderBar: renderBar, tag: tag, isLocked: isLocked, submit: submit, decide: decide, pendingFor: pendingFor, domainOwners: domainOwners, canDecide: canDecide, userMaySee: userMaySee, myPrivate: myPrivate, openReview: openReview, openMine: openMine, openLog: openLog, changes: function(){ return all(KEY_C); }, conflictsOf: conflictsOf, ENTITIES: ENTITIES, DOMAINS: DOMAINS };
 })();
 </script>
 <script>
@@ -7190,7 +7219,8 @@ async function storeSet(key, value){
   const saved = await DataStore.set(key, value);
   const priv = DataStore.wasPrivate(key);                /* a center user's change is private until synced: no history entry for the main record */
   if (saved && !priv && (key === 'convergence' || key === 'positions')) await captureHistory(key);
-  if (!saved && key === 'convergence' && DataStore.getScope()) state.convergence = await storeGet('convergence', state.convergence);
+  /* a center user: after a private write (or a refused one) the screen shows main + its own changes, with their markers */
+  if ((priv || !saved) && (key === 'convergence' || key === 'positions' || key === 'incentives') && DataStore.getScope()) state[key] = await storeGet(key, state[key]);
   return saved;
 }
 function storeGet(key, fallback){ return DataStore.get(key, fallback); }
@@ -9657,7 +9687,7 @@ function renderPositions(){
     const curDisplayName = linkedEmp ? linkedEmp.name : cur.fullName;
     const linkedConv = p.linkedConvergenceId ? state.convergence.find(c=>c.id===p.linkedConvergenceId) : null;
     return `<tr>
-      <td>${escapeHtml(p.serialNumber)}</td>
+      <td>${escapeHtml(p.serialNumber)}${window.hubSync?hubSync.tag(p):''}</td>
       <td>${escapeHtml(p.jobText)}</td>
       <td>${escapeHtml(p.profession||'—')}</td>
       <td>${escapeHtml(p.grade||'—')}</td>
@@ -9803,6 +9833,7 @@ function openPositionForm(id){
   openModal(positionFormHtml(id ? state.positions.find(p=>p.id===id) : null));
 }
 async function savePosition(existingId){
+  if (existingId && window.hubSync && hubSync.isLocked('positions', existingId)){ alert('הרשומה ממתינה להחלטת המטה ולכן אי אפשר לערוך אותה עכשיו'); return; }
   const serialNumber = document.getElementById('pos-serialNumber').value.trim();
   const jobText = document.getElementById('pos-jobText').value.trim();
   if (!serialNumber || !jobText){ alert('נא להזין לפחות מספר תקן ומלל משרה'); return; }
@@ -9861,6 +9892,7 @@ async function savePosition(existingId){
   if (currentProfileEmployeeId) openEmployeeProfile(currentProfileEmployeeId);
 }
 async function deletePosition(id){
+  if (window.hubSync && hubSync.isLocked('positions', id)){ alert('הרשומה ממתינה להחלטת המטה ולכן אי אפשר למחוק אותה עכשיו'); return; }
   if (!confirm('למחוק את התקן?')) return;
   state.positions = state.positions.filter(p=>p.id!==id);
   await storeSet('positions', state.positions);
@@ -11244,7 +11276,7 @@ function renderIncentives(){
   tbody.innerHTML = list.map(i=>{
     const d = incDerived(i);
     return `<tr>
-      <td>${escapeHtml(d.name)}</td>
+      <td>${escapeHtml(d.name)}${window.hubSync?hubSync.tag(i):''}</td>
       <td>${escapeHtml(d.grade || '—')}</td>
       <td>${escapeHtml(d.personalNumber || '—')}</td>
       <td>${escapeHtml(d.role || '—')}</td>
@@ -11313,6 +11345,7 @@ function onIncEmployeeChange(){
   if (!mad.value) mad.value = e.team || '';
 }
 async function saveIncentive(id){
+  if (id && window.hubSync && hubSync.isLocked('incentives', id)){ alert('הרשומה ממתינה להחלטת המטה ולכן אי אפשר לערוך אותה עכשיו'); return; }
   const employeeId = document.getElementById('inc-emp').value;
   const name = document.getElementById('inc-name').value.trim();
   const grossRaw = document.getElementById('inc-gross').value.trim();
@@ -11340,6 +11373,7 @@ async function saveIncentive(id){
   closeModal(); renderIncentives();
 }
 async function toggleIncEntered(id){
+  if (window.hubSync && hubSync.isLocked('incentives', id)){ alert('הרשומה ממתינה להחלטת המטה ולכן אי אפשר לערוך אותה עכשיו'); return; }
   const i = state.incentives.find(x=>x.id===id);
   if (!i) return;
   i.entered = !i.entered;
@@ -11347,6 +11381,7 @@ async function toggleIncEntered(id){
   renderIncentives();
 }
 async function deleteIncentive(id){
+  if (window.hubSync && hubSync.isLocked('incentives', id)){ alert('הרשומה ממתינה להחלטת המטה ולכן אי אפשר למחוק אותה עכשיו'); return; }
   const i = state.incentives.find(x=>x.id===id);
   if (!i || !confirm(`למחוק את התמריץ "${i.name}" של ${incDerived(i).name}?`)) return;
   state.incentives = state.incentives.filter(x=>x.id!==id);
