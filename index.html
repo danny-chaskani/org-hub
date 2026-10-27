@@ -1527,7 +1527,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     <div class="card">
       <div class="table-scroll">
         <table id="empTable">
-          <thead><tr><th><input type="checkbox" id="empSelectAll" onchange="toggleSelectAllEmployees(this.checked)"></th><th>שם</th><th>תפקיד</th><th>מרכז</th><th>מדור</th><th>מנהל ישיר</th><th>תקן נוכחי</th><th>סטטוס</th><th>אימייל</th><th>טלפון</th><th>תאריך התחלה</th><th>תאריך גיוס</th><th>שחרור מחובה</th><th>קליטה ליחידה</th><th></th><th></th></tr></thead>
+          <thead><tr><th><input type="checkbox" id="empSelectAll" onchange="toggleSelectAllEmployees(this.checked)"></th><th>שם</th><th>תפקיד</th><th>מרכז</th><th>מדור</th><th>מנהל ישיר</th><th>תקן נוכחי</th><th>סטטוס</th><th>אימייל</th><th>טלפון</th><th>תאריך התחלה</th><th>תאריך גיוס</th><th>שחרור קובע</th><th>קליטה ליחידה</th><th></th><th></th></tr></thead>
           <tbody></tbody>
         </table>
       </div>
@@ -1565,7 +1565,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
 
     <div class="panel-head" style="margin-top:28px;">
       <div><h2 style="font-size:18px;">מבנה ארגוני</h2><p>ענפים, מדורים וצוותים בכל מרכז. עובד משויך ליחידה אחת, ושדות ענף / מדור / צוות בכרטיס שלו מתמלאים ממנה.</p></div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;"><button class="ghost" id="ot-class" type="button">דוח סיווג מדור / צוות</button><button class="ghost" id="ot-mgr" type="button">הצעת מנהלים</button></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;"><button class="ghost" id="ot-class" type="button">דוח סיווג מדור / צוות</button><button class="ghost" id="ot-mgr" type="button">הצעת מנהלים</button><button class="ghost" id="rel-report" type="button">דוח תאריכי שחרור</button></div>
     </div>
     <div class="card" id="orgTreeCard"><div class="field" style="max-width:280px;"><label>מרכז</label><select id="ot-center"></select></div><div id="ot-tree"></div></div>
 
@@ -3678,6 +3678,69 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
 })();
 </script>
 <script>
+/* ================================================================
+   Release dates (stage 7b): service type decides which employee date counts.
+   Report of differences between the employee and the position; nothing changes without an approved row.
+   ================================================================ */
+(function(){
+  'use strict';
+  var el = function(id){ return document.getElementById(id); };
+  var esc = function(s){ return typeof escapeHtml === 'function' ? escapeHtml(s) : String(s); };
+  var TARGET = { 'אזרח': ['contractEndDate', 'סיום חוזה'], 'קבע': ['actualReleaseDate', 'שחרור בפועל'] };
+  var rows = [];
+  function posOf(e){ return state.positions.find(function(p){ return p.currentAppointment && p.currentAppointment.linkedEmployeeId === e.id; }) || null; }
+  function build(){
+    rows = [];
+    state.employees.forEach(function(e){
+      if (!isActiveEmp(e)) return;
+      var eff = effectiveReleaseDate(e), pos = posOf(e), pd = pos ? (pos.currentAppointment.releaseDate || '') : '';
+      if (pos && eff.date && pd !== eff.date) rows.push({ kind: 'toPosition', emp: e, pos: pos, eff: eff, posDate: pd });
+      else if (pos && !eff.date && pd){ var t = TARGET[e.serviceType] || ['compulsoryReleaseDate', 'סיום חובה']; rows.push({ kind: 'toEmployee', emp: e, pos: pos, eff: eff, posDate: pd, field: t[0], label: t[1] }); }
+      else if (!eff.date && (e.serviceType === 'חובה' || e.serviceType === 'אזרח' )) rows.push({ kind: 'missing', emp: e, pos: pos, eff: eff, posDate: pd });
+    });
+  }
+  function describe(r){
+    if (r.kind === 'toPosition') return 'עדכון התקן ל-' + r.eff.date;
+    if (r.kind === 'toEmployee') return 'העתקת ' + r.posDate + ' לשדה "' + r.label + '" של העובד';
+    return 'חסר תאריך. אין פעולה אוטומטית';
+  }
+  function open(){
+    build();
+    var body = rows.map(function(r, i){
+      return '<tr><td>' + (r.kind === 'missing' ? '' : '<input type="checkbox" data-rel-ck="' + i + '">') + '</td><td>' + esc(r.emp.name) + '</td><td>' + esc(r.emp.serviceType || '—') + '</td><td>' + esc(r.eff.date ? r.eff.date + ' (' + r.eff.label + ')' : '—') + '</td><td>' + esc(r.pos ? (r.posDate || '—') : 'ללא תקן') + '</td><td>' + esc(describe(r)) + '</td></tr>';
+    }).join('') || '<tr><td colspan="6">אין פערים בין תאריכי השחרור של העובדים לבין התקנים.</td></tr>';
+    openModal('<h3>דוח תאריכי שחרור</h3>'
+      + '<div class="locked-note">התאריך הקובע לעובד נקבע לפי סוג השירות: חובה — סיום חובה, אזרח — סיום חוזה, קבע — שחרור בפועל. שחרור בפועל גובר תמיד. שום דבר לא משתנה עד שמסמנים שורה ולוחצים "החל".</div>'
+      + '<div class="table-scroll"><table><thead><tr><th></th><th>עובד</th><th>סוג שירות</th><th>תאריך קובע</th><th>תאריך בתקן</th><th>פעולה מוצעת</th></tr></thead><tbody>' + body + '</tbody></table></div>'
+      + '<div id="rel-msg" class="locked-note"></div>'
+      + '<div class="modal-actions"><button class="primary" id="rel-apply" type="button">החל על המסומנות</button><button class="ghost" id="rel-export" type="button">ייצוא לאקסל</button><button class="ghost" onclick="closeModal()" type="button">סגור</button></div>', true);
+  }
+  async function apply(){
+    var n = 0, posCh = false, empCh = false;
+    rows.forEach(function(r, i){
+      var ck = document.querySelector('[data-rel-ck="' + i + '"]'); if (!ck || !ck.checked) return;
+      if (r.kind === 'toPosition'){ r.pos.currentAppointment.releaseDate = r.eff.date; posCh = true; n++; }
+      else if (r.kind === 'toEmployee'){ empById(r.emp.id)[r.field] = r.posDate; empCh = true; n++; }
+    });
+    if (empCh) await storeSet('employees', state.employees);
+    if (posCh) await storeSet('positions', state.positions);
+    if (n && typeof refreshAllViews === 'function') refreshAllViews();
+    open();
+    el('rel-msg').textContent = n + ' שורות הוחלו.';
+  }
+  function exportRel(){
+    if (!rows.length){ alert('אין שורות לייצוא'); return; }
+    exportToExcel('דוח_תאריכי_שחרור', rows.map(function(r){ return { 'עובד': r.emp.name, 'סוג שירות': r.emp.serviceType || '', 'תאריך קובע': r.eff.date, 'מקור': r.eff.label, 'תאריך בתקן': r.posDate, 'פעולה מוצעת': describe(r) }; }));
+  }
+  document.addEventListener('click', function(e){
+    var t = e.target.closest ? e.target : null; if (!t) return;
+    if (t.closest('#rel-report')) open();
+    else if (t.closest('#rel-apply')) apply();
+    else if (t.closest('#rel-export')) exportRel();
+  });
+})();
+</script>
+<script>
 /* ---------------- storage helpers ---------------- */
 function hasArtifactStorage(){ return typeof window !== 'undefined' && window.storage && typeof window.storage.get === 'function'; }
 async function storeSet(key, value){
@@ -4771,7 +4834,7 @@ function renderEmployees(){
       <td>${escapeHtml(e.phone||'—')}</td>
       <td>${escapeHtml(e.startDate||'—')}</td>
       <td>${escapeHtml(e.enlistmentDate||'—')}</td>
-      <td>${escapeHtml(e.compulsoryReleaseDate||'—')}</td>
+      <td title="${escapeHtml(effectiveReleaseDate(e).label)}">${escapeHtml(effectiveReleaseDate(e).date||'—')}</td>
       <td>${escapeHtml(e.unitIntakeDate||'—')}</td>
       <td style="white-space:nowrap;"><button class="icon-btn" onclick="openEmployeeProfile('${e.id}')">👁️</button></td>
       <td style="white-space:nowrap;">
@@ -4947,9 +5010,14 @@ function employeeFormHtml(existing, presetManagerId){
       <div class="field"><label>תאריך גיוס</label><input type="date" id="f-enlistmentDate" value="${escapeHtml(e.enlistmentDate)}"></div>
     </div>
     <div class="grid2">
-      <div class="field"><label>תאריך שחרור מחובה</label><input type="date" id="f-compulsoryReleaseDate" value="${escapeHtml(e.compulsoryReleaseDate)}"></div>
+      <div class="field"><label>סיום חובה</label><input type="date" id="f-compulsoryReleaseDate" value="${escapeHtml(e.compulsoryReleaseDate)}"></div>
       <div class="field"><label>תאריך קליטה ליחידה</label><input type="date" id="f-unitIntakeDate" value="${escapeHtml(e.unitIntakeDate)}"></div>
     </div>
+    <div class="grid2">
+      <div class="field"><label>שחרור בפועל</label><input type="date" id="f-actualReleaseDate" value="${escapeHtml(e.actualReleaseDate)}"></div>
+      <div class="field"><label>סיום חוזה (אזרח)</label><input type="date" id="f-contractEndDate" value="${escapeHtml(e.contractEndDate)}"></div>
+    </div>
+    <div class="locked-note">התאריך הקובע לפי סוג השירות: חובה — סיום חובה, אזרח — סיום חוזה, קבע — שחרור בפועל. שחרור בפועל גובר תמיד. התאריך הקובע מתעדכן בתקן המקושר ובהתכנסות.</div>
     <div class="grid2">
       <div class="field"><label>מספר אישי</label><input type="text" id="f-personalNumber" value="${escapeHtml(e.personalNumber)}"></div>
       <div class="field"><label>דרגה</label><input type="text" id="f-grade" value="${escapeHtml(e.grade)}"></div>
@@ -5072,6 +5140,8 @@ async function saveEmployee(existingId){
     startDate: document.getElementById('f-startDate').value,
     enlistmentDate: document.getElementById('f-enlistmentDate').value,
     compulsoryReleaseDate: document.getElementById('f-compulsoryReleaseDate').value,
+    actualReleaseDate: document.getElementById('f-actualReleaseDate').value,
+    contractEndDate: document.getElementById('f-contractEndDate').value,
     unitIntakeDate: document.getElementById('f-unitIntakeDate').value,
     personalNumber: document.getElementById('f-personalNumber').value.trim(),
     grade: document.getElementById('f-grade').value.trim(),
@@ -5153,6 +5223,11 @@ async function saveEmployee(existingId){
       pos.currentAppointment.fullName = name;
       positionsChanged = true;
     }
+  }
+  {
+    const effNow = effectiveReleaseDate(state.employees.find(x=>x.id===employeeId));
+    const linkedPos = state.positions.find(p=>p.currentAppointment && p.currentAppointment.linkedEmployeeId===employeeId);
+    if (effNow.date && linkedPos && linkedPos.currentAppointment.releaseDate !== effNow.date){ linkedPos.currentAppointment.releaseDate = effNow.date; positionsChanged = true; }
   }
   if (positionsChanged) await storeSet('positions', state.positions);
 
@@ -5270,7 +5345,10 @@ function openEmployeeProfile(id){
       <div><div class="lbl3">תקן נוכחי</div>${pos?`${escapeHtml(pos.serialNumber)} — ${escapeHtml(pos.jobText)}`:'<span class="vacant-txt">ללא תקן</span>'}</div>
       <div><div class="lbl3">תאריך התחלה</div>${escapeHtml(e.startDate||'—')}</div>
       <div><div class="lbl3">תאריך גיוס</div>${escapeHtml(e.enlistmentDate||'—')}</div>
-      <div><div class="lbl3">תאריך שחרור מחובה</div>${escapeHtml(e.compulsoryReleaseDate||'—')}</div>
+      <div><div class="lbl3">סיום חובה</div>${escapeHtml(e.compulsoryReleaseDate||'—')}</div>
+      <div><div class="lbl3">שחרור בפועל</div>${escapeHtml(e.actualReleaseDate||'—')}</div>
+      <div><div class="lbl3">סיום חוזה</div>${escapeHtml(e.contractEndDate||'—')}</div>
+      <div><div class="lbl3">תאריך שחרור קובע</div>${escapeHtml(effectiveReleaseDate(e).date||'—')}${effectiveReleaseDate(e).label?' ('+escapeHtml(effectiveReleaseDate(e).label)+')':''}</div>
       <div><div class="lbl3">תאריך קליטה ליחידה</div>${escapeHtml(e.unitIntakeDate||'—')}</div>
       <div><div class="lbl3">מספר אישי</div>${escapeHtml(e.personalNumber||'—')}</div>
       <div><div class="lbl3">דרגה</div>${escapeHtml(e.grade||'—')}</div>
@@ -6137,6 +6215,7 @@ function positionFormHtml(existing){
     regulationNotes:'', generalNotes:''
   };
   const cur = p.currentAppointment || {fullName:'', personalNumber:'', releaseDate:'', linkedEmployeeId:''};
+  const curEff = cur.linkedEmployeeId ? effectiveReleaseDate(empById(cur.linkedEmployeeId)) : {date:'', label:''};
   const fut = p.futureAppointment || {fullName:'', personalNumber:'', staffingDate:''};
   const empLinkOptions = state.employees.map(e=>`<option value="${e.id}" data-name="${escapeHtml(e.name)}" ${e.id===cur.linkedEmployeeId?'selected':''}>${escapeHtml(e.name)} — ${escapeHtml(e.role)}</option>`).join('');
   const convOptions = state.convergence.map(c=>`<option value="${c.id}" ${c.id===p.linkedConvergenceId?'selected':''}>${escapeHtml(c.firstName)} ${escapeHtml(c.lastName)}</option>`).join('');
@@ -6200,7 +6279,7 @@ function positionFormHtml(existing){
     <div class="field"><label>שם מלא</label><input type="text" id="pos-cur-fullName" value="${escapeHtml(cur.fullName)}"></div>
     <div class="grid2">
       <div class="field"><label>מספר אישי</label><input type="text" id="pos-cur-personalNumber" value="${escapeHtml(cur.personalNumber)}"></div>
-      <div class="field"><label>תאריך שחרור</label><input type="date" id="pos-cur-releaseDate" value="${escapeHtml(cur.releaseDate)}"></div>
+      <div class="field"><label>תאריך שחרור</label><input type="date" id="pos-cur-releaseDate" value="${escapeHtml(curEff.date||cur.releaseDate)}" ${curEff.date?'readonly':''}>${curEff.date?'<div class="locked-note">נקבע מכרטיס העובד ('+escapeHtml(curEff.label)+')</div>':''}</div>
     </div>
 
     <div class="form-section-title">מינוי עתידי למשרה</div>
@@ -6259,7 +6338,7 @@ async function savePosition(existingId){
     currentAppointment: {
       fullName: document.getElementById('pos-cur-fullName').value.trim(),
       personalNumber: document.getElementById('pos-cur-personalNumber').value.trim(),
-      releaseDate: document.getElementById('pos-cur-releaseDate').value,
+      releaseDate: (linkedEmployeeId && effectiveReleaseDate(empById(linkedEmployeeId)).date) || document.getElementById('pos-cur-releaseDate').value,
       linkedEmployeeId
     },
     futureAppointment: {
@@ -6355,7 +6434,20 @@ function renderConvFilterOptions(){
     sel.value = current;
   });
 }
+function effectiveReleaseDate(e){
+  if (!e) return {date:'', label:''};
+  if (e.actualReleaseDate) return {date:e.actualReleaseDate, label:'שחרור בפועל'};
+  if (e.serviceType==='חובה' && e.compulsoryReleaseDate) return {date:e.compulsoryReleaseDate, label:'סיום חובה'};
+  if (e.serviceType==='אזרח' && e.contractEndDate) return {date:e.contractEndDate, label:'סיום חוזה'};
+  if (!e.serviceType){
+    if (e.compulsoryReleaseDate) return {date:e.compulsoryReleaseDate, label:'סיום חובה'};
+    if (e.contractEndDate) return {date:e.contractEndDate, label:'סיום חוזה'};
+  }
+  return {date:'', label:''};
+}
 function getEmployeeReleaseDate(e){
+  const eff = effectiveReleaseDate(e);
+  if (eff.date) return eff.date;
   const pos = e ? getPositionByEmployeeId(e.id) : null;
   return (pos && pos.currentAppointment && pos.currentAppointment.releaseDate) || '';
 }
@@ -6767,7 +6859,9 @@ const IMPORT_CONFIGS = {
       {key:'phone', label:'טלפון'},
       {key:'startDate', label:'תאריך התחלה'},
       {key:'enlistmentDate', label:'תאריך גיוס'},
-      {key:'compulsoryReleaseDate', label:'תאריך שחרור מחובה'},
+      {key:'compulsoryReleaseDate', label:'סיום חובה', aliases:['תאריך שחרור מחובה']},
+      {key:'actualReleaseDate', label:'שחרור בפועל'},
+      {key:'contractEndDate', label:'סיום חוזה'},
       {key:'unitIntakeDate', label:'תאריך קליטה ליחידה'},
       {key:'personalNumber', label:'מספר אישי'},
       {key:'grade', label:'דרגה'},
@@ -6802,7 +6896,7 @@ const IMPORT_CONFIGS = {
     createRecord: (ctx, row) => {
       const emp = {
         id: uid('e'), name:row.name, role:row.role, department:row.department, managerId:null,
-        email:row.email, phone:row.phone, startDate:row.startDate, enlistmentDate:row.enlistmentDate, compulsoryReleaseDate:row.compulsoryReleaseDate, unitIntakeDate:row.unitIntakeDate, personalNumber:row.personalNumber, grade:row.grade,
+        email:row.email, phone:row.phone, startDate:row.startDate, enlistmentDate:row.enlistmentDate, compulsoryReleaseDate:row.compulsoryReleaseDate, actualReleaseDate:row.actualReleaseDate, contractEndDate:row.contractEndDate, unitIntakeDate:row.unitIntakeDate, personalNumber:row.personalNumber, grade:row.grade,
         industry:row.industry, mador:row.mador, team:row.team, ramad:row.ramad, rank:row.rank, level:row.level, serviceType:row.serviceType,
         professionNumber:row.professionNumber, professionText:row.professionText,
         isVolunteer:false, isCadet:false, education:row.education, flexA:false, flexB:false,
@@ -6827,6 +6921,8 @@ const IMPORT_CONFIGS = {
       if (row.startDate) existing.startDate = row.startDate;
       if (row.enlistmentDate) existing.enlistmentDate = row.enlistmentDate;
       if (row.compulsoryReleaseDate) existing.compulsoryReleaseDate = row.compulsoryReleaseDate;
+      if (row.actualReleaseDate) existing.actualReleaseDate = row.actualReleaseDate;
+      if (row.contractEndDate) existing.contractEndDate = row.contractEndDate;
       if (row.unitIntakeDate) existing.unitIntakeDate = row.unitIntakeDate;
       if (row.personalNumber) existing.personalNumber = row.personalNumber;
       if (row.grade) existing.grade = row.grade;
@@ -7276,7 +7372,7 @@ function exportEmployees(){
       'שם': e.name, 'תפקיד': e.role, 'מרכז': e.department, 'ענף': e.industry, 'מדור': e.mador, 'צוות': e.team,
       'מנהל ישיר': mgr ? mgr.name : '', 'רמ"ד': e.ramad, 'רמת הרשאה': e.rank, 'זוטר/מובהק': e.level, 'סוג שירות': e.serviceType, 'פעיל': e.active===false ? 'לא' : 'כן',
       'תקן נוכחי': pos ? `${pos.serialNumber} — ${pos.jobText}` : '',
-      'אימייל': e.email, 'טלפון': e.phone, 'תאריך התחלה': e.startDate, 'תאריך גיוס': e.enlistmentDate, 'תאריך שחרור מחובה': e.compulsoryReleaseDate, 'תאריך קליטה ליחידה': e.unitIntakeDate, 'מספר אישי': e.personalNumber, 'דרגה': e.grade,
+      'אימייל': e.email, 'טלפון': e.phone, 'תאריך התחלה': e.startDate, 'תאריך גיוס': e.enlistmentDate, 'סיום חובה': e.compulsoryReleaseDate, 'שחרור בפועל': e.actualReleaseDate, 'סיום חוזה': e.contractEndDate, 'תאריך שחרור קובע': effectiveReleaseDate(e).date, 'תאריך קליטה ליחידה': e.unitIntakeDate, 'מספר אישי': e.personalNumber, 'דרגה': e.grade,
       'מספר מקצוע': e.professionNumber, 'מלל מקצוע': e.professionText,
       'מתנדב': e.isVolunteer ? 'כן' : 'לא', 'עתודאי': e.isCadet ? 'כן' : 'לא',
       'השכלה': e.education, "גמוש א'": e.flexA ? 'כן' : 'לא', "גמוש ב'": e.flexB ? 'כן' : 'לא',
