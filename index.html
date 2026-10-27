@@ -8770,7 +8770,7 @@ function hasTabAccess(tab){
 function applyAccessControl(){
   document.querySelectorAll('.tab-btn').forEach(btn=>{ btn.style.display = hasTabAccess(btn.dataset.tab) ? '' : 'none'; });
   const sup = isSuperUser();
-  ['convHistoryBtn','posHistoryBtn'].forEach(id=>{ const b = document.getElementById(id); if (b) b.style.display = sup ? 'inline-block' : 'none'; });
+  [['convHistoryBtn','convergence'],['posHistoryBtn','positions']].forEach(([id,dom])=>{ const b = document.getElementById(id); if (b) b.style.display = (sup || (window.hubHier && hubHier.ownsDomain(state.currentUserId, dom))) ? 'inline-block' : 'none'; });
   renderConvergence(); renderPositions();
   const active = document.querySelector('.tab-btn.active');
   if (!active || active.style.display === 'none'){
@@ -9077,12 +9077,83 @@ async function captureHistory(domain){
 }
 
 let histState = {domain:null, filter:'', limit:50};
+/* history: the system user, and the owner of the domain (who sees only the records of the own scope) */
+function canViewHistory(domain){ return isSuperUser() || !!(window.hubHier && hubHier.ownsDomain(state.currentUserId, domain)); }
+function histRecVisible(domain, rec){ if (!rec || isSuperUser()) return true; return domain === 'convergence' ? convergenceVisibleToCurrentUser(rec) : positionVisibleToCurrentUser(rec); }
+function histEntryVisible(domain, e){ return histRecVisible(domain, e.after || e.before); }
+/* the table as it was right after the save at `at`: the current records with every later change undone */
+function histReconstruct(domain, at){
+  const cfg = HISTORY_DOMAINS[domain], map = new Map();
+  (state[cfg.stateKey] || []).forEach(r=>map.set(r.id, JSON.parse(JSON.stringify(r))));
+  const later = (state.history[domain] || []).filter(e=>e.at > at);
+  for (let i = later.length - 1; i >= 0; i--){
+    const e = later[i];
+    if (e.action === 'create') map.delete(e.recordId);
+    else if (e.before) map.set(e.recordId, JSON.parse(JSON.stringify(e.before)));
+  }
+  return Array.from(map.values()).filter(r=>histRecVisible(domain, r));
+}
+function histVersions(domain){
+  const m = new Map();
+  (state.history[domain] || []).filter(e=>histEntryVisible(domain, e)).forEach(e=>{ const g = m.get(e.at) || {at:e.at, by:e.byName, n:0, source:e.source||''}; g.n++; m.set(e.at, g); });
+  return Array.from(m.values()).sort((a,b)=>b.at.localeCompare(a.at));
+}
+function histRows(domain, list){ const cfg = HISTORY_DOMAINS[domain]; return list.map(r=>{ const o = {}; cfg.fields.forEach(f=>{ o[f.label] = hnorm(f.get(r)); }); return o; }); }
+function histVersionLabel(at){ return new Date(at).toLocaleString('he-IL'); }
+function openVersionView(domain, at){
+  if (!canViewHistory(domain)) return;
+  const cfg = HISTORY_DOMAINS[domain], list = histReconstruct(domain, at), rows = histRows(domain, list);
+  const head = cfg.fields.map(f=>`<th>${escapeHtml(f.label)}</th>`).join('');
+  const body = rows.map(r=>`<tr>${cfg.fields.map(f=>`<td>${escapeHtml(r[f.label])}</td>`).join('')}</tr>`).join('') || `<tr><td colspan="${cfg.fields.length}">אין רשומות בגרסה זו</td></tr>`;
+  openModal(`
+    <h3>${escapeHtml(cfg.title)}</h3>
+    <div class="dup-err hist-banner" role="status" style="font-weight:700;">מוצגת גרסה מתאריך ${escapeHtml(histVersionLabel(at))} – לקריאה בלבד</div>
+    <div class="locked-note">${list.length} רשומות. שום דבר במצב הנוכחי לא משתנה מהמסך הזה, ואין שחזור מכאן.</div>
+    <div class="table-scroll"><table class="hist-version"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>
+    <div class="modal-actions"><button class="ghost" onclick="openHistoryModal('${domain}')">חזרה להיסטוריה</button><button class="ghost" onclick="histCompare('${domain}','${at}')">השווה למצב הנוכחי</button><button class="primary" onclick="histExportVersion('${domain}','${at}')">ייצוא לאקסל</button></div>
+  `, true);
+}
+function histExportVersion(domain, at){
+  const rows = histRows(domain, histReconstruct(domain, at));
+  if (!rows.length){ alert('אין רשומות לייצוא'); return; }
+  exportToExcel(`${domain === 'convergence' ? 'התכנסות' : 'תקנים'}_גרסה_${at.slice(0,10)}`, rows);
+}
+function histCompareData(domain, at){
+  const cfg = HISTORY_DOMAINS[domain], past = histReconstruct(domain, at), cur = (state[cfg.stateKey] || []).filter(r=>histRecVisible(domain, r));
+  const pm = new Map(past.map(r=>[r.id, r])), cm = new Map(cur.map(r=>[r.id, r]));
+  return {
+    added: cur.filter(r=>!pm.has(r.id)), removed: past.filter(r=>!cm.has(r.id)),
+    changed: cur.filter(r=>pm.has(r.id)).map(r=>({rec:r, diffs: historyDiff(cfg, pm.get(r.id), r)})).filter(x=>x.diffs.length)
+  };
+}
+function histCompare(domain, at){
+  if (!canViewHistory(domain)) return;
+  const cfg = HISTORY_DOMAINS[domain], d = histCompareData(domain, at);
+  const sec = (title, cls, items)=>`<div class="form-section-title">${title} (${items.length})</div>` + (items.map(x=>`<div class="widget-row"><span class="req-status ${cls}">${escapeHtml(cfg.label(x.rec || x))}</span><span>${x.diffs ? x.diffs.map(c=>`${escapeHtml(c.label)}: ${c.from?escapeHtml(c.from):'—'} ← <b>${c.to?escapeHtml(c.to):'—'}</b>`).join(' · ') : ''}</span></div>`).join('') || '<div class="widget-empty">אין</div>');
+  openModal(`
+    <h3>השוואה: גרסה מתאריך ${escapeHtml(histVersionLabel(at))} מול המצב הנוכחי</h3>
+    <div class="dup-err hist-banner" style="font-weight:700;">מוצגת גרסה מתאריך ${escapeHtml(histVersionLabel(at))} – לקריאה בלבד</div>
+    ${sec('נוספו מאז', 'approved', d.added.map(r=>({rec:r})))}
+    ${sec('נמחקו מאז', 'rejected', d.removed.map(r=>({rec:r})))}
+    ${sec('השתנו מאז', 'pending', d.changed)}
+    <div class="modal-actions"><button class="ghost" onclick="openVersionView('${domain}','${at}')">חזרה לגרסה</button><button class="primary" onclick="histExportCompare('${domain}','${at}')">ייצוא ההשוואה לאקסל</button></div>
+  `, true);
+}
+function histExportCompare(domain, at){
+  const cfg = HISTORY_DOMAINS[domain], d = histCompareData(domain, at), rows = [];
+  d.added.forEach(r=>rows.push({'סוג':'נוסף', 'רשומה': cfg.label(r), 'שדה':'', 'בגרסה':'', 'כיום':''}));
+  d.removed.forEach(r=>rows.push({'סוג':'נמחק', 'רשומה': cfg.label(r), 'שדה':'', 'בגרסה':'', 'כיום':''}));
+  d.changed.forEach(x=>x.diffs.forEach(c=>rows.push({'סוג':'השתנה', 'רשומה': cfg.label(x.rec), 'שדה': c.label, 'בגרסה': c.from, 'כיום': c.to})));
+  if (!rows.length){ alert('אין הבדלים לייצוא'); return; }
+  exportToExcel(`השוואה_${domain === 'convergence' ? 'התכנסות' : 'תקנים'}_${at.slice(0,10)}`, rows);
+}
 function openHistoryModal(domain, recordId){
-  if (!isSuperUser()){ alert('היסטוריית שינויים זמינה למשתמשי על בלבד'); return; }
+  if (!canViewHistory(domain)){ alert('היסטוריית שינויים זמינה למשתמשי על ולאחראי התחום בלבד'); return; }
   histState = {domain, filter: recordId || '', limit: 50};
   openModal(`
     <h3>${escapeHtml(HISTORY_DOMAINS[domain].title)}</h3>
     <div style="font-size:12.5px; color:var(--text-dim); margin-bottom:10px;">כל שמירה נרשמת: מי, מתי ומה השתנה. נשמרים ${HISTORY_MAX} השינויים האחרונים. אפשר לשחזר רשומה למצב שלפני שינוי מסוים.</div>
+    <div id="hist-versions"></div>
     <div class="field"><label>סינון לפי רשומה</label><select id="hist-filter" onchange="histFilterChange()"></select></div>
     <div id="hist-body"></div>
     <div class="modal-actions"><button class="ghost" onclick="closeModal()">סגור</button></div>
@@ -9112,14 +9183,19 @@ function historyEntryHtml(domain, e){
       <span class="req-status ${cls}">${actionLabel}</span>
     </div>
     <div style="margin-top:8px;">${lines}</div>
-    ${e.before ? `<div class="r-actions"><button class="ghost" onclick="restoreHistoryEntry('${domain}','${e.id}')">↩️ שחזר למצב שלפני שינוי זה</button></div>` : ''}
+    ${e.before && isSuperUser() ? `<div class="r-actions"><button class="ghost" onclick="restoreHistoryEntry('${domain}','${e.id}')">↩️ שחזר למצב שלפני שינוי זה</button></div>` : ''}
   </div>`;
 }
 function renderHistoryBody(){
   const body = document.getElementById('hist-body');
   if (!body) return;
   const {domain, filter, limit} = histState;
-  const all = state.history[domain] || [];
+  const all = (state.history[domain] || []).filter(e=>histEntryVisible(domain, e));
+  const vbox = document.getElementById('hist-versions');
+  if (vbox){
+    const vs = histVersions(domain).slice(0, 30);
+    vbox.innerHTML = `<div class="form-section-title">גרסאות (${vs.length}${histVersions(domain).length > 30 ? ' אחרונות' : ''})</div>` + (vs.map(v=>`<div class="widget-row" style="gap:8px;flex-wrap:wrap;"><span>${escapeHtml(histVersionLabel(v.at))} · ${escapeHtml(v.by||'')} · ${v.n} שינויים${v.source?' · '+escapeHtml(v.source):''}</span><span style="white-space:nowrap;"><button class="ghost" data-hv="view" data-at="${escapeHtml(v.at)}">צפייה</button> <button class="ghost" data-hv="export" data-at="${escapeHtml(v.at)}">ייצוא לאקסל</button> <button class="ghost" data-hv="compare" data-at="${escapeHtml(v.at)}">השווה לנוכחי</button></span></div>`).join('') || '<div class="widget-empty">אין גרסאות עדיין</div>');
+  }
   const labels = new Map(); all.forEach(e=>labels.set(e.recordId, e.label));
   const opts = Array.from(labels.entries()).sort((a,b)=>a[1].localeCompare(b[1],'he'));
   document.getElementById('hist-filter').innerHTML = `<option value="">כל הרשומות (${all.length} שינויים)</option>` +
@@ -9129,6 +9205,11 @@ function renderHistoryBody(){
   body.innerHTML = list.slice(0, limit).map(e=>historyEntryHtml(domain, e)).join('') +
     (list.length > limit ? `<button class="ghost" style="width:100%;" onclick="histMore()">הצג עוד (${list.length - limit})</button>` : '');
 }
+document.addEventListener('click', function(ev){
+  const b = ev.target.closest ? ev.target.closest('[data-hv]') : null; if (!b || !histState.domain) return;
+  const at = b.getAttribute('data-at'), a = b.getAttribute('data-hv');
+  if (a === 'view') openVersionView(histState.domain, at); else if (a === 'export') histExportVersion(histState.domain, at); else if (a === 'compare') histCompare(histState.domain, at);
+});
 async function restoreHistoryEntry(domain, entryId){
   if (!isSuperUser()){ alert('השחזור זמין למשתמשי על בלבד'); return; }
   const cfg = HISTORY_DOMAINS[domain];
