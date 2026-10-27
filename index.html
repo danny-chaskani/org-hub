@@ -3388,10 +3388,10 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
     var l = legacyOf(list, e.orgUnitId);
     e.industry = l.industry; e.mador = l.mador; e.team = l.team;
     var changed = false;
-    (state.convergence || []).forEach(function(c){ if (c.employeeId === e.id && (c.industry !== l.industry || c.mador !== l.mador)){ c.industry = l.industry; c.mador = l.mador; changed = true; } });
+    (state.convergence || []).forEach(function(c){ if (c.employeeId === e.id && !c.orgSnapshot && (c.industry !== l.industry || c.mador !== l.mador)){ c.industry = l.industry; c.mador = l.mador; changed = true; } });
     if (changed) await storeSet('convergence', state.convergence);
     var changedI = false;
-    (state.incentives || []).forEach(function(i){ if (i.employeeId === e.id && (i.industry !== l.industry || i.mador !== l.mador)){ i.industry = l.industry; i.mador = l.mador; changedI = true; } });
+    (state.incentives || []).forEach(function(i){ if (i.employeeId === e.id && !i.orgSnapshot && (i.industry !== l.industry || i.mador !== l.mador)){ i.industry = l.industry; i.mador = l.mador; changedI = true; } });
     if (changedI) await storeSet('incentives', state.incentives);
   }
   async function resyncSubtree(list, unitId){
@@ -3406,16 +3406,50 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
   window.hubOrgAfterEmployeeSave = async function(empId, prevUnitId){
     var e = empById(empId); if (!e) return;
     var list = await units();
+    var prevMap = {}; prevMap[empId] = prevUnitId;
+    await snapshotClosed(prevMap);                         /* closed records keep the unit they had before it changes */
     if (e.orgUnitId) await writeThrough(list, e);
     await recordMembership(empId, prevUnitId, e.orgUnitId || null);
     if (e.orgUnitId) await storeSet('employees', state.employees);
   };
-  window.hubOrgSnapshot = async function(empId){
+  /* snapshot of the unit names of an employee (optionally for a given unit), written once when a record closes */
+  window.hubOrgSnapshot = async function(empId, unitId){
     var e = empById(empId); if (!e) return null;
-    var list = await units(), ch = e.orgUnitId ? chainOf(list, e.orgUnitId) : [], g = function(k){ var u = ch.find(function(x){ return x.kind === k; }); return u ? u.name : ''; };
+    var uid0 = unitId === undefined ? e.orgUnitId : unitId;
+    var list = await units(), ch = uid0 ? chainOf(list, uid0) : [], g = function(k){ var u = ch.find(function(x){ return x.kind === k; }); return u ? u.name : ''; };
     var c = byId(list, centerIdOfEmp(e));
     return { centerName: c ? c.name : (e.department || ''), industryName: g('branch') || e.industry || '', madorName: g('mador') || e.mador || '', teamName: g('team') || e.team || '', at: new Date().toISOString() };
   };
+  /* the unit an employee belonged to on a date, from the membership history; falls back to the given unit */
+  function unitAtDate(mem, empId, date, fallback){
+    var m = mem.find(function(x){ return x.employeeId === empId && x.from <= date && (!x.to || x.to >= date); });
+    return m ? m.orgUnitId : fallback;
+  }
+  /* closing events: a convergence whose exit date passed, an incentive whose end date passed */
+  async function snapshotClosed(prevMap){
+    prevMap = prevMap || {};
+    var now = today(), mem = await DataStore.get('unitMemberships', []); if (!Array.isArray(mem)) mem = [];
+    var convCh = false, incCh = false, n = 0;
+    async function snap(rec, endDate){
+      var e = rec.employeeId ? empById(rec.employeeId) : null; if (!e) return false;
+      var fb = prevMap[e.id] !== undefined ? prevMap[e.id] : e.orgUnitId;
+      var unit = unitAtDate(mem, e.id, endDate, fb);
+      rec.orgSnapshot = await window.hubOrgSnapshot(e.id, unit || null);
+      return true;
+    }
+    for (var i = 0; i < (state.convergence || []).length; i++){
+      var c = state.convergence[i];
+      if (c.exitDate && c.exitDate < now && !c.orgSnapshot && await snap(c, c.exitDate)){ convCh = true; n++; }
+    }
+    for (var j = 0; j < (state.incentives || []).length; j++){
+      var inc = state.incentives[j];
+      if (inc.endDate && inc.endDate < now && !inc.orgSnapshot && await snap(inc, inc.endDate)){ incCh = true; n++; }
+    }
+    if (convCh) await storeSet('convergence', state.convergence);
+    if (incCh) await storeSet('incentives', state.incentives);
+    return n;
+  }
+  window.hubOrgSnapshotClosed = snapshotClosed;
 
   /* ---------- employee form picker ---------- */
   var pickCache = [];
@@ -4825,6 +4859,7 @@ async function completeLogin(user){
   try{ sessionStorage.setItem('hub:session', user.id); }catch(e){}
   if (window.hubApplyScope) await hubApplyScope(user);
   hideAuth();
+  if (window.hubOrgSnapshotClosed) setTimeout(()=>{ hubOrgSnapshotClosed().catch(()=>{}); }, 900);
   if (window.hubFlex) setTimeout(()=>{ hubFlex.sync().then(()=>hubFlex.runReminders()).then(()=>{ if (window.hubNotify) hubNotify.refresh(); }).catch(()=>{}); }, 1200);
   if (user.isSuper && window.hubConflicts) setTimeout(()=>{ hubConflicts.runAndNotify().then(()=>{ if (window.hubNotify) hubNotify.refresh(); }).catch(()=>{}); }, 1500);
   if (!appBooted){ appBooted = true; bootApp(); } else { refreshAllViews(); }
