@@ -7501,6 +7501,7 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
   function maskEmployeeRows(tbody){
     var K = { 2: 'name', 3: 'role', 4: 'unit', 5: 'unit', 6: 'manager', 7: 'position', 8: 'flags', 9: 'email', 10: 'phone', 11: 'startDate', 12: 'enlistmentDate', 13: 'releaseDate', 14: 'unitIntakeDate' };
     Array.prototype.forEach.call(tbody.querySelectorAll('tr'), function(tr){
+      if (tr.classList.contains('hp-more')) return;
       var td = tr.children;
       Object.keys(K).forEach(function(i){ if (td[i - 1] && !exposed(K[i])) td[i - 1].textContent = '—'; });
       if (td[0]) td[0].innerHTML = ''; if (td.length > 1 && td[td.length - 1]) td[td.length - 1].innerHTML = '';
@@ -7952,10 +7953,11 @@ body.auth-locked #bootMsg{ display: flex; flex-direction: column; align-items: c
 
   /* 1. an inactive employee on a position */
   hubConflictRules.add('emp-inactive-on-pos', 'עובד לא פעיל שעדיין מאייש תקן', function(){
-    var out = [];
+    var out = [], inactive = {};      /* one pass over the employees instead of a search per position (2,000 x 2,000 took 7s) */
+    allOf('employees').forEach(function(e){ if (e.active === false) inactive[e.id] = e; });
     allOf('positions').forEach(function(p){
       var id = C.occupantId(p); if (!id) return;
-      var e = empAny(id); if (!e || e.active !== false) return;
+      var e = inactive[id]; if (!e) return;
       out.push({ key: p.id, text: e.name + ' מסומן כלא פעיל ועדיין מאייש את התקן ' + label(p), refs: [{ type: 'employee', id: e.id }, { type: 'position', id: p.id }], basis: [p.id, e.id, 'inactive'].join('|') });
     });
     return out;
@@ -9362,7 +9364,18 @@ function bindModal(){
 }
 
 /* ---------------- employee helpers ---------------- */
-function empById(id){ return state.employees.find(e=>e.id===id); }
+/* id -> index lookup that is verified on every hit (a record that moved or was replaced is simply found by the old linear search) */
+let empIdxCache = { arr: null, len: -1, map: null };
+function empById(id){
+  const arr = state.employees;
+  if (empIdxCache.arr !== arr || empIdxCache.len !== arr.length){
+    const m = new Map(); for (let i = arr.length - 1; i >= 0; i--) m.set(arr[i].id, i);
+    empIdxCache = { arr, len: arr.length, map: m };
+  }
+  const i = empIdxCache.map.get(id);
+  if (i !== undefined && arr[i] && arr[i].id === id) return arr[i];
+  return arr.find(e=>e.id===id);
+}
 function empOptions(selectedId, excludeId){
   return state.employees
     .filter(e=> e.id !== excludeId)
@@ -9370,15 +9383,23 @@ function empOptions(selectedId, excludeId){
 }
 function getSubordinateIds(managerId){
   // recursive: all employees under managerId, at any depth
-  let ids = [];
-  const direct = state.employees.filter(e=>e.managerId===managerId);
-  direct.forEach(d=>{ ids.push(d.id); ids = ids.concat(getSubordinateIds(d.id)); });
+  const kids = new Map();
+  state.employees.forEach(e=>{ if (e.managerId){ const l = kids.get(e.managerId); if (l) l.push(e.id); else kids.set(e.managerId, [e.id]); } });
+  const ids = [], seen = new Set([managerId]);
+  (function walk(id){ (kids.get(id) || []).forEach(k=>{ if (seen.has(k)) return; seen.add(k); ids.push(k); walk(k); }); })(managerId);
   return ids;
 }
 function isAncestorOf(possibleManagerId, employeeId){
   // true only if possibleManagerId is STRICTLY senior to employeeId (manages them at any depth)
   if (!possibleManagerId || !employeeId || possibleManagerId === employeeId) return false;
-  return getSubordinateIds(possibleManagerId).includes(employeeId);
+  const seen = new Set([employeeId]);                 /* walk up from the employee: a short chain instead of the whole subtree */
+  let cur = empById(employeeId);
+  while (cur && cur.managerId){
+    if (cur.managerId === possibleManagerId) return true;
+    if (seen.has(cur.managerId)) return false;
+    seen.add(cur.managerId); cur = empById(cur.managerId);
+  }
+  return false;
 }
 function isTopManagerUser(employeeId){
   const e = empById(employeeId);
@@ -9414,6 +9435,25 @@ function visibleEmployeesList(){
   const f = (document.getElementById('filterEmpActive') || {}).value || 'active';
   return state.employees.filter(e => (f==='all' ? true : f==='inactive' ? e.active===false : e.active!==false) && (!window.hubEmpFilter || hubEmpFilter.test(e)) && (!window.hubHier || hubHier.canSee(e.id)));
 }
+/* row cap for long lists: the first rows are drawn and the rest on request ("show more"); filters, counts, selection and exports still work on the full data */
+var HP_STEP = 150, hpState = {}, hpRender = {};
+function hpSlice(key, list, redraw){
+  const sig = list.length + '|' + (list.length ? list[0].id : '');
+  if (!hpState[key] || hpState[key].sig !== sig) hpState[key] = { sig, n: HP_STEP };
+  hpRender[key] = redraw;
+  return list.slice(0, hpState[key].n);
+}
+function hpMore(key, total, shown, tag, cols){
+  if (shown >= total) return '';
+  const inner = `מוצגים ${shown} מתוך ${total} · <button type="button" class="ghost" data-hp="${key}" data-hpa="more">הצג עוד ${Math.min(HP_STEP, total - shown)}</button> <button type="button" class="ghost" data-hp="${key}" data-hpa="all">הצג הכל (${total})</button>`;
+  return tag === 'tr' ? `<tr class="hp-more"><td colspan="${cols}" style="text-align:center;">${inner}</td></tr>` : `<div class="hp-more locked-note" style="text-align:center;padding:10px;">${inner}</div>`;
+}
+document.addEventListener('click', function(ev){
+  const b = ev.target.closest ? ev.target.closest('[data-hp]') : null; if (!b) return;
+  const k = b.getAttribute('data-hp'), s = hpState[k]; if (!s) return;
+  s.n = b.getAttribute('data-hpa') === 'all' ? 1e9 : s.n + HP_STEP;
+  if (hpRender[k]) hpRender[k]();
+});
 function renderEmployees(){
   const tbody = document.querySelector('#empTable tbody');
   const list = visibleEmployeesList();
@@ -9428,9 +9468,12 @@ function renderEmployees(){
     updateEmpBulkToolbar();
     return;
   }
-  tbody.innerHTML = list.map(e=>{
+  const posByEmp = new Map();
+  state.positions.forEach(p=>{ const id = p.currentAppointment && p.currentAppointment.linkedEmployeeId; if (id && !posByEmp.has(id)) posByEmp.set(id, p); });
+  const shown = hpSlice('emp', list, renderEmployees);
+  tbody.innerHTML = shown.map(e=>{
     const mgr = e.managerId ? empById(e.managerId) : null;
-    const pos = getPositionByEmployeeId(e.id);
+    const pos = posByEmp.get(e.id) || null;
     return `<tr style="${e.active===false?'opacity:.6;':''}">
       <td><input type="checkbox" class="emp-select-cb" value="${e.id}" ${selectedEmployeeIds.has(e.id)?'checked':''} onchange="toggleEmployeeSelection('${e.id}', this.checked)"></td>
       <td>${escapeHtml(e.name)}</td>
@@ -9453,7 +9496,7 @@ function renderEmployees(){
         <button class="icon-btn danger-txt" onclick="deleteEmployee('${e.id}')">🗑️</button>
       </td>
     </tr>`;
-  }).join('');
+  }).join('') + hpMore('emp', list.length, shown.length, 'tr', 16);
   if (window.hubHier && hubHier.isRegular()) hubHier.maskEmployeeRows(tbody);
   updateEmpBulkToolbar();
 }
@@ -10206,7 +10249,8 @@ function renderTasks(){
     list.innerHTML = `<div class="empty-state"><div class="big">✅</div>אין משימות להצגה</div>`;
     return;
   }
-  list.innerHTML = items.map(t=>taskRowHtml(t)).join('');
+  const shown = hpSlice('task', items, renderTasks);
+  list.innerHTML = shown.map(t=>taskRowHtml(t)).join('') + hpMore('task', items.length, shown.length, 'div');
 }
 function employeeCheckboxList(idPrefix, selectedIds){
   const pool = (window.hubHier && hubHier.engaged()) ? state.employees.filter(e=>hubHier.canAssign(e.id) || selectedIds.includes(e.id)) : state.employees;
@@ -10774,13 +10818,15 @@ function renderPositions(){
     updatePosPermissionsButton();
     return;
   }
-  tbody.innerHTML = items.map(p=>{
+  const shownPos = hpSlice('pos', items, renderPositions);
+  const convById = new Map(state.convergence.map(c=>[c.id, c]));
+  tbody.innerHTML = shownPos.map(p=>{
     const cur = p.currentAppointment || {};
     const fut = p.futureAppointment || {};
     const levelClass = levelClassMap[p.seniorityLevel] || 'junior';
     const linkedEmp = cur.linkedEmployeeId ? empById(cur.linkedEmployeeId) : null;
     const curDisplayName = linkedEmp ? linkedEmp.name : cur.fullName;
-    const linkedConv = p.linkedConvergenceId ? state.convergence.find(c=>c.id===p.linkedConvergenceId) : null;
+    const linkedConv = p.linkedConvergenceId ? convById.get(p.linkedConvergenceId) || null : null;
     return `<tr>
       <td>${escapeHtml(p.serialNumber)}${window.hubSync?hubSync.tag(p):''}</td>
       <td>${escapeHtml(p.jobText)}</td>
@@ -10801,7 +10847,7 @@ function renderPositions(){
         <button class="icon-btn danger-txt" onclick="deletePosition('${p.id}')">🗑️</button>
       </td>
     </tr>`;
-  }).join('');
+  }).join('') + hpMore('pos', items.length, shownPos.length, 'tr', 14);
   updatePosPermissionsButton();
 }
 
@@ -11111,7 +11157,8 @@ function renderConvergence(){
     updateConvPermissionsButton();
     return;
   }
-  tbody.innerHTML = items.map(c=>{
+  const shownConv = hpSlice('conv', items, renderConvergence);
+  tbody.innerHTML = shownConv.map(c=>{
     const ratio = yearRatio(c.entryDate, c.exitDate);
     return `<tr>
       <td>${escapeHtml(c.firstName)}${window.hubSync?hubSync.tag(c):''}</td>
@@ -11131,7 +11178,7 @@ function renderConvergence(){
         <button class="icon-btn danger-txt" onclick="deleteConv('${c.id}')">🗑️</button>
       </td>
     </tr>`;
-  }).join('');
+  }).join('') + hpMore('conv', items.length, shownConv.length, 'tr', 12);
   updateConvPermissionsButton();
 }
 
@@ -11328,7 +11375,8 @@ function renderAttendance(){
     tbody.innerHTML = `<tr><td colspan="4"><div class="empty-state"><div class="big">📅</div>אין עובדים להצגה עבור הסינון הנוכחי</div></td></tr>`;
     return;
   }
-  tbody.innerHTML = visible.map(e=>{
+  const shownAtt = hpSlice('att', visible, renderAttendance);
+  tbody.innerHTML = shownAtt.map(e=>{
     const rec = getAttRecord(e.id, date);
     const status = rec ? rec.status : '';
     const options = `<option value="">— ללא סימון —</option>` + ATT_STATUSES.map(s=>`<option value="${s.key}" ${status===s.key?'selected':''}>${escapeHtml(s.label)}</option>`).join('');
@@ -11338,7 +11386,7 @@ function renderAttendance(){
       <td><span class="badge dept">${escapeHtml(e.department||'—')}</span></td>
       <td><select class="att-select st-${status}" onchange="setAttendance('${e.id}','${date}', this.value); this.className='att-select st-'+this.value;">${options}</select></td>
     </tr>`;
-  }).join('');
+  }).join('') + hpMore('att', visible.length, shownAtt.length, 'tr', 4);
 
   renderMyAttendance();
   renderAttendanceRequests();
